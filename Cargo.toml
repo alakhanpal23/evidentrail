@@ -1,0 +1,56 @@
+[workspace]
+members = [
+    "crates/evidentrail-authority",
+    "crates/evidentrail-bench",
+    "crates/evidentrail-bench-harness",
+    "crates/evidentrail-candidates",
+    "crates/evidentrail-cli",
+    "crates/evidentrail-compile",
+    "crates/evidentrail-core",
+    "crates/evidentrail-evidence",
+    "crates/evidentrail-framing",
+    "crates/evidentrail-ingest",
+    "crates/evidentrail-local-file",
+    "crates/evidentrail-product",
+    "crates/evidentrail-schema",
+    "crates/evidentrail-select",
+    "crates/evidentrail-snapshot-format",
+    "crates/evidentrail-store",
+    "crates/evidentrail-wire",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[workspace.dependencies]
+base64 = "0.22.1"
+chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["zeroize"] }
+getrandom = { version = "=0.4.3", default-features = false }
+hkdf = { version = "=0.12.4", default-features = false }
+evidentrail-authority = { path = "crates/evidentrail-authority" }
+evidentrail-candidates = { path = "crates/evidentrail-candidates" }
+evidentrail-compile = { path = "crates/evidentrail-compile" }
+evidentrail-core = { path = "crates/evidentrail-core" }
+evidentrail-bench = { path = "crates/evidentrail-bench" }
+evidentrail-evidence = { path = "crates/evidentrail-evidence" }
+evidentrail-framing = { path = "crates/evidentrail-framing" }
+evidentrail-ingest = { path = "crates/evidentrail-ingest" }
+evidentrail-local-file = { path = "crates/evidentrail-local-file" }
+evidentrail-product = { path = "crates/evidentrail-product" }
+evidentrail-schema = { path = "crates/evidentrail-schema" }
+evidentrail-select = { path = "crates/evidentrail-select" }
+evidentrail-snapshot-format = { path = "crates/evidentrail-snapshot-format" }
+evidentrail-store = { path = "crates/evidentrail-store" }
+evidentrail-wire = { path = "crates/evidentrail-wire" }
+serde = "1.0.228"
+serde_json = "1.0.149"
+serde_json_canonicalizer = "0.3.2"
+sha2 = "0.10.9"
+zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
+rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs", "system"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

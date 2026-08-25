@@ -1,0 +1,10 @@
+[package]
+name = "evidentrail-schema"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Dependency-free shared evidence contract types for Evidentrail"
+
+[lints]
+workspace = true

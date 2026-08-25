@@ -1,0 +1,16 @@
+[package]
+name = "evidentrail-evidence"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Deterministic evidence briefs and renderers for Evidentrail"
+
+[dependencies]
+evidentrail-core.workspace = true
+evidentrail-schema.workspace = true
+evidentrail-select.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true

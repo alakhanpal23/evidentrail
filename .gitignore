@@ -1,0 +1,13 @@
+/target/
+**/*.rs.bk
+.DS_Store
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.sealed-bundle.v1
+*.sealed-bundle.v1.tmp
+**/.quarantine-*

@@ -1,0 +1,22 @@
+[package]
+name = "evidentrail-store"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Bounded TTL result storage and exact expansion for Evidentrail"
+
+[features]
+default = []
+internal-test-provider = []
+
+[dependencies]
+evidentrail-core.workspace = true
+evidentrail-schema.workspace = true
+evidentrail-snapshot-format.workspace = true
+sha2.workspace = true
+zeroize.workspace = true
+rustix = { workspace = true, features = ["process"] }
+
+[lints]
+workspace = true

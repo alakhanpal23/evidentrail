@@ -1,0 +1,27 @@
+[package]
+name = "evidentrail-product"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Memory-only Evidentrail result lifecycle orchestration"
+
+[features]
+default = []
+internal-test-provider = ["evidentrail-store/internal-test-provider"]
+
+[dependencies]
+evidentrail-compile.workspace = true
+evidentrail-core.workspace = true
+evidentrail-evidence.workspace = true
+evidentrail-framing.workspace = true
+evidentrail-schema.workspace = true
+evidentrail-select.workspace = true
+evidentrail-snapshot-format.workspace = true
+evidentrail-store.workspace = true
+
+[dev-dependencies]
+evidentrail-ingest.workspace = true
+
+[lints]
+workspace = true

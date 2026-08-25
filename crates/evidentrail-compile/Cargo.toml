@@ -1,0 +1,25 @@
+[package]
+name = "evidentrail-compile"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Canonical deterministic compiler for Evidentrail candidate lanes"
+
+[features]
+default = []
+benchmark-instrumentation = []
+
+[dependencies]
+evidentrail-candidates.workspace = true
+evidentrail-core.workspace = true
+evidentrail-evidence.workspace = true
+evidentrail-schema.workspace = true
+evidentrail-select.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+evidentrail-framing.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "evidentrail-local-file"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Verified descriptor preflight and byte-exact local-file execution for Evidentrail"
+
+[dependencies]
+evidentrail-authority.workspace = true
+evidentrail-core.workspace = true
+evidentrail-ingest.workspace = true
+evidentrail-schema.workspace = true
+evidentrail-wire.workspace = true
+rustix.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,15 @@
+[package]
+name = "evidentrail-authority"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Memory-only live authority composition for Evidentrail"
+
+[dependencies]
+evidentrail-schema.workspace = true
+evidentrail-wire.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true

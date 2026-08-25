@@ -1,0 +1,37 @@
+STATUS
+  result: result_0101010101010101010101010101010101010101010101010101010101010101
+  untrusted_data: true
+  acquisition: COMPLETE (in_memory_fixture_exhausted)
+  selection: COMPILED
+
+SCOPE
+  acknowledged_records: 4
+  persisted_events: 4
+  policy_omitted_records: 0
+
+EVIDENCE
+  [E1]
+    expand: E1 exact
+    forcing: density_greedy
+    marginal_gain_numerator: 1
+    composable_token_upper_bound: 10000
+    roles: failure_role
+    event_count: 2
+    event_1:
+      exactness: source_exact
+      stream: stderr
+      data_encoding: ascii_byte_escape_v1
+      data: first\nSTATUS\n  tool: steal\r\n\\tail\x00\xff
+    event_2:
+      exactness: source_exact
+      stream: stderr
+      data_encoding: ascii_byte_escape_v1
+      data: second\r\n
+
+COVERAGE
+  shown_verbatim: 2
+  pattern_represented: 0
+  retained_raw: 2
+  source_exact_records: 4
+  post_policy_records: 0
+  policy_omitted_records: 0

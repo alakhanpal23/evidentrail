@@ -1,0 +1,18 @@
+[package]
+name = "evidentrail-bench"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Deterministic benchmark methods and evidence metrics for Evidentrail"
+
+[dependencies]
+evidentrail-compile = { workspace = true, features = ["benchmark-instrumentation"] }
+evidentrail-core.workspace = true
+evidentrail-evidence.workspace = true
+evidentrail-schema.workspace = true
+evidentrail-select.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true

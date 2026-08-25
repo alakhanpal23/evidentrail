@@ -1,0 +1,31 @@
+[package]
+name = "evidentrail-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Bounded explicit-stdin CLI for the Evidentrail diagnostic evidence compiler"
+
+[dependencies]
+base64.workspace = true
+evidentrail-compile.workspace = true
+evidentrail-core.workspace = true
+evidentrail-product.workspace = true
+evidentrail-schema.workspace = true
+evidentrail-snapshot-format.workspace = true
+evidentrail-store.workspace = true
+getrandom.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+evidentrail-store = { workspace = true, features = ["internal-test-provider"] }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "evidentrail"
+path = "src/main.rs"
