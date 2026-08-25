@@ -8,6 +8,7 @@
 mod legacy_drain;
 mod legacy_drain_normalizer;
 mod compact_agent_view;
+mod compact_agent_view_admission;
 mod constrained_matched_case;
 mod constrained_producer_universe;
 mod domain;
@@ -55,6 +56,19 @@ pub use compact_agent_view::{
     CompactAgentViewReaderPreservationReceiptV1, CompactAgentViewV1,
     compact_agent_view_method_descriptor_v1, compact_agent_view_renderer_artifact_digest_v1,
     compare_compact_agent_view_reader_receipts_v1, freeze_compact_compiled_agent_view_v1,
+};
+pub use compact_agent_view_admission::{
+    COMPACT_AGENT_VIEW_ADMISSION_MEASUREMENT_CONTRACT_VERSION_V1,
+    COMPACT_AGENT_VIEW_CHALLENGE_CORPUS_CONTRACT_VERSION_V1,
+    COMPACT_AGENT_VIEW_CHALLENGE_NEEDS_MORE_CASE_COUNT_V1,
+    COMPACT_AGENT_VIEW_CHALLENGE_RENDERED_CASE_COUNT_V1, CompactAgentViewAdmissionErrorV1,
+    CompactAgentViewChallengeClassV1, CompactAgentViewChallengeCorpusReceiptV1,
+    CompactAgentViewChallengeObservationV1, CompactAgentViewMeasuredArmV1,
+    CompactAgentViewNeedsMoreObservationV1, CompactAgentViewProductionAdmissionEvidenceV1,
+    CompactAgentViewProductionAdmissionStatusV1, CompactAgentViewProductionCandidateParityV1,
+    CompactAgentViewReaderArmMeasurementV1, CompactAgentViewReaderMeasurementPairV1,
+    MAX_COMPACT_AGENT_VIEW_MEASURED_READER_PAIRS_V1,
+    compact_agent_view_challenge_corpus_identity_v1,
 };
 pub use constrained_matched_case::{
     CONSTRAINED_MATCHED_GENERATOR_SEED_V1, CONSTRAINED_MATCHED_GENERATOR_VERSION_V1,

@@ -1,7 +1,9 @@
 use evidentrail_bench::{
-    BenchmarkMethod, ByteBudget, DiagnosticRequirement, GrepHeadTail, GrepHeadTailConfig,
-    MethodError, MethodInput, MetricError, QuotaHybrid, QuotaHybridConfig, RawChronological,
-    SelectionReason, candidate_cost, diagnostic_requirement_coverage, required_evidence_recall,
+    BM25F_MAX_QUERY_BYTES_V1, BM25F_MAX_QUERY_TOKENS_V1, BenchmarkMethod, Bm25fConfigV1,
+    Bm25fErrorV1, Bm25fWholeEventV1, ByteBudget, DiagnosticRequirement, GrepHeadTail,
+    GrepHeadTailConfig, MethodError, MethodInput, MetricError, QuotaHybrid, QuotaHybridConfig,
+    RawChronological, SelectionReason, candidate_cost, diagnostic_requirement_coverage,
+    required_evidence_recall,
 };
 use evidentrail_core::{
     AcknowledgedCounts, AcquisitionSequence, AdapterIdentity, AdapterOutcome, AttemptCounts,
@@ -104,6 +106,159 @@ fn selected_ids(result: &evidentrail_bench::MethodResult) -> Vec<evidentrail_cor
         .iter()
         .map(|event| event.event_id())
         .collect()
+}
+
+#[test]
+fn bm25f_handles_invalid_utf8_without_lossy_decoding() {
+    let ledger = ledger(&[b"\xff\0TIMEOUT\x80 root\n", b"healthy\n"]);
+    let result = Bm25fWholeEventV1::default()
+        .run(MethodInput::new(
+            &ledger,
+            b"timeout root",
+            ByteBudget::new(64),
+        ))
+        .unwrap();
+
+    assert_eq!(selected_ids(&result), vec![ledger.events()[0].id()]);
+    assert_eq!(
+        ledger.exact_bytes(result.selected()[0].event_id()).unwrap(),
+        b"\xff\0TIMEOUT\x80 root\n"
+    );
+}
+
+#[test]
+fn bm25f_repetition_saturates_and_document_length_normalizes() {
+    let repeated = ledger(&[b"timeout", b"timeout timeout timeout"]);
+    let ranked = Bm25fWholeEventV1::default()
+        .rank(&repeated, b"timeout")
+        .unwrap();
+    let single = ranked
+        .iter()
+        .find(|scored| scored.event_id() == repeated.events()[0].id())
+        .unwrap()
+        .score_scaled();
+    let triple = ranked
+        .iter()
+        .find(|scored| scored.event_id() == repeated.events()[1].id())
+        .unwrap()
+        .score_scaled();
+    assert!(triple > single);
+    assert!(triple < single * 3);
+
+    let normalized = ledger(&[
+        b"timeout",
+        b"timeout filler filler filler filler filler filler",
+    ]);
+    let ranked = Bm25fWholeEventV1::default()
+        .rank(&normalized, b"timeout")
+        .unwrap();
+    assert_eq!(ranked[0].event_id(), normalized.events()[0].id());
+    assert!(ranked[0].score_scaled() > ranked[1].score_scaled());
+}
+
+#[test]
+fn bm25f_zero_match_is_an_explicit_empty_whole_event_result() {
+    let ledger = ledger(&[b"healthy worker", b"ready worker"]);
+    let result = Bm25fWholeEventV1::default()
+        .run(MethodInput::new(
+            &ledger,
+            b"database timeout",
+            ByteBudget::new(1_000),
+        ))
+        .unwrap();
+
+    assert!(result.selected().is_empty());
+    assert_eq!(result.accounting().candidate_event_count(), 0);
+    assert_eq!(result.accounting().selected_source_bytes(), 0);
+}
+
+#[test]
+fn bm25f_ties_use_deterministic_source_order_for_each_explicit_permutation() {
+    let mut observed_identity_order_disagreement = false;
+    for (seed, events) in [
+        (31, vec![b"timeout aa".to_vec(), b"timeout bb".to_vec()]),
+        (32, vec![b"timeout bb".to_vec(), b"timeout aa".to_vec()]),
+    ] {
+        let ledger = ledger_with_id(seed, events);
+        let expected = ledger.events()[0].id();
+        observed_identity_order_disagreement |= ledger.events()[0].id() > ledger.events()[1].id();
+        let method = Bm25fWholeEventV1::default();
+        let first = method.rank(&ledger, b"timeout").unwrap();
+        let second = method.rank(&ledger, b"timeout").unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first[0].event_id(), expected);
+        assert_eq!(first[0].score_scaled(), first[1].score_scaled());
+    }
+    assert!(observed_identity_order_disagreement);
+}
+
+#[test]
+fn bm25f_budget_edges_keep_events_whole_and_skip_oversized_matches() {
+    let ledger = ledger(&[b"timeout timeout payload-too-large", b"timeout small"]);
+    let method = Bm25fWholeEventV1::default();
+    let exact = method
+        .run(MethodInput::new(
+            &ledger,
+            b"timeout",
+            ByteBudget::new(b"timeout small".len()),
+        ))
+        .unwrap();
+    assert_eq!(selected_ids(&exact), vec![ledger.events()[1].id()]);
+    assert_eq!(
+        exact.accounting().selected_source_bytes(),
+        b"timeout small".len()
+    );
+    assert_eq!(exact.accounting().budget_excluded_candidate_count(), 1);
+
+    let below = method
+        .run(MethodInput::new(
+            &ledger,
+            b"timeout",
+            ByteBudget::new(b"timeout small".len() - 1),
+        ))
+        .unwrap();
+    assert!(below.selected().is_empty());
+    assert_eq!(below.accounting().budget_excluded_candidate_count(), 2);
+}
+
+#[test]
+fn bm25f_bounds_config_identity_and_diagnostics_are_contentless() {
+    let config = Bm25fConfigV1;
+    assert_eq!(config.digest(), Bm25fConfigV1.digest());
+    assert_eq!(
+        config.digest().to_string(),
+        "artifact_sha256_0f52c2e17ba2bbab50e8229b91402d1e66e6df58596a60d591c22116e0c24329"
+    );
+    assert_eq!(config.tokenizer_contract(), "ascii_lower_bounded_v1");
+    assert_eq!(config.scoring_contract(), "fixed_point_bm25f_style_v1");
+    assert_eq!(config.tie_contract(), "score_desc_source_ordinal_asc_v1");
+
+    let ledger = ledger(&[b"canary-event timeout"]);
+    let oversized = vec![b'X'; BM25F_MAX_QUERY_BYTES_V1 + 1];
+    let error = Bm25fWholeEventV1::default()
+        .rank(&ledger, &oversized)
+        .unwrap_err();
+    assert_eq!(error, Bm25fErrorV1::QueryByteBoundExceeded);
+    assert!(!format!("{error:?}").contains("canary"));
+    assert!(!error.to_string().contains('X'));
+
+    let too_many_tokens = (0..=BM25F_MAX_QUERY_TOKENS_V1)
+        .flat_map(|_| b"x ".iter().copied())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        Bm25fWholeEventV1::default()
+            .rank(&ledger, &too_many_tokens)
+            .unwrap_err(),
+        Bm25fErrorV1::QueryTokenBoundExceeded
+    );
+    let debug = format!(
+        "{:?}",
+        Bm25fWholeEventV1::default()
+            .rank(&ledger, b"timeout")
+            .unwrap()[0]
+    );
+    assert!(!debug.contains("canary-event"));
+    assert!(!debug.contains("timeout"));
 }
 
 #[test]

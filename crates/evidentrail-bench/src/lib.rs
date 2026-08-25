@@ -7,10 +7,12 @@
 
 mod aggregator;
 mod baselines;
+mod bm25f;
 mod bounded_selector_challenger;
 mod cost_matched_selector_stress;
 mod evaluator;
 mod fidelity;
+mod hermetic_incident_outcome_corpus;
 mod manifest;
 mod measurement;
 mod method;
@@ -39,6 +41,13 @@ pub use aggregator::{
 };
 pub use baselines::{
     GrepHeadTail, GrepHeadTailConfig, QuotaHybrid, QuotaHybridConfig, RawChronological,
+};
+pub use bm25f::{
+    BM25F_BODY_B_SCALED_V1, BM25F_BODY_WEIGHT_SCALED_V1, BM25F_IDENTIFIER_B_SCALED_V1,
+    BM25F_IDENTIFIER_WEIGHT_SCALED_V1, BM25F_K1_SCALED_V1, BM25F_MAX_EVENT_BYTES_V1,
+    BM25F_MAX_EVENT_TOKENS_V1, BM25F_MAX_QUERY_BYTES_V1, BM25F_MAX_QUERY_TOKENS_V1,
+    BM25F_MAX_TOKEN_BYTES_V1, BM25F_SCORE_SCALE_V1, Bm25fConfigV1, Bm25fErrorV1,
+    Bm25fScoredEventV1, Bm25fWholeEventV1,
 };
 pub use bounded_selector_challenger::{
     BOUNDED_SELECTOR_CHALLENGER_BEAM_WIDTH_V1, BOUNDED_SELECTOR_CHALLENGER_MAX_DEPTH_V1,
@@ -91,6 +100,20 @@ pub use fidelity::{
     derive_reversible_encoded_representation_artifact_digest_v1,
     derive_source_exact_representation_artifact_digest_v1,
     evaluate_governed_representation_fidelity_v1,
+};
+pub use hermetic_incident_outcome_corpus::{
+    ExactHermeticIncidentRecallV1, FrozenHermeticIncidentArmOutcomeV1,
+    FrozenHermeticIncidentExactOracleV1, FrozenHermeticIncidentPublicCaseV1,
+    FrozenHermeticIncidentPublicCorpusV1, GovernedHermeticIncidentArmOutcomeV1,
+    GovernedHermeticIncidentCaseV1, GovernedHermeticIncidentOutcomeCorpusV1,
+    HERMETIC_INCIDENT_CASE_COUNT_V1, HERMETIC_INCIDENT_RECORD_COUNT_V1,
+    HERMETIC_INCIDENT_TOTAL_TOKEN_BUDGET_V1, HermeticIncidentAbstentionAuthorityV1,
+    HermeticIncidentArmSummaryV1, HermeticIncidentArmV1, HermeticIncidentCaseV1,
+    HermeticIncidentClaimV1, HermeticIncidentCorpusErrorV1, HermeticIncidentExpectedOutcomeV1,
+    HermeticIncidentFaultFamilyV1, HermeticIncidentGovernedAnnotationV1,
+    HermeticIncidentRootAlternativeV1, HermeticIncidentRuntimeV1,
+    build_governed_hermetic_incident_outcome_corpus_v1, freeze_hermetic_incident_public_corpus_v1,
+    govern_hermetic_incident_outcome_corpus_v1, synthetic_hermetic_incident_annotations_v1,
 };
 pub use manifest::{
     EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1, EvidenceTargetV1, ExpectedAcquisitionClassV1,

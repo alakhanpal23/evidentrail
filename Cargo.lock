@@ -146,8 +146,10 @@ name = "evidentrail-cli"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "evidentrail-authority",
  "evidentrail-compile",
  "evidentrail-core",
+ "evidentrail-local-file",
  "evidentrail-product",
  "evidentrail-schema",
  "evidentrail-snapshot-format",
@@ -215,6 +217,7 @@ dependencies = [
  "evidentrail-schema",
  "evidentrail-wire",
  "rustix",
+ "sha2",
 ]
 
 [[package]]

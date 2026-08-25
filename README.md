@@ -50,7 +50,10 @@ finished product and not a validated performance claim. It currently provides:
   descriptor-relative, zero-content-read local-file preflight that checks exact
   snapshots, symlinks, hard-link aliases, APFS, expiry, and replacement races,
   followed by retained-descriptor, byte-exact, no-read-ahead streaming in the
-  governed test path;
+  governed test path; `evidentrail doctor --file PATH` now runs a frozen 13-cell
+  macOS/APFS host matrix and inspects only metadata for that one explicit file,
+  returning a contentless receipt while still denying authorization,
+  certification, and production preflight admission;
 - three deterministic evidence lanes—lexical plus validated identifiers,
   failure/onset/raw coverage, and narrowly scoped provider-attested
   correlations—compiled onto one exhaustive, event-disjoint primary packet
@@ -62,8 +65,9 @@ finished product and not a validated performance claim. It currently provides:
   universe is receipted before ranking, exposed through a redacted product
   audit, and reused byte-for-byte on same-question resume;
 - a label-blind public EvidentrailBench runner, governed hidden-label evaluation, and
-  deterministic raw-truncation, grep/head/tail, and reserved-quota baselines
-  with five-dimensional resource accounting; producer-proposal evaluation now
+  deterministic raw-truncation, grep/head/tail, reserved-quota, and bounded
+  fixed-point BM25F-style whole-event baselines with five-dimensional resource
+  accounting; producer-proposal evaluation now
   freezes the complete public universe before labels, renders it through one
   reversible canonical byte artifact, binds self-asserted token/time/RSS
   observations to that exact artifact, enforces all five cap axes, and reports
@@ -101,7 +105,14 @@ finished product and not a validated performance claim. It currently provides:
   exactly equal to production: the challenger is objective- and recall-better
   in three cases, equal in five, and worse in none; it matches the structured
   exact DP optimum in all six eligible cases. Production remains unchanged
-  pending measured wall/RSS and non-synthetic evidence;
+  pending measured wall/RSS and non-synthetic evidence. A separate frozen
+  eight-case/eight-runtime hermetic incident corpus covers six complete
+  diagnoses plus one partial and one unknown acquisition that must abstain. At
+  identical per-case Full-selected authorized-source-byte budgets, Full and the
+  exact subset oracle each score 8.0/8.0 exact recall with 8/8 perfect cases;
+  raw truncation scores 1.9/8.0 with 0/8 perfect, grep/head/tail 4.2/8.0 with
+  3/8, quota hybrid 4.9/8.0 with 3/8, and BM25F-style 1.9/8.0 with 1/8. This is
+  synthetic conformance evidence, not a general incident-quality claim;
 - a benchmark-only, shell-free external subprocess harness and reproducible
   smoke runs against one pinned `legacy-drain` executable, including a forced
   compiled-path 200-event case; the same-case proposal bridge freezes the exact
@@ -119,11 +130,15 @@ finished product and not a validated performance claim. It currently provides:
   Drain prompt-byte units; the first-party answer has two source-exact citations
   while Drain's transformed pattern output has no source-exact citation
   capability. This is one provenance/result checkpoint, not a general quality
-  win. An evaluation-only structured compact agent view further reduces the
-  first-party 13,936-byte artifact to 10,612 bytes and the five rendered cases
-  in the six-case corpus from 11,524 to 4,757 bytes while preserving the frozen
-  deterministic answer and citation semantics; it is not yet the production
-  renderer;
+  win. A production-owned but default-off compact candidate renderer now has
+  exact text, alias, target, byte-range, and reversible-event parity with the
+  benchmark representation across nine rendered cases plus two typed
+  `needs_more` cases. It reduces 28,261 canonical bytes to 16,834 bytes
+  (40.43%); a separate hostile-byte challenge reduces 16,737 to 12,077 bytes
+  while preserving 16 citations and 23 exact events. One captured paired reader
+  run preserved the exact answer and both citations, but is one-shot,
+  self-asserted, direct-process-only evidence with no hosted reader or
+  performance ordering. The canonical CLI/MCP output remains unchanged;
 - an internal authenticated snapshot-format primitive with fixed-width
   XChaCha20-Poly1305 frames and manifest envelope, canonical AAD, commitment
   chaining, one zeroizing per-result DEK shared by frame and manifest key
@@ -206,13 +221,15 @@ finished product and not a validated performance claim. It currently provides:
 The legacy bulk-ingestion, path-reopening file adapter, and combined-receipt
 compatibility layer have been deleted. The local-file path is still
 intentionally frozen at public host-certification admission: its descriptor
-engine is implemented and tested, but ordinary callers cannot mint the host
-certification token. Release work still requires a production Keychain
+engine and 13-cell macOS/APFS evidence matrix are implemented and tested, and
+`evidentrail doctor` exposes only their contentless health evidence, but ordinary
+callers cannot mint the host certification token or read the file. Release work
+still requires a production Keychain
 authority, an independently authenticated key/expected-context catalog,
 configured ciphertext-root startup recovery, rollback and cross-process
 coordination, and the durability gates needed to activate the injected recovery
-backend in the default MCP binary. It also requires a larger
-preregistered outcome corpus with downstream reader/tool-loop evaluation, and
+backend in the default MCP binary. It also requires non-synthetic preregistered
+outcomes with broader downstream reader/tool-loop evaluation, and
 a separately pinned hosted Evidentrail arm when its terms and case policy permit. The
 current governed corpus and pinned-engine resource/output artifacts are method,
 reproducibility, and trust-boundary evidence—not a general product-quality win.
@@ -247,6 +264,16 @@ argument list. The log source is intentionally standard input only in this
 slice; shell redirection is the caller's explicit source choice. The current
 `--token-budget` is a conservative whole-render bound using one UTF-8 output
 byte per budget unit, not an OpenAI or other model-token count.
+
+Run the contentless local-file self-check with:
+
+```bash
+cargo run -p evidentrail-cli --bin evidentrail -- doctor --file ./app.log
+```
+
+Doctor runs the frozen host matrix and inspects only metadata for that exact
+file. Success is not approval: it reads no log contents, grants no source
+authority, and cannot enable the production preflight path.
 
 Run the process-resident MCP surface with:
 

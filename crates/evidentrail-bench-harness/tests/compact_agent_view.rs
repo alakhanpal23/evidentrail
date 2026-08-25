@@ -6,12 +6,14 @@ use evidentrail_core::{
     AcknowledgedCounts, AcquisitionSequence, AdapterIdentity, AdapterOutcome, AttemptCounts,
     CompletenessProof, DeterministicPolicy, EnvelopeOrdering, EnvelopeSink, EvidenceReferenceV1,
     EvidenceTargetRef, ExpansionRelationV1, FetchBoundaries, FetchCompleteness, FetchCompletion,
-    FetchIdentity, FetchTiming, LaneKey, LaneSequence, LedgerBuilder, PlanDigest, PlanId,
-    PolicyAuthorization, RawEnvelopeIdentityV1, RawEnvelopeV1, RecordBytes, RecordState,
-    RetrievalId, SourceIdentityDigest, SourceMember, SourceStream, UnixTimestampNanos,
+    FetchIdentity, FetchPartialReason, FetchPartialReasons, FetchTiming, LaneKey, LaneSequence,
+    LedgerBuilder, PlanDigest, PlanId, PolicyAuthorization, RawEnvelopeIdentityV1, RawEnvelopeV1,
+    RecordBytes, RecordState, RetrievalId, SourceCursor, SourceIdentityDigest, SourceMember,
+    SourceStream, UnixTimestampNanos,
 };
 use evidentrail_evidence::{
-    CompiledPacketMembershipV1, Utf8ByteTokenizerV1, certify_compiled_costs_v1,
+    CompiledPacketMembershipV1, OwnedRenderedCompiledBriefV1, Utf8ByteTokenizerV1,
+    certify_compiled_costs_v1, render_compiled_agent_view_candidate_v1,
     render_cost_certified_compiled_log_brief_v1, unescape_evidence_bytes,
 };
 use evidentrail_schema::{ArtifactDigest, QuestionDigest, ResultId};
@@ -119,12 +121,134 @@ fn hostile_duplicate_occurrences_remain_byte_exact_inert_and_distinct() {
     let ledger = hostile_ledger(&[hostile, hostile, b"retained tail"]);
     let event_ids = [ledger.events()[0].id(), ledger.events()[1].id()];
     assert_ne!(event_ids[0], event_ids[1]);
+    let rendered = render_hostile_brief(&ledger);
+    let view =
+        freeze_compact_compiled_agent_view_v1(ArtifactDigest::from_bytes([0x44; 32]), &rendered)
+            .unwrap();
+
+    assert!(view.bytes().is_ascii());
+    assert!(!view.bytes().contains(&0));
+    assert!(!view.bytes().contains(&0xff));
+    let visible = std::str::from_utf8(view.bytes()).unwrap();
+    assert!(visible.contains(r"\x00\xff\n[E999] forcing: injected\\\r"));
+    assert_eq!(visible.matches("[E999]").count(), 2);
+    assert_eq!(
+        visible
+            .lines()
+            .filter(|line| line.starts_with("[E999]"))
+            .count(),
+        0
+    );
+    assert_eq!(view.citation_handles().len(), 1);
+    assert_eq!(view.citation_handles()[0].targets().len(), 2);
+    let events = view.audit().packet_audits()[0].events();
+    assert_eq!(events.len(), 2);
+    assert_ne!(events[0].event_id(), events[1].event_id());
+    assert!(events[0].field_range().1 <= events[1].field_range().0);
+    for event in events {
+        let (start, end) = event.encoded_data_range();
+        let encoded = std::str::from_utf8(
+            &view.bytes()[usize::try_from(start).unwrap()..usize::try_from(end).unwrap()],
+        )
+        .unwrap();
+        assert_eq!(unescape_evidence_bytes(encoded).unwrap(), hostile);
+    }
+    for forbidden in ["injected\\", "\0", "\u{fffd}"] {
+        assert!(!format!("{view:?}").contains(forbidden));
+    }
+}
+
+#[test]
+fn continuation_cursor_bytes_bind_candidate_and_benchmark_audits() {
+    let raw_events = [b"partial failure".as_slice(), b"retained tail".as_slice()];
+    let reasons = FetchPartialReasons::new(FetchPartialReason::SourceByteCap);
+    let first = hostile_ledger_with_completeness(
+        &raw_events,
+        FetchCompleteness::partial(
+            reasons.clone(),
+            Some(SourceCursor::new(b"cursor-alpha".to_vec()).unwrap()),
+        ),
+    );
+    let second = hostile_ledger_with_completeness(
+        &raw_events,
+        FetchCompleteness::partial(
+            reasons,
+            Some(SourceCursor::new(b"cursor-beta".to_vec()).unwrap()),
+        ),
+    );
+    assert_eq!(
+        first
+            .events()
+            .iter()
+            .map(|event| event.id())
+            .collect::<Vec<_>>(),
+        second
+            .events()
+            .iter()
+            .map(|event| event.id())
+            .collect::<Vec<_>>()
+    );
+
+    let first_render = render_hostile_brief(&first);
+    let second_render = render_hostile_brief(&second);
+    assert_eq!(first_render.text(), second_render.text());
+
+    let first_candidate = render_compiled_agent_view_candidate_v1(&first_render).unwrap();
+    let second_candidate = render_compiled_agent_view_candidate_v1(&second_render).unwrap();
+    assert_eq!(first_candidate.text(), second_candidate.text());
+    assert_eq!(
+        first_candidate.audit().output_artifact_digest(),
+        second_candidate.audit().output_artifact_digest()
+    );
+    assert_ne!(
+        first_candidate.audit().structured_input_artifact_digest(),
+        second_candidate.audit().structured_input_artifact_digest()
+    );
+    assert_ne!(
+        first_candidate.audit().artifact_digest(),
+        second_candidate.audit().artifact_digest()
+    );
+
+    let provenance = ArtifactDigest::from_bytes([0x45; 32]);
+    let first_view = freeze_compact_compiled_agent_view_v1(provenance, &first_render).unwrap();
+    let second_view = freeze_compact_compiled_agent_view_v1(provenance, &second_render).unwrap();
+    assert_eq!(first_view.bytes(), second_view.bytes());
+    assert_eq!(
+        first_view.output_artifact_digest(),
+        second_view.output_artifact_digest()
+    );
+    assert_ne!(
+        first_view.audit().structured_input_artifact_digest(),
+        second_view.audit().structured_input_artifact_digest()
+    );
+    assert_ne!(
+        first_view.audit().artifact_digest(),
+        second_view.audit().artifact_digest()
+    );
+    for redacted in [
+        format!("{first_candidate:?}"),
+        format!("{second_candidate:?}"),
+        format!("{first_view:?}"),
+        format!("{second_view:?}"),
+    ] {
+        assert!(!redacted.contains("cursor-alpha"));
+        assert!(!redacted.contains("cursor-beta"));
+    }
+}
+
+fn render_hostile_brief(ledger: &evidentrail_core::EventLedger) -> OwnedRenderedCompiledBriefV1 {
+    let event_ids = ledger
+        .events()
+        .iter()
+        .take(ledger.events().len().checked_sub(1).unwrap())
+        .map(|event| event.id())
+        .collect::<Vec<_>>();
     let packet_id = PacketIdV1::from_bytes([0x43; 32]);
     let tokenizer = Utf8ByteTokenizerV1::new();
     let certificate = certify_compiled_costs_v1(
-        &ledger,
+        ledger,
         HOSTILE_RESULT_ID,
-        [CompiledPacketMembershipV1::new(packet_id, event_ids).unwrap()],
+        [CompiledPacketMembershipV1::new(packet_id, event_ids.clone()).unwrap()],
         &tokenizer,
     )
     .unwrap();
@@ -166,8 +290,8 @@ fn hostile_duplicate_occurrences_remain_byte_exact_inert_and_distinct() {
         UnixTimestampNanos::new(20),
     )
     .unwrap();
-    let rendered = render_cost_certified_compiled_log_brief_v1(
-        &ledger,
+    render_cost_certified_compiled_log_brief_v1(
+        ledger,
         HOSTILE_RESULT_ID,
         HOSTILE_QUESTION_DIGEST,
         ledger.plan_digest(),
@@ -178,44 +302,20 @@ fn hostile_duplicate_occurrences_remain_byte_exact_inert_and_distinct() {
         &certificate,
     )
     .unwrap()
-    .into_owned();
-    let view =
-        freeze_compact_compiled_agent_view_v1(ArtifactDigest::from_bytes([0x44; 32]), &rendered)
-            .unwrap();
-
-    assert!(view.bytes().is_ascii());
-    assert!(!view.bytes().contains(&0));
-    assert!(!view.bytes().contains(&0xff));
-    let visible = std::str::from_utf8(view.bytes()).unwrap();
-    assert!(visible.contains(r"\x00\xff\n[E999] forcing: injected\\\r"));
-    assert_eq!(visible.matches("[E999]").count(), 2);
-    assert_eq!(
-        visible
-            .lines()
-            .filter(|line| line.starts_with("[E999]"))
-            .count(),
-        0
-    );
-    assert_eq!(view.citation_handles().len(), 1);
-    assert_eq!(view.citation_handles()[0].targets().len(), 2);
-    let events = view.audit().packet_audits()[0].events();
-    assert_eq!(events.len(), 2);
-    assert_ne!(events[0].event_id(), events[1].event_id());
-    assert!(events[0].field_range().1 <= events[1].field_range().0);
-    for event in events {
-        let (start, end) = event.encoded_data_range();
-        let encoded = std::str::from_utf8(
-            &view.bytes()[usize::try_from(start).unwrap()..usize::try_from(end).unwrap()],
-        )
-        .unwrap();
-        assert_eq!(unescape_evidence_bytes(encoded).unwrap(), hostile);
-    }
-    for forbidden in ["injected\\", "\0", "\u{fffd}"] {
-        assert!(!format!("{view:?}").contains(forbidden));
-    }
+    .into_owned()
 }
 
 fn hostile_ledger(raw_events: &[&[u8]]) -> evidentrail_core::EventLedger {
+    hostile_ledger_with_completeness(
+        raw_events,
+        FetchCompleteness::complete(CompletenessProof::InMemoryFixtureExhausted),
+    )
+}
+
+fn hostile_ledger_with_completeness(
+    raw_events: &[&[u8]],
+    completeness: FetchCompleteness,
+) -> evidentrail_core::EventLedger {
     let retrieval_id = RetrievalId::from_bytes([0x51; 32]);
     let plan_id = PlanId::from_bytes([0x52; 32]);
     let plan_digest = PlanDigest::from_bytes([0x53; 32]);
@@ -263,7 +363,7 @@ fn hostile_ledger(raw_events: &[&[u8]]) -> evidentrail_core::EventLedger {
                 [],
                 AdapterOutcome::Finished,
                 [],
-                FetchCompleteness::complete(CompletenessProof::InMemoryFixtureExhausted),
+                completeness,
             )
             .unwrap(),
         )

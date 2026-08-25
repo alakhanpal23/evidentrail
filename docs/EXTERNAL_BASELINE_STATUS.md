@@ -1,6 +1,6 @@
 # External baseline status
 
-**Observed:** August 24, 2026  
+**Observed:** August 25, 2026
 **Purpose:** Reproducibility ledger only. This is not a product-quality score or
 a claim that the greenfield system beats an external method.
 
@@ -765,3 +765,49 @@ No hosted reader or hosted Evidentrail endpoint was contacted. No scalar winner,
 fairness conclusion, comparative quality claim, child-tree RSS aggregate,
 independent attestation, cold-start statement, model-token claim, or release
 truth determined by an LLM judge is made.
+
+## Current pinned V4 rerun — 2026-08-25
+
+All four ignored external gates were rerun against the same clean
+`legacy-drain` commit and Mach-O arm64 executable recorded above. The frozen
+200-occurrence input remains 151,072 source bytes. First-party production
+produced 14 proposals over 17 unique events/9,602 unique source bytes and
+displayed 13 packets in 13,936 bytes; Drain produced eight groups with a
+complete 200-occurrence post-hoc membership upper bound in 179,637 bytes. The
+first-party output digest remained
+`f194c3320913076c7f06fd4a944ebff3317029f5d2ddd8aece0f278f2412f1fd`;
+the Drain output digest remained
+`d68a6a7653291e5971661b531065711079fd53db0643837044e131e70492ca4f`.
+The typed V4 policy identity is
+`1afbae0b9a6006c4bdc0939d683114404acbfff6baabca7cdec2605562025a0c`.
+
+The alternating three-trial schedule produced this new self-asserted
+repeatability receipt:
+
+```text
+first-party wall ns min/median/max/MAD: 588,312,875 / 621,090,916 / 845,711,792 / 32,778,041
+first-party direct RSS bytes min/median/max/MAD: 8,863,744 / 8,945,664 / 9,355,264 / 81,920
+Drain wall ns min/median/max/MAD: 427,367,542 / 430,382,167 / 440,519,500 / 3,014,625
+Drain direct RSS bytes min/median/max/MAD: 10,534,912 / 10,747,904 / 10,764,288 / 16,384
+repeatability receipt SHA-256: d16c389844654ea91767418f5b6bd071c5a7eeb4972a633313fc989392737e9a
+```
+
+These dimensions conflict: first-party emitted substantially fewer bytes and
+used lower direct-process peak RSS, while Drain completed faster. Therefore no
+scalar winner or Pareto-dominance claim is emitted.
+
+The pinned deterministic reader again returned the same answer digest from
+both canonical arms. First-party retained two valid source-exact citations and
+2/2 governed requirements (3,000,000/3,000,000 weight); Drain retained no valid
+source-exact citation, two invalid citations, and 0/2 statically creditable
+requirements. The production-owned compact candidate reduced the same
+first-party canonical artifact from 13,936 to 10,612 bytes while preserving the
+exact answer and both citation semantics. Its digest is
+`853b197300f1167485285c59ec1194cc8f6ae2bc3a180495bae234cfaa4bcd41`
+and preservation receipt is
+`41fe8006c5b0e87bfbf24e44dc6e07c5cee962602bd3ae6b9aa5eb7096c60c3`.
+
+The reader is hermetic and deterministic, and Drain membership remains
+post-hoc pattern representation. This rerun is not hosted-model quality,
+independent attestation, source-exact Drain evidence, cold-start evidence, or a
+hosted Evidentrail product comparison. The compact candidate remains default-off.

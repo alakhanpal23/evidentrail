@@ -23,7 +23,16 @@ use evidentrail_schema::{
 use sha2::{Digest, Sha256};
 
 mod compiled;
+mod compiled_agent_view;
 mod compiled_cost;
+
+pub use compiled_agent_view::{
+    COMPILED_AGENT_VIEW_CANDIDATE_CONTRACT_VERSION_V1,
+    COMPILED_AGENT_VIEW_CANDIDATE_RENDERER_CONTRACT_VERSION_V1, CompiledAgentViewCandidateAuditV1,
+    CompiledAgentViewCandidateCitationV1, CompiledAgentViewCandidateErrorV1,
+    CompiledAgentViewCandidateEventProofV1, CompiledAgentViewCandidateV1,
+    compiled_agent_view_candidate_renderer_digest_v1, render_compiled_agent_view_candidate_v1,
+};
 
 pub use compiled::{
     COMPILED_LOG_BRIEF_CONTRACT_VERSION_V1, COMPILED_TEXT_RENDERER_CONTRACT_VERSION_V1,

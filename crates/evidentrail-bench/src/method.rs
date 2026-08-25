@@ -356,6 +356,7 @@ pub enum MethodError {
     SourceByteCostOverflow,
     RetrievalMismatch,
     ReservedQuotaExceedsBudget,
+    LexicalScoringFailure,
 }
 
 impl MethodError {
@@ -365,6 +366,7 @@ impl MethodError {
             Self::SourceByteCostOverflow => "EVIDENTRAIL_BENCH_SOURCE_BYTE_COST_OVERFLOW",
             Self::RetrievalMismatch => "EVIDENTRAIL_BENCH_RETRIEVAL_MISMATCH",
             Self::ReservedQuotaExceedsBudget => "EVIDENTRAIL_BENCH_RESERVED_QUOTA_EXCEEDS_BUDGET",
+            Self::LexicalScoringFailure => "EVIDENTRAIL_BENCH_LEXICAL_SCORING_FAILURE",
         }
     }
 }

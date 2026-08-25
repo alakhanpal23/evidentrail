@@ -8,8 +8,10 @@ description = "Bounded explicit-stdin CLI for the Evidentrail diagnostic evidenc
 
 [dependencies]
 base64.workspace = true
+evidentrail-authority.workspace = true
 evidentrail-compile.workspace = true
 evidentrail-core.workspace = true
+evidentrail-local-file.workspace = true
 evidentrail-product.workspace = true
 evidentrail-schema.workspace = true
 evidentrail-snapshot-format.workspace = true

@@ -13,6 +13,7 @@ evidentrail-ingest.workspace = true
 evidentrail-schema.workspace = true
 evidentrail-wire.workspace = true
 rustix.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true

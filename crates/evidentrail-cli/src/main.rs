@@ -1,24 +1,44 @@
+#[cfg(unix)]
+use std::collections::BTreeSet;
 use std::env;
+#[cfg(unix)]
+use std::fs;
 use std::fs::File;
 use std::io::{self, IsTerminal as _, Read, Write as _};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use evidentrail_authority::{CanonicalUnixPathV1, InternalPathPolicyV1, InternalPathRegistryV1};
 use evidentrail_cli::{
     DEFAULT_TOKEN_BUDGET_V1, MAX_QUESTION_BYTES_V1, MAX_STDIN_BYTES_V1, StdinBriefOutcomeV1,
     compile_explicit_stdin_v1, run_mcp_stdio_v1,
 };
 use evidentrail_core::UnixTimestampNanos;
+use evidentrail_local_file::{
+    discover_local_file_metadata_v1, run_local_file_host_certification_matrix_v1,
+};
+use evidentrail_schema::InternalPathPolicyDigest;
 
-const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] < logs\n  evidentrail serve-mcp\n\nThe V1 brief command reads only explicit standard input. The memory-only MCP service\naccepts log bytes only when supplied by its caller and retains successful results for\nbounded expansion until their fixed 30-minute expiry or process exit. The product does\nnot discover files, crawl a workspace, inspect ambient logs, persist results, or invoke\na model. Use --question-file when the question should not appear in the process argument\nlist. V1 conservatively counts one rendered UTF-8 byte as one budget unit; this is not a\nmodel-token count.\n";
+const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] < logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp\n\nThe V1 brief command reads only explicit standard input. The memory-only MCP service\naccepts log bytes only when supplied by its caller and retains successful results for\nbounded expansion until their fixed 30-minute expiry or process exit. Doctor inspects\nmetadata for exactly one explicit file; it never reads file contents, approves a source,\nor mints host certification. The product does not discover files beyond that exact\ndoctor path, crawl a workspace, inspect ambient logs, persist results, or invoke a model.\nUse --question-file when the question should not appear in the process argument list. V1\nconservatively counts one rendered UTF-8 byte as one budget unit; this is not a\nmodel-token count.\n";
+
+const DOCTOR_SUCCESS_CODE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_FILE_METADATA_OK";
+const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_INTERNAL_PATH_POLICY_UNAVAILABLE";
 
 struct BriefOptions {
     question: Vec<u8>,
     token_budget: u64,
 }
 
+struct DoctorOptions {
+    path: PathBuf,
+}
+
 enum ParseDecision {
     Run(BriefOptions),
+    Doctor(DoctorOptions),
     ServeMcp,
     Help,
     Version,
@@ -71,6 +91,7 @@ fn run() -> Result<ExitCode, CliFailure> {
             Ok(ExitCode::SUCCESS)
         }
         ParseDecision::Run(options) => run_brief(options),
+        ParseDecision::Doctor(options) => run_doctor(options),
         ParseDecision::ServeMcp => run_mcp(),
     }
 }
@@ -96,6 +117,25 @@ fn parse_args(
             return Err(CliFailure::usage("EVIDENTRAIL_CLI_UNKNOWN_OPTION"));
         }
         return Ok(ParseDecision::ServeMcp);
+    }
+    if command == "doctor" {
+        let mut file = None;
+        while let Some(argument) = args.next() {
+            if argument == "--file" {
+                let value = args
+                    .next()
+                    .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_CLI_MISSING_OPTION_VALUE"))?;
+                if file.replace(PathBuf::from(value)).is_some() {
+                    return Err(CliFailure::usage("EVIDENTRAIL_CLI_DUPLICATE_OPTION"));
+                }
+            } else if argument == "--help" || argument == "-h" {
+                return Ok(ParseDecision::Help);
+            } else {
+                return Err(CliFailure::usage("EVIDENTRAIL_CLI_UNKNOWN_OPTION"));
+            }
+        }
+        let path = file.ok_or_else(|| CliFailure::usage("EVIDENTRAIL_CLI_DOCTOR_FILE_REQUIRED"))?;
+        return Ok(ParseDecision::Doctor(DoctorOptions { path }));
     }
     if command != "brief" {
         return Err(CliFailure::usage("EVIDENTRAIL_CLI_UNKNOWN_COMMAND"));
@@ -167,6 +207,170 @@ fn parse_args(
         question,
         token_budget,
     }))
+}
+
+fn run_doctor(options: DoctorOptions) -> Result<ExitCode, CliFailure> {
+    let matrix = run_local_file_host_certification_matrix_v1()
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let (internal_paths, internal_policy_digest) = doctor_internal_paths_v1()?;
+    let discovery =
+        discover_local_file_metadata_v1(&options.path, &internal_paths, internal_policy_digest)
+            .map_err(|error| CliFailure::runtime(error.code()))?;
+    writeln!(
+        io::stdout().lock(),
+        concat!(
+            "{} capability={} content={} authorization={} ",
+            "certification={} matrix_status={} matrix_version={} matrix_cells={} ",
+            "matrix_receipt={} preflight_admission={}"
+        ),
+        DOCTOR_SUCCESS_CODE_V1,
+        discovery.capability_code(),
+        discovery.content_access_code(),
+        discovery.authorization_code(),
+        discovery.certification_code(),
+        matrix.status_code(),
+        matrix.matrix_version(),
+        matrix.passed_cells().len(),
+        matrix.receipt_digest().canonical_token(),
+        matrix.preflight_admission_code(),
+    )
+    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_STDOUT_WRITE_FAILURE"))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+fn doctor_internal_paths_v1()
+-> Result<(InternalPathRegistryV1, InternalPathPolicyDigest), CliFailure> {
+    let policy = doctor_internal_path_policy_v1()?;
+    let digest = policy.digest();
+    Ok((InternalPathRegistryV1::new(policy), digest))
+}
+
+#[cfg(unix)]
+fn doctor_internal_path_policy_v1() -> Result<InternalPathPolicyV1, CliFailure> {
+    let configured_home = env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1))?;
+    if !configured_home.is_absolute() {
+        return Err(CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1));
+    }
+    let home = fs::canonicalize(configured_home)
+        .map_err(|_| CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1))?;
+    let current = env::current_dir()
+        .and_then(fs::canonicalize)
+        .map_err(|_| CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1))?;
+    let mut candidates = vec![
+        home.join(".evidentrail"),
+        home.join(".Evidentrail"),
+        home.join(".config").join("evidentrail"),
+        home.join(".local").join("share").join("evidentrail"),
+        home.join(".local").join("state").join("evidentrail"),
+        home.join(".local").join("cache").join("evidentrail"),
+        home.join("Library")
+            .join("Application Support")
+            .join("Evidentrail"),
+        home.join("Library")
+            .join("Application Support")
+            .join("evidentrail"),
+        home.join("Library").join("Caches").join("Evidentrail"),
+        home.join("Library").join("Caches").join("evidentrail"),
+        home.join("Library")
+            .join("Caches")
+            .join("ai.evidentrail")
+            .join("snapshots-v1"),
+        home.join("Library").join("Logs").join("Evidentrail"),
+        home.join("Library").join("Logs").join("evidentrail"),
+        current.join(".evidentrail"),
+    ];
+    for (variable, suffix) in [
+        ("XDG_DATA_HOME", "evidentrail"),
+        ("XDG_STATE_HOME", "evidentrail"),
+        ("XDG_CACHE_HOME", "evidentrail"),
+        ("XDG_CACHE_HOME", "ai.evidentrail/snapshots-v1"),
+    ] {
+        if let Some(value) = env::var_os(variable) {
+            let root = PathBuf::from(value);
+            if !root.is_absolute() {
+                return Err(CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1));
+            }
+            candidates.push(root.join(suffix));
+        }
+    }
+
+    let mut canonical_roots = BTreeSet::new();
+    let mut canonical_aliases = BTreeSet::new();
+    for candidate in candidates {
+        let configured = canonical_policy_path_bytes_v1(&candidate)?;
+        canonical_roots.insert(configured.clone());
+        match fs::canonicalize(&candidate) {
+            Ok(resolved) => {
+                let resolved = canonical_policy_path_bytes_v1(&resolved)?;
+                if resolved != configured {
+                    canonical_aliases.insert(resolved);
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(_) => return Err(CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1)),
+        }
+    }
+    canonical_aliases.retain(|alias| !canonical_roots.contains(alias));
+    let roots = canonical_roots
+        .into_iter()
+        .map(|bytes| {
+            CanonicalUnixPathV1::new(bytes)
+                .map_err(|_| CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let aliases = canonical_aliases
+        .into_iter()
+        .map(|bytes| {
+            CanonicalUnixPathV1::new(bytes)
+                .map_err(|_| CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    InternalPathPolicyV1::new(roots, aliases)
+        .map_err(|_| CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1))
+}
+
+#[cfg(unix)]
+fn canonical_policy_path_bytes_v1(path: &Path) -> Result<Vec<u8>, CliFailure> {
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::path::Component;
+
+    if !path.is_absolute() {
+        return Err(CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1));
+    }
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::RootDir => components.clear(),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if components.pop().is_none() {
+                    return Err(CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1));
+                }
+            }
+            Component::Normal(component) => components.push(component.as_bytes().to_vec()),
+            Component::Prefix(_) => {
+                return Err(CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1));
+            }
+        }
+    }
+    let mut bytes = Vec::from(b"/".as_slice());
+    for (index, component) in components.iter().enumerate() {
+        if index != 0 {
+            bytes.push(b'/');
+        }
+        bytes.extend_from_slice(component);
+    }
+    Ok(bytes)
+}
+
+#[cfg(not(unix))]
+fn doctor_internal_path_policy_v1() -> Result<InternalPathPolicyV1, CliFailure> {
+    let placeholder = CanonicalUnixPathV1::new(b"/evidentrail-internal-unavailable".to_vec())
+        .map_err(|_| CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1))?;
+    InternalPathPolicyV1::new([placeholder], [])
+        .map_err(|_| CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1))
 }
 
 fn run_mcp() -> Result<ExitCode, CliFailure> {
@@ -296,6 +500,52 @@ mod tests {
                 .err()
                 .unwrap()
                 .code,
+            "EVIDENTRAIL_CLI_UNKNOWN_OPTION"
+        );
+    }
+
+    #[test]
+    fn parser_accepts_only_one_explicit_doctor_file() {
+        match parse_args(["doctor".into(), "--file".into(), "candidate.log".into()]) {
+            Ok(ParseDecision::Doctor(options)) => {
+                assert_eq!(options.path, PathBuf::from("candidate.log"));
+            }
+            _ => panic!("expected doctor decision"),
+        }
+        assert_eq!(
+            parse_args(["doctor".into()]).err().unwrap().code,
+            "EVIDENTRAIL_CLI_DOCTOR_FILE_REQUIRED"
+        );
+        assert_eq!(
+            parse_args(["doctor".into(), "--file".into()])
+                .err()
+                .unwrap()
+                .code,
+            "EVIDENTRAIL_CLI_MISSING_OPTION_VALUE"
+        );
+        assert_eq!(
+            parse_args([
+                "doctor".into(),
+                "--file".into(),
+                "one.log".into(),
+                "--file".into(),
+                "two.log".into(),
+            ])
+            .err()
+            .unwrap()
+            .code,
+            "EVIDENTRAIL_CLI_DUPLICATE_OPTION"
+        );
+        assert_eq!(
+            parse_args([
+                "doctor".into(),
+                "--file".into(),
+                "candidate.log".into(),
+                "--recursive".into(),
+            ])
+            .err()
+            .unwrap()
+            .code,
             "EVIDENTRAIL_CLI_UNKNOWN_OPTION"
         );
     }

@@ -233,9 +233,13 @@ memory. A library-only injected backend can recover one explicitly supplied,
 fully authenticated ciphertext result and serve exact aliases after the
 original session is dropped; the default binary cannot activate it until a
 production key provider, authenticated expected-context catalog, ciphertext
-root configuration, and startup selection exist. Approved local-file binding,
-`setup`, `doctor`, production startup recovery, and cross-process expansion
-remain open, so the P8 exit is not yet met.
+root configuration, and startup selection exist. `evidentrail doctor --file PATH` is
+now implemented as a metadata-only, exact-one-file diagnostic: it runs the
+frozen 13-cell macOS/APFS evidence matrix, rejects unsafe target shapes, reads
+no target contents, and emits only stable contentless capability, receipt, and
+explicit non-admission codes. Approved local-file binding, `setup`, the `logs`
+product path, production startup recovery, and cross-process expansion remain
+open, so the P8 exit is not yet met.
 
 **Exit:** a coding agent can ask about one approved local file, receive exact passthrough evidence and expand a reference without provider syntax.
 
