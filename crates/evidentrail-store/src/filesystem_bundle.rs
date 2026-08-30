@@ -911,7 +911,11 @@ fn validate_root_fd(root_fd: &OwnedFd) -> Result<(), FilesystemSealedBundleError
     if stat.st_uid != rustix::process::geteuid().as_raw() {
         return Err(FilesystemSealedBundleErrorV1::RootOwnerMismatch);
     }
-    if u32::from(stat.st_mode) & 0o7777 != ROOT_MODE_V1 {
+    // `mode_t` is `u16` on macOS and `u32` on Linux. Keep the checked,
+    // lossless normalization explicit across both supported Unix targets.
+    #[allow(clippy::useless_conversion)]
+    let mode = u32::from(stat.st_mode);
+    if mode & 0o7777 != ROOT_MODE_V1 {
         return Err(FilesystemSealedBundleErrorV1::RootPermissionMismatch);
     }
     Ok(())
@@ -935,7 +939,9 @@ fn validate_regular_file_stat(
     {
         return Err(FilesystemSealedBundleErrorV1::UnsafeObject);
     }
-    if u32::from(stat.st_mode) & 0o7777 != FILE_MODE_V1 {
+    #[allow(clippy::useless_conversion)]
+    let mode = u32::from(stat.st_mode);
+    if mode & 0o7777 != FILE_MODE_V1 {
         return Err(FilesystemSealedBundleErrorV1::PermissionMismatch);
     }
     if stat.st_nlink != 1 {

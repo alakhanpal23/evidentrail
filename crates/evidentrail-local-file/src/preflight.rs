@@ -386,7 +386,10 @@ pub(crate) fn snapshot_from_stats(
 
     let root = object_id_from_stat(root_stat)?;
     let file = object_id_from_stat(file_stat)?;
+    // Darwin and Linux expose these libc fields at different integer widths.
+    #[allow(clippy::useless_conversion)]
     let mode = u32::from(file_stat.st_mode);
+    #[allow(clippy::useless_conversion)]
     let link_count = u64::from(file_stat.st_nlink);
     let size = u64::try_from(file_stat.st_size)
         .map_err(|_| LocalFilePreflightError::MetadataOutOfRange)?;
