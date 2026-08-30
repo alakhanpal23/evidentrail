@@ -11,8 +11,6 @@ use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt 
 
 use evidentrail_schema::ArtifactDigest;
 
-#[cfg(target_os = "macos")]
-use crate::artifact_digest_for_bytes_v1;
 use crate::pinned_matched_case::{
     BoundPeakRssObservationV1, PeakRssMeasurementUnitV1, PeakRssObservationBindingV1,
 };
@@ -22,7 +20,7 @@ use crate::process::{
 };
 use crate::{
     ExitCategoryV1, HarnessError, PublicSubprocessInvocationV1, SubprocessExecutionReceiptV1,
-    artifact_digest_for_file_v1,
+    artifact_digest_for_bytes_v1, artifact_digest_for_file_v1,
 };
 
 pub const MACOS_TIME_L_PEAK_RSS_OBSERVER_CONTRACT_VERSION_V1: u16 = 1;
