@@ -124,6 +124,72 @@ fn seal_result(
 }
 
 #[test]
+fn data_commit_globally_orders_entries_before_multi_shard_indexing() {
+    const EVENT_COUNT: usize =
+        evidentrail_snapshot_format::MAX_AUTHENTICATED_EVENT_INDEX_SHARD_ENTRIES_V2 + 1;
+    let root = unique_root().with_extension("multi-shard-order");
+    if root.exists() {
+        fs::remove_dir_all(&root).unwrap();
+    }
+    let repository =
+        DurableResultRepositoryV2::open(&root, Arc::new(ProcessKeyAuthorityV2::new(1).unwrap()))
+            .unwrap();
+    let result_id = ResultId::from_bytes([0x21; 32]);
+    repository
+        .begin(result_id, 100, 10_000, operation(1), b"request")
+        .unwrap();
+
+    let mut target = None;
+    for (batch_ordinal, first) in (0..EVENT_COUNT)
+        .step_by(evidentrail_store::MAX_DURABLE_BATCH_EVENTS_V2)
+        .enumerate()
+    {
+        let end = EVENT_COUNT.min(first + evidentrail_store::MAX_DURABLE_BATCH_EVENTS_V2);
+        let events = (first..end)
+            .map(|ordinal| {
+                let mut id = [0_u8; 32];
+                id[24..]
+                    .copy_from_slice(&u64::try_from(EVENT_COUNT - ordinal).unwrap().to_be_bytes());
+                let event_id = EventId::from_bytes(id);
+                if ordinal == EVENT_COUNT / 2 {
+                    target = Some(event_id);
+                }
+                DurableEventInputV2::new(
+                    event_id,
+                    ExactnessBasis::SourceExact,
+                    ordinal.to_be_bytes().to_vec(),
+                )
+                .unwrap()
+            })
+            .collect();
+        let mut operation_bytes = [0_u8; 16];
+        operation_bytes[0] = 2;
+        operation_bytes[8..].copy_from_slice(&u64::try_from(batch_ordinal).unwrap().to_be_bytes());
+        let batch = BatchCommitInputV2::new(
+            u64::try_from(batch_ordinal).unwrap(),
+            OperationIdV1::from_bytes(operation_bytes),
+            events,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        repository.commit_batch(result_id, &batch).unwrap();
+    }
+
+    commit_data(&repository, result_id, 3);
+    seal_result(&repository, result_id, 4);
+    repository.publish(result_id, operation(5)).unwrap();
+    let target = target.unwrap();
+    let expanded = repository
+        .expand(result_id, &[target], 1, 1024, 200)
+        .unwrap();
+    assert_eq!(expanded.events().len(), 1);
+    assert_eq!(expanded.events()[0].event_id(), target);
+    repository.destroy(result_id).unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn durable_lifecycle_is_invisible_until_publication_and_expands_by_index() {
     let root = unique_root();
     if root.exists() {

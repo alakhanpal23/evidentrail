@@ -859,8 +859,13 @@ impl<A: KeyAuthorityV2> DurableResultRepositoryV2<A> {
         if record.state() != evidentrail_snapshot_format::ResultLifecycleStateV1::Open {
             return Err(DurableRepositoryErrorV2::InvalidState);
         }
-        let (entries, batch_chain, acquisition_chain) =
+        let (mut entries, batch_chain, acquisition_chain) =
             self.reconstruct_event_entries(result_id, &staging)?;
+        // Shard boundaries are part of the authenticated directory's
+        // canonical EventId ordering. Sorting only inside each shard allows
+        // ranges from acquisition-order chunks to overlap once a result spans
+        // more than one shard, which the directory must reject.
+        entries.sort_by_key(AuthenticatedEventIndexEntryV2::event_id);
         let shards = entries
             .chunks(MAX_AUTHENTICATED_EVENT_INDEX_SHARD_ENTRIES_V2)
             .map(|entries| AuthenticatedEventIndexV2::new(entries.to_vec(), acquisition_chain))

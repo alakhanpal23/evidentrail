@@ -10,7 +10,7 @@ use evidentrail_core::{ExpansionRelationV1, UnixTimestampNanos};
 use evidentrail_product::DurableProductV2;
 use evidentrail_store::{
     AliasExpansionRequestV1, DurableResultRepositoryV2, EvidenceAliasV1, ExpansionLimitV1,
-    ProcessKeyAuthorityV2,
+    MAX_DURABLE_BATCH_EVENTS_V2, ProcessKeyAuthorityV2,
 };
 
 fn unique_root(suffix: &str) -> std::path::PathBuf {
@@ -110,6 +110,35 @@ fn durable_backend_preserves_public_bytes_and_expands_without_source_access() {
             .any(|event| event.authorized_bytes().starts_with(b"ERROR"))
     );
     backend.product().repository().destroy(result_id).unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn durable_backend_reserves_the_semantic_receipt_slot_across_batches() {
+    let root = unique_root("multi-batch-capacity");
+    let _ = fs::remove_dir_all(&root);
+    let input = b"INFO heartbeat\n".repeat(MAX_DURABLE_BATCH_EVENTS_V2);
+    let question = b"summarize the heartbeat evidence";
+    let budget = 100_000;
+    let seed = [0x61; 32];
+    let now = UnixTimestampNanos::new(30_000);
+    let memory = compile_explicit_stdin_v1(&input, question, budget, seed, now).unwrap();
+    let repository =
+        DurableResultRepositoryV2::open(&root, ProcessKeyAuthorityV2::new(1).unwrap()).unwrap();
+    let mut backend =
+        DurablePublishingMcpRetentionBackendV2::new(DurableProductV2::new(repository));
+    let durable = backend
+        .compile_logs(&input, question, budget, seed, now)
+        .unwrap()
+        .expect("durable backend owns compilation");
+    assert_public_outcomes_equal(&memory, &durable);
+    if matches!(durable, StdinBriefOutcomeV1::Rendered(_)) {
+        backend
+            .product()
+            .repository()
+            .destroy(durable.result_id())
+            .unwrap();
+    }
     fs::remove_dir_all(root).unwrap();
 }
 

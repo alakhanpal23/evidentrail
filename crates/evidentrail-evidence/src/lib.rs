@@ -585,6 +585,7 @@ impl RenderedPassthroughBriefV1<'_> {
 /// Why exact passthrough cannot be returned as the final artifact.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PassthroughNotFitReasonV1 {
+    EvidencePacketLimitExceeded,
     TotalTokenBudgetExceeded,
     RenderedByteLimitExceeded,
 }
@@ -593,6 +594,7 @@ impl PassthroughNotFitReasonV1 {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
+            Self::EvidencePacketLimitExceeded => "evidence_packet_limit_exceeded",
             Self::TotalTokenBudgetExceeded => "total_token_budget_exceeded",
             Self::RenderedByteLimitExceeded => "rendered_byte_limit_exceeded",
         }
@@ -764,8 +766,18 @@ where
     if ledger.plan_digest() != plan_digest {
         return Err(PassthroughBriefError::PlanDigestMismatch);
     }
+    let tokenizer_digest = tokenizer.digest();
+    let renderer_digest = passthrough_renderer_digest_v1();
     if ledger.len() > MAX_LOG_BRIEF_EVIDENCE_PACKETS {
-        return Err(PassthroughBriefError::TooManyEvidenceEvents);
+        return Ok(PassthroughBriefDecisionV1::CompilationRequired(
+            PassthroughNotFitV1 {
+                reason: PassthroughNotFitReasonV1::EvidencePacketLimitExceeded,
+                total_token_limit,
+                required_tokens: None,
+                tokenizer_digest,
+                renderer_digest,
+            },
+        ));
     }
 
     let references = bind_references(ledger, result_id, references, now)?;
@@ -784,8 +796,6 @@ where
         })
         .collect::<Vec<_>>();
 
-    let tokenizer_digest = tokenizer.digest();
-    let renderer_digest = passthrough_renderer_digest_v1();
     let mut text = BoundedText::new(MAX_WIRE_OBJECT_BYTES);
     if render_text(&mut text, ledger, result_id, &evidence).is_err() {
         return Ok(PassthroughBriefDecisionV1::CompilationRequired(

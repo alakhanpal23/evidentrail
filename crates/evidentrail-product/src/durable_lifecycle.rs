@@ -40,6 +40,10 @@ const BUILD_RENDERER_V2: &[u8] = b"evidentrail-evidence/log-brief/v1";
 const BUILD_TOKENIZER_V2: &[u8] = b"evidentrail-evidence/utf8-byte-tokenizer/v1";
 const BUILD_POLICY_V2: &[u8] = b"evidentrail-product/authorized-ledger/v1";
 const BUILD_CONTRACT_V2: &[u8] = b"evidentrail-product/durable-lifecycle/v2";
+// Every product batch includes one semantic receipt in addition to the two
+// repository-owned frames, so it must leave one slot below the repository's
+// event-only maximum.
+const DURABLE_PRODUCT_BATCH_EVENTS_V2: usize = MAX_DURABLE_BATCH_EVENTS_V2 - 1;
 
 type ProductArtifactBytesV2 = (Vec<u8>, Vec<u8>, Vec<u8>);
 
@@ -301,7 +305,7 @@ impl<A: KeyAuthorityV2> DurableProductV2<A> {
 
         for (ordinal, events) in ledger
             .events()
-            .chunks(MAX_DURABLE_BATCH_EVENTS_V2)
+            .chunks(DURABLE_PRODUCT_BATCH_EVENTS_V2)
             .enumerate()
         {
             let ordinal =

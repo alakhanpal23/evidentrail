@@ -193,6 +193,7 @@ dependencies = [
  "evidentrail-product",
  "evidentrail-schema",
  "evidentrail-select",
+ "evidentrail-snapshot-format",
  "evidentrail-store",
  "rustix",
  "serde",
