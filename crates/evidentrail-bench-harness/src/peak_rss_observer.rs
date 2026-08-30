@@ -29,7 +29,9 @@ pub const MACOS_TIME_L_PEAK_RSS_REPORT_FORMAT_VERSION_V1: u16 = 1;
 const MACOS_TIME_PATH_V1: &str = "/usr/bin/time";
 const MAX_REPORT_BYTES_V1: u64 = 64 * 1024;
 const METRIC_LABEL_V1: &str = "maximum resident set size";
+#[cfg(any(target_os = "macos", test))]
 const OBSERVER_FORMAT_V1: &[u8] = b"evidentrail/bench-harness/macos-time-l-peak-rss-format/v1\0argv=-l,-o,<private-report>,--,<target-argv>\0metric=exactly-one-unsigned-decimal-maximum-resident-set-size\0unit=bytes\0scope=directly-timed-process\0child-tree-aggregate=not-claimed";
+#[cfg(any(target_os = "macos", test))]
 const OBSERVER_MECHANISM_DOMAIN_V1: &[u8] =
     b"evidentrail/bench-harness/macos-time-l-peak-rss-observer/v1";
 const OBSERVATION_RECEIPT_DOMAIN_V1: &[u8] =
@@ -630,6 +632,7 @@ fn remove_exact_directory_if_present(path: &Path) -> Result<(), PeakRssObserverE
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn derive_mechanism_artifact_digest_v1(
     observer_build: ArtifactDigest,
     report_format: ArtifactDigest,
