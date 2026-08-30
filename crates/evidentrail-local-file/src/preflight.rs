@@ -622,7 +622,7 @@ impl CertificationAuthorityV1 for LocalFileExecutionAdmissionV1 {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 pub(crate) fn preflight_with_test_certification_v1<'binding_registry, 'path_registry>(
     plan: &VerifiedLocalFilePlanV1,
     authority: RegistryAuthorizedLocalFilePlanV1<'binding_registry, 'path_registry>,
@@ -638,10 +638,10 @@ pub(crate) fn preflight_with_test_certification_v1<'binding_registry, 'path_regi
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 struct TestOnlyCertificationAuthorityV1;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 impl CertificationAuthorityV1 for TestOnlyCertificationAuthorityV1 {
     fn admit(
         &self,

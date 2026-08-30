@@ -25,7 +25,7 @@ pub const LOCAL_FILE_HOST_MATRIX_PREFLIGHT_NOT_ADMITTED_CODE_V1: &str =
 /// successful live execution of every frozen matrix cell.
 pub const LOCAL_FILE_HOST_EXECUTION_ADMITTED_CODE_V1: &str =
     "EVIDENTRAIL_LOCAL_HOST_EXECUTION_ADMITTED_AFTER_LIVE_MATRIX";
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 const LOCAL_FILE_HOST_IDENTITY_DOMAIN_V1: &str = "evidentrail/local-file/host-identity/v1";
 const RECEIPT_DIGEST_PREFIX_V1: &str = "local_file_host_matrix_receipt_sha256_";
 
@@ -382,7 +382,7 @@ pub fn admit_current_local_file_host_v1()
         .map(|receipt| LocalFileExecutionAdmissionV1 { receipt })
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 fn derive_host_identity_digest(fields: &[&[u8]]) -> LocalFileHostIdentityDigestV1 {
     let mut body = Vec::new();
     for field in fields {
