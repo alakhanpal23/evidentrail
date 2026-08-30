@@ -410,20 +410,19 @@ impl FilesystemSealedBundleStoreV1 {
         self.record_operation(FilesystemBundleOperationV1::FileSynced)?;
         #[cfg(any(test, feature = "internal-test-provider"))]
         self.fail_if(FilesystemBundleFaultPointV1::BeforeAtomicPublish)?;
-        fs::renameat_with(
+        if let Err(error) = fs::renameat_with(
             &self.root_fd,
             temporary_name.as_str(),
             &self.root_fd,
             final_name.as_str(),
             RenameFlags::NOREPLACE,
-        )
-        .map_err(|error| {
+        ) {
             if error == rustix::io::Errno::EXIST {
-                FilesystemSealedBundleErrorV1::DuplicateResult
-            } else {
-                FilesystemSealedBundleErrorV1::AtomicPublishFailed
+                self.remove_owned_temporary(&temporary_name, &synced_temporary)?;
+                return Err(FilesystemSealedBundleErrorV1::DuplicateResult);
             }
-        })?;
+            return Err(FilesystemSealedBundleErrorV1::AtomicPublishFailed);
+        }
         let published_fd = validate_regular_file_fd(&temporary_file, Some(expected_size))?;
         let published_path = fs::statat(
             &self.root_fd,
@@ -718,6 +717,23 @@ impl FilesystemSealedBundleStoreV1 {
         fs::fsync(&self.root_fd).map_err(|_| FilesystemSealedBundleErrorV1::DirectorySyncFailed)?;
         self.record_operation(FilesystemBundleOperationV1::QuarantineDirectorySynced)?;
         Ok(())
+    }
+
+    fn remove_owned_temporary(
+        &self,
+        temporary_name: &str,
+        owned: &rustix::fs::Stat,
+    ) -> Result<(), FilesystemSealedBundleErrorV1> {
+        let current = match fs::statat(&self.root_fd, temporary_name, AtFlags::SYMLINK_NOFOLLOW) {
+            Ok(current) => current,
+            Err(rustix::io::Errno::NOENT) => return Ok(()),
+            Err(_) => return Err(FilesystemSealedBundleErrorV1::AtomicPublishFailed),
+        };
+        if current.st_dev != owned.st_dev || current.st_ino != owned.st_ino {
+            return Err(FilesystemSealedBundleErrorV1::ObjectChangedDuringRead);
+        }
+        fs::unlinkat(&self.root_fd, temporary_name, AtFlags::empty())
+            .map_err(|_| FilesystemSealedBundleErrorV1::AtomicPublishFailed)
     }
 
     fn lock_operations(&self) -> Result<MutexGuard<'_, ()>, FilesystemSealedBundleErrorV1> {
