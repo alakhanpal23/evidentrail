@@ -180,7 +180,7 @@ fn packet(seed: u8, members: impl IntoIterator<Item = EventId>) -> ProducerPropo
     ProducerProposalPacketV1::try_new(proposal_id(seed), members).unwrap()
 }
 
-fn block_index<'ledger>(ledger: &'ledger EventLedger) -> BlockIndex<'ledger> {
+fn block_index(ledger: &EventLedger) -> BlockIndex<'_> {
     let grouped = BlockAssignment::new_same_lane_v1(
         ledger.events()[0].lane().clone(),
         ledger.events()[0..2]

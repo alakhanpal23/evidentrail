@@ -173,10 +173,10 @@ fn annotation(
     .unwrap()
 }
 
-fn block_index_with_group<'ledger>(
-    ledger: &'ledger EventLedger,
+fn block_index_with_group(
+    ledger: &EventLedger,
     grouped_positions: RangeInclusive<usize>,
-) -> BlockIndex<'ledger> {
+) -> BlockIndex<'_> {
     let group_start = *grouped_positions.start();
     let group_end = *grouped_positions.end();
     let mut assignments = Vec::new();

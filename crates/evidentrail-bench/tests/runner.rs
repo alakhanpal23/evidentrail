@@ -269,10 +269,10 @@ fn measurement_receipt(
     )
 }
 
-fn bind_measurements<'case>(
-    frozen_run: FrozenPublicRunV1<'case>,
+fn bind_measurements(
+    frozen_run: FrozenPublicRunV1<'_>,
     observed: MeasuredCandidateResources,
-) -> MeasurementValidatedPublicRunV1<'case> {
+) -> MeasurementValidatedPublicRunV1<'_> {
     let environment = measurement_environment();
     let rendered_candidate = rendered_candidate();
     let renderings = frozen_run

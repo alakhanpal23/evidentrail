@@ -933,7 +933,7 @@ fn duplicates_bounds_and_diagnostics_fail_closed() {
     );
 }
 
-fn whole_ledger_block<'ledger>(ledger: &'ledger EventLedger) -> BlockIndex<'ledger> {
+fn whole_ledger_block(ledger: &EventLedger) -> BlockIndex<'_> {
     let members = ledger
         .events()
         .iter()

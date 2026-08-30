@@ -194,10 +194,7 @@ fn assignment_at(
     )
 }
 
-fn reconcile_one_block<'ledger>(
-    ledger: &'ledger EventLedger,
-    framing_policy: FramingPolicy,
-) -> BlockIndex<'ledger> {
+fn reconcile_one_block(ledger: &EventLedger, framing_policy: FramingPolicy) -> BlockIndex<'_> {
     BlockIndex::reconcile(
         ledger,
         [BlockAssignment::new_same_lane_v1(
