@@ -1,22 +1,27 @@
+#[cfg(target_os = "macos")]
+use evidentrail_bench::EvidenceTargetV1;
 use evidentrail_bench::{
-    EvidenceTargetV1, SyntheticThreeLaneAblationCaseV1,
-    synthetic_three_lane_ablation_corpus_identity_v1,
+    SyntheticThreeLaneAblationCaseV1, synthetic_three_lane_ablation_corpus_identity_v1,
     synthetic_three_lane_selection_budget_schedule_v1,
 };
+#[cfg(target_os = "macos")]
 use evidentrail_bench_harness::{
     CONSTRAINED_MATCHED_QUESTION_V1, CONSTRAINED_READER_CONTEXT_V1,
-    CompactAgentViewAdmissionProposalV1, CompactAgentViewCaseReductionV1,
-    CompactAgentViewChallengeClassV1, CompactAgentViewChallengeCorpusReceiptV1,
-    CompactAgentViewChallengeObservationV1, CompactAgentViewCorpusReductionReceiptV1,
-    CompactAgentViewNeedsMoreObservationV1, CompactAgentViewProductionAdmissionEvidenceV1,
-    CompactAgentViewProductionCandidateParityV1, CompactAgentViewReaderMeasurementPairV1,
-    DeterministicFixtureReaderModeV1, DeterministicFixtureReaderV1, HarnessLimitsV1,
-    MacOsTimePeakRssObserverV1, ReaderCitationHandleV1, ReaderMethodArtifactV1,
-    ReaderPublicInputV1, ReaderResourceCapsV1, artifact_digest_for_bytes_v1,
-    canonical_public_case_artifact_v1, compare_compact_agent_view_reader_receipts_v1,
-    constrained_pinned_drain_public_case_v1, constrained_pinned_drain_public_input_v1,
-    execute_constrained_first_party_structured_fixture_v1, execute_deterministic_fixture_reader_v1,
-    freeze_compact_compiled_agent_view_v1, log_brief_compiled_method_descriptor_v1,
+    CompactAgentViewAdmissionProposalV1, CompactAgentViewProductionAdmissionEvidenceV1,
+    CompactAgentViewReaderMeasurementPairV1, DeterministicFixtureReaderModeV1,
+    DeterministicFixtureReaderV1, HarnessLimitsV1, MacOsTimePeakRssObserverV1,
+    ReaderCitationHandleV1, ReaderMethodArtifactV1, ReaderPublicInputV1, ReaderResourceCapsV1,
+    compare_compact_agent_view_reader_receipts_v1, execute_deterministic_fixture_reader_v1,
+    log_brief_compiled_method_descriptor_v1,
+};
+use evidentrail_bench_harness::{
+    CompactAgentViewCaseReductionV1, CompactAgentViewChallengeClassV1,
+    CompactAgentViewChallengeCorpusReceiptV1, CompactAgentViewChallengeObservationV1,
+    CompactAgentViewCorpusReductionReceiptV1, CompactAgentViewNeedsMoreObservationV1,
+    CompactAgentViewProductionCandidateParityV1, artifact_digest_for_bytes_v1,
+    canonical_public_case_artifact_v1, constrained_pinned_drain_public_case_v1,
+    constrained_pinned_drain_public_input_v1,
+    execute_constrained_first_party_structured_fixture_v1, freeze_compact_compiled_agent_view_v1,
 };
 use evidentrail_compile::{
     PreparedThreeLaneSelectionDecisionV1, ThreeLaneAblationMaskV1,
@@ -740,6 +745,7 @@ fn measure_frozen_corpus_with_production_parity() -> (
     (receipt, parities)
 }
 
+#[cfg(target_os = "macos")]
 fn canonical_citations(
     rendered: &evidentrail_evidence::OwnedRenderedCompiledBriefV1,
 ) -> Vec<ReaderCitationHandleV1> {
@@ -956,5 +962,11 @@ fn blocks(ledger: &EventLedger) -> BlockIndex<'_> {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    use std::fmt::Write as _;
+
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(&mut output, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    output
 }
