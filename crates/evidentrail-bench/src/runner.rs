@@ -618,12 +618,12 @@ where
 /// only token count, wall time, and peak RSS come from the external
 /// self-asserted receipt. Rendering bindings and receipts are reproducibility
 /// inputs, not independent attestations.
-pub fn bind_hermetic_measurement_receipts_v1<'case, Renderings, Receipts>(
-    frozen_run: FrozenPublicRunV1<'case>,
+pub fn bind_hermetic_measurement_receipts_v1<Renderings, Receipts>(
+    frozen_run: FrozenPublicRunV1<'_>,
     expected_environment: MeasurementEnvironmentV1,
     renderings: Renderings,
     receipts: Receipts,
-) -> Result<MeasurementValidatedPublicRunV1<'case>, HermeticRunnerError>
+) -> Result<MeasurementValidatedPublicRunV1<'_>, HermeticRunnerError>
 where
     Renderings: IntoIterator<Item = FrozenCandidateRenderingV1>,
     Receipts: IntoIterator<Item = MeasurementProvenanceReceiptV1>,
