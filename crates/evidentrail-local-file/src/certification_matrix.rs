@@ -2,6 +2,7 @@ use std::error::Error as StdError;
 use std::fmt;
 
 use evidentrail_schema::{LocalFileArchitectureV1, LocalFileFilesystemV1, LocalFileOperatingSystemV1};
+#[cfg(any(target_os = "macos", test))]
 use sha2::{Digest as _, Sha256};
 
 #[cfg(target_os = "macos")]
@@ -24,6 +25,7 @@ pub const LOCAL_FILE_HOST_MATRIX_PREFLIGHT_NOT_ADMITTED_CODE_V1: &str =
 /// successful live execution of every frozen matrix cell.
 pub const LOCAL_FILE_HOST_EXECUTION_ADMITTED_CODE_V1: &str =
     "EVIDENTRAIL_LOCAL_HOST_EXECUTION_ADMITTED_AFTER_LIVE_MATRIX";
+#[cfg(any(target_os = "macos", test))]
 const LOCAL_FILE_HOST_IDENTITY_DOMAIN_V1: &str = "evidentrail/local-file/host-identity/v1";
 const RECEIPT_DIGEST_PREFIX_V1: &str = "local_file_host_matrix_receipt_sha256_";
 
@@ -78,6 +80,7 @@ impl LocalFileHostCertificationCellV1 {
         }
     }
 
+    #[cfg(any(target_os = "macos", test))]
     const fn canonical_code(self) -> u16 {
         self as u16
     }
@@ -92,6 +95,7 @@ impl fmt::Debug for LocalFileHostCertificationCellV1 {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 const REQUIRED_CELLS_V1: [LocalFileHostCertificationCellV1;
     HOST_CERTIFICATION_MATRIX_CELL_COUNT_V1] = [
     LocalFileHostCertificationCellV1::DarwinOperatingSystemIdentity,
@@ -178,6 +182,7 @@ pub struct LocalFileHostCertificationReceiptV1 {
 }
 
 impl LocalFileHostCertificationReceiptV1 {
+    #[cfg(any(target_os = "macos", test))]
     fn all_passed(
         architecture: LocalFileArchitectureV1,
         host_identity_digest: LocalFileHostIdentityDigestV1,
@@ -377,6 +382,7 @@ pub fn admit_current_local_file_host_v1()
         .map(|receipt| LocalFileExecutionAdmissionV1 { receipt })
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn derive_host_identity_digest(fields: &[&[u8]]) -> LocalFileHostIdentityDigestV1 {
     let mut body = Vec::new();
     for field in fields {
@@ -389,6 +395,7 @@ fn derive_host_identity_digest(fields: &[&[u8]]) -> LocalFileHostIdentityDigestV
     ))
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn derive_receipt_digest(
     architecture: LocalFileArchitectureV1,
     host_identity_digest: LocalFileHostIdentityDigestV1,
@@ -410,6 +417,7 @@ fn derive_receipt_digest(
     ))
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn domain_separated_digest(domain: &str, body: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update((domain.len() as u64).to_le_bytes());
@@ -419,6 +427,7 @@ fn domain_separated_digest(domain: &str, body: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+#[cfg(any(target_os = "macos", test))]
 const fn operating_system_code(value: LocalFileOperatingSystemV1) -> u16 {
     match value {
         LocalFileOperatingSystemV1::MacOs => 1,
@@ -426,6 +435,7 @@ const fn operating_system_code(value: LocalFileOperatingSystemV1) -> u16 {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 const fn architecture_code(value: LocalFileArchitectureV1) -> u16 {
     match value {
         LocalFileArchitectureV1::Aarch64 => 1,
@@ -434,6 +444,7 @@ const fn architecture_code(value: LocalFileArchitectureV1) -> u16 {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 const fn filesystem_code(value: LocalFileFilesystemV1) -> u16 {
     match value {
         LocalFileFilesystemV1::Apfs => 1,

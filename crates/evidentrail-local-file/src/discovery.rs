@@ -2,7 +2,9 @@ use std::error::Error as StdError;
 use std::fmt;
 use std::path::Path;
 
-use evidentrail_authority::{InternalPathRegistryError, InternalPathRegistryV1};
+#[cfg(target_os = "macos")]
+use evidentrail_authority::InternalPathRegistryError;
+use evidentrail_authority::InternalPathRegistryV1;
 use evidentrail_schema::{InternalPathPolicyDigest, UnixFileSnapshotV1};
 
 /// Stable V1 capability advertised by a successful metadata-only probe.
@@ -229,6 +231,7 @@ fn discover_local_file_metadata_on_supported_platform_v1(
     Err(LocalFileDiscoveryError::UnsupportedOperatingSystem)
 }
 
+#[cfg(target_os = "macos")]
 fn map_internal_path_error(error: InternalPathRegistryError) -> LocalFileDiscoveryError {
     match error {
         InternalPathRegistryError::CanonicalPathReserved
