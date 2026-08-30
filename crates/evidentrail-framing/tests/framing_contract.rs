@@ -205,7 +205,7 @@ fn ledger(seed: u8, records: &[RecordSpec]) -> EventLedger {
     builder.seal(completion).unwrap()
 }
 
-fn framed<'ledger>(ledger: &'ledger EventLedger) -> BlockIndex<'ledger> {
+fn framed(ledger: &EventLedger) -> BlockIndex<'_> {
     let index = frame_source_lanes_v1(ledger).unwrap();
     assert_exact_primary_partition(ledger, &index);
     index
