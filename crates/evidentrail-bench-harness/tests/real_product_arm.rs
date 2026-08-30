@@ -35,7 +35,11 @@ fn real_memory_arm_is_deterministic_and_durable_qualification_fails_closed() {
     assert_eq!(first.1.source_byte_count, input.len() as u64);
     assert_eq!(
         real_durable_qualification_availability_v2(),
-        RealDurableQualificationAvailabilityV2::MissingExternalTrustedAuthority
+        if cfg!(target_os = "macos") {
+            RealDurableQualificationAvailabilityV2::RequiresProvisionedExecutable
+        } else {
+            RealDurableQualificationAvailabilityV2::MissingExternalTrustedAuthority
+        }
     );
 }
 

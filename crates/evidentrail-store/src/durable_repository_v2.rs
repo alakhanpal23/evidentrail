@@ -423,6 +423,7 @@ pub enum DurableRepositoryErrorV2 {
     UnsafeFilesystemObject,
     RepositoryLocked,
     ResultLocked,
+    AuthorityLocked,
     AuthorityUnavailable,
     InvalidOperation,
     OperationConflict,
@@ -453,6 +454,7 @@ impl DurableRepositoryErrorV2 {
             Self::UnsafeFilesystemObject => "EVIDENTRAIL_DURABLE_REPOSITORY_UNSAFE_OBJECT",
             Self::RepositoryLocked => "EVIDENTRAIL_DURABLE_REPOSITORY_LOCKED",
             Self::ResultLocked => "EVIDENTRAIL_DURABLE_RESULT_LOCKED",
+            Self::AuthorityLocked => "EVIDENTRAIL_DURABLE_AUTHORITY_LOCKED",
             Self::AuthorityUnavailable => "EVIDENTRAIL_DURABLE_AUTHORITY_UNAVAILABLE",
             Self::InvalidOperation => "EVIDENTRAIL_DURABLE_INVALID_OPERATION",
             Self::OperationConflict => "EVIDENTRAIL_DURABLE_OPERATION_CONFLICT",
@@ -497,6 +499,7 @@ impl StdError for DurableRepositoryErrorV2 {}
 impl From<KeyAuthorityErrorV2> for DurableRepositoryErrorV2 {
     fn from(error: KeyAuthorityErrorV2) -> Self {
         match error {
+            KeyAuthorityErrorV2::Locked => Self::AuthorityLocked,
             KeyAuthorityErrorV2::NotFound => Self::ResultUnavailable,
             KeyAuthorityErrorV2::OperationConflict => Self::OperationConflict,
             KeyAuthorityErrorV2::InvalidTransition => Self::InvalidState,
@@ -1209,6 +1212,64 @@ impl<A: KeyAuthorityV2> DurableResultRepositoryV2<A> {
         self.authority
             .publish(result_id, operation, generation, repository_commitment)
             .map_err(Into::into)
+    }
+
+    /// Reopen the authenticated displayed-alias capability for a published
+    /// result after a process restart.
+    ///
+    /// The caller must already possess the result identity. This method does
+    /// not enumerate products: it verifies the trusted authority record, final
+    /// repository commitment, encrypted final manifest, alias-frame digest,
+    /// and fixed expiry before returning the frozen exact-only aliases.
+    pub fn reopen_published_alias_manifest(
+        &self,
+        result_id: ResultId,
+        now_unix_nanos: i64,
+    ) -> Result<crate::DisplayedAliasManifestV1, DurableRepositoryErrorV2> {
+        let result_lock = self.result_lock(result_id)?;
+        let _process_guard = result_lock
+            .read()
+            .map_err(|_| DurableRepositoryErrorV2::ResultLocked)?;
+        let final_path = self.final_path(result_id);
+        let _file_guard = FileLockV2::shared(&final_path.join(".result.lock"))?;
+        let authority = self.authority.snapshot(result_id)?;
+        if authority.state() != evidentrail_snapshot_format::ResultLifecycleStateV1::Published
+            || now_unix_nanos < authority.created_unix_nanos()
+            || now_unix_nanos >= authority.expires_unix_nanos()
+        {
+            return Err(DurableRepositoryErrorV2::ResultUnavailable);
+        }
+        self.verify_visible(result_id, &final_path, authority.repository_commitment())?;
+        self.with_key(result_id, |dek| {
+            let final_manifest = read_typed_manifest_frame(
+                dek,
+                result_id,
+                &final_path.join("sealed-products.seg"),
+                SnapshotObjectKindV2::FinalManifest,
+            )?;
+            let final_manifest = FinalManifestV2::decode(&final_manifest)
+                .map_err(|_| DurableRepositoryErrorV2::DecodeFailed)?;
+            if final_manifest.digest() != authority.seal_commitments().final_manifest() {
+                return Err(DurableRepositoryErrorV2::CommitmentMismatch);
+            }
+            let alias_bytes = read_typed_manifest_frame(
+                dek,
+                result_id,
+                &final_path.join("sealed-products.seg"),
+                SnapshotObjectKindV2::AliasManifest,
+            )?;
+            if derive_lifecycle_digest_v1(&alias_bytes) != final_manifest.product_digests()[4] {
+                return Err(DurableRepositoryErrorV2::CommitmentMismatch);
+            }
+            let aliases = crate::DisplayedAliasManifestV1::decode(&alias_bytes)
+                .map_err(|_| DurableRepositoryErrorV2::DecodeFailed)?;
+            if aliases.result_id() != result_id
+                || aliases.expires_at().get() != i128::from(authority.expires_unix_nanos())
+            {
+                return Err(DurableRepositoryErrorV2::CommitmentMismatch);
+            }
+            Ok(aliases)
+        })
     }
 
     pub fn expand(

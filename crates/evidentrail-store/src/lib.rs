@@ -45,6 +45,8 @@ mod ephemeral_key_provider;
 mod filesystem_bundle;
 mod key_authority_v2;
 mod key_provider;
+#[cfg(target_os = "macos")]
+mod macos_keychain_authority_v2;
 mod memory;
 mod sealed_bundle;
 
@@ -97,6 +99,8 @@ pub use key_provider::{
     KeyProviderErrorV1, KeyProviderV1, KeyRecordListStateV1, KeyRecordMetadataV1,
     MAX_SNAPSHOT_OBJECT_NONCES_PER_RESULT_V1, OpenedResultKeyV1,
 };
+#[cfg(target_os = "macos")]
+pub use macos_keychain_authority_v2::MacOsKeychainAuthorityV2;
 pub use memory::{
     AliasExpansionRequestV1, DEFAULT_RESULT_TTL_NANOS, EvidenceAliasV1, ExpandedEventV1,
     ExpansionLimitV1, ExpansionRequestV1, ExpansionResponseV1, MAX_EXPANSION_BYTES,

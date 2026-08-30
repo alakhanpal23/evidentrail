@@ -1,6 +1,7 @@
 #![cfg(unix)]
 
 use std::fs;
+use std::sync::Arc;
 
 use evidentrail_core::{
     AcknowledgedCounts, AcquisitionSequence, AdapterIdentity, AdapterOutcome, AttemptCounts,
@@ -243,5 +244,52 @@ fn build_context_is_stable_and_mismatch_is_typed_reissue() {
         RecoveryDispositionV2::ReissueRequired
     );
     repository.destroy(result_id).unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn published_alias_capability_reopens_after_product_restart() {
+    let root = unique_root("restart");
+    let _ = fs::remove_dir_all(&root);
+    let result_id = ResultId::from_bytes([0x85; 32]);
+    let now = UnixTimestampNanos::new(5_000);
+    let authority = Arc::new(ProcessKeyAuthorityV2::new(4).unwrap());
+    let repository = DurableResultRepositoryV2::open(&root, Arc::clone(&authority)).unwrap();
+    let mut durable = DurableProductV2::new(repository);
+    durable
+        .create_deterministic_result_v2(
+            result_id,
+            b"why did restart preserve exact expansion?",
+            ledger(5, &[RecordBytes::whole(b"ERROR restart evidence".to_vec())]),
+            now,
+            100_000,
+        )
+        .unwrap();
+    drop(durable);
+
+    let repository = DurableResultRepositoryV2::open(&root, Arc::clone(&authority)).unwrap();
+    let mut restarted = DurableProductV2::new(repository);
+    let after_restart = UnixTimestampNanos::new(now.get() + 1);
+    let recovery = restarted.reconcile_startup(after_restart).unwrap();
+    assert_eq!(recovery.visible(), 1);
+    assert_eq!(restarted.published_result_count(), 1);
+    let expansion = restarted
+        .expand_alias(
+            AliasExpansionRequestV1::new(
+                result_id,
+                EvidenceAliasV1::new(result_id, 1).unwrap(),
+                evidentrail_core::ExpansionRelationV1::Exact,
+                ExpansionLimitV1::new(2, 4096, 0, 0).unwrap(),
+            ),
+            after_restart,
+        )
+        .unwrap();
+    assert_eq!(expansion.events().len(), 1);
+    assert_eq!(
+        expansion.events()[0].authorized_bytes(),
+        b"ERROR restart evidence"
+    );
+
+    restarted.repository().destroy(result_id).unwrap();
     fs::remove_dir_all(root).unwrap();
 }

@@ -22,5 +22,5 @@
     "cold",
     "warm"
   ],
-  "blocking_dependency": "MacOsKeychainAuthorityV2 on the reviewed V2 product lifecycle revision"
+  "blocking_dependency": "provisioned and signed macOS executable with a verified data-protection Keychain access group, followed by dedicated-host warm and clean-boot trials"
 }

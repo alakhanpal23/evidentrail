@@ -125,6 +125,7 @@ pub enum McpRetentionBackendErrorV1 {
     PublicationFailed,
     UnsupportedPlatform,
     AuthorityLocked,
+    AuthorityUnavailable,
     RollbackOrCorruption,
     ReissueRequired,
     ResultUnavailable,
@@ -146,6 +147,7 @@ impl McpRetentionBackendErrorV1 {
             Self::PublicationFailed => "EVIDENTRAIL_MCP_PUBLICATION_FAILED",
             Self::UnsupportedPlatform => "EVIDENTRAIL_MCP_DURABLE_UNSUPPORTED_PLATFORM",
             Self::AuthorityLocked => "EVIDENTRAIL_MCP_DURABLE_AUTHORITY_LOCKED",
+            Self::AuthorityUnavailable => "EVIDENTRAIL_MCP_DURABLE_AUTHORITY_UNAVAILABLE",
             Self::RollbackOrCorruption => "EVIDENTRAIL_MCP_DURABLE_ROLLBACK_OR_CORRUPTION",
             Self::ReissueRequired => "EVIDENTRAIL_MCP_DURABLE_REISSUE_REQUIRED",
             Self::ResultUnavailable => "EVIDENTRAIL_MCP_RESULT_UNAVAILABLE",
@@ -1421,7 +1423,10 @@ fn map_durable_stdin_error_v2(error: DurableStdinErrorV2) -> McpRetentionBackend
 #[cfg(unix)]
 fn map_durable_product_error_v2(error: DurableProductErrorV2) -> McpRetentionBackendErrorV1 {
     match error {
-        DurableProductErrorV2::AuthorityUnavailable => McpRetentionBackendErrorV1::AuthorityLocked,
+        DurableProductErrorV2::AuthorityLocked => McpRetentionBackendErrorV1::AuthorityLocked,
+        DurableProductErrorV2::AuthorityUnavailable => {
+            McpRetentionBackendErrorV1::AuthorityUnavailable
+        }
         DurableProductErrorV2::RollbackOrCorruption => {
             McpRetentionBackendErrorV1::RollbackOrCorruption
         }

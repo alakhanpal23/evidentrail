@@ -11,6 +11,6 @@ The checked-in code now provides:
 - storage-overhead reporting, semantic/public-artifact equality, exact authorized-basis reconciliation, outcome counters, and worst-slice identities; and
 - JSON-serializable raw runs and suite reports.
 
-No hardware performance number is asserted here. The real memory and V2 durable product paths are bound; the latter can run reduced conformance smoke tests. V2 storage currently exposes only `ProcessKeyAuthorityV2`, so the qualification availability check fails closed. A Keychain-backed external authority must land before reference-host measurements are meaningful. Synthetic statistical observations are used only to prove gate logic; they are not benchmark results.
+No hardware performance number is asserted here. The real memory and V2 durable product paths and macOS Keychain authority are bound. Qualification still fails closed until the executable has an Apple-provisioned data-protection Keychain entitlement and the signed binary runs the dedicated-host warm and clean-boot protocol. Synthetic statistical observations are used only to prove gate logic; they are not benchmark results.
 
 The runbook and metric definitions are in [`docs/M1_PERFORMANCE_PROTOCOL.md`](../../docs/M1_PERFORMANCE_PROTOCOL.md).

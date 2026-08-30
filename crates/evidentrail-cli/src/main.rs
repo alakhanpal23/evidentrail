@@ -5,10 +5,14 @@ use std::env;
 use std::fs;
 use std::fs::File;
 use std::io::{self, IsTerminal as _, Read, Write as _};
+#[cfg(target_os = "macos")]
+use std::os::unix::fs::PermissionsExt as _;
 #[cfg(unix)]
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use evidentrail_authority::{CanonicalUnixPathV1, InternalPathPolicyV1, InternalPathRegistryV1};
@@ -16,11 +20,20 @@ use evidentrail_cli::{
     DEFAULT_TOKEN_BUDGET_V1, MAX_QUESTION_BYTES_V1, MAX_STDIN_BYTES_V1, StdinBriefOutcomeV1,
     compile_explicit_stdin_v1, run_mcp_stdio_v1,
 };
+#[cfg(target_os = "macos")]
+use evidentrail_cli::{
+    DurablePublishingMcpRetentionBackendV2, McpRetentionBackendErrorV1,
+    run_mcp_stdio_with_backend_v1,
+};
 use evidentrail_core::UnixTimestampNanos;
 use evidentrail_local_file::{
     discover_local_file_metadata_v1, run_local_file_host_certification_matrix_v1,
 };
+#[cfg(target_os = "macos")]
+use evidentrail_product::DurableProductV2;
 use evidentrail_schema::InternalPathPolicyDigest;
+#[cfg(target_os = "macos")]
+use evidentrail_store::{DurableRepositoryErrorV2, DurableResultRepositoryV2, MacOsKeychainAuthorityV2};
 
 const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] < logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nThe V1 brief command reads only explicit standard input. MCP retention defaults to\nmemory; successful results remain available for bounded expansion until their fixed\n30-minute expiry or process exit. Durable retention is explicit and requires the\nplatform external-authority implementation; it uses the platform Evidentrail cache root.\nDoctor inspects metadata for exactly one explicit file; it never reads file contents,\napproves a source, or mints host certification. The product does not discover files\nbeyond that exact doctor path, crawl a workspace, inspect ambient logs, or invoke a\nmodel. Use --question-file when the question should not appear in the process argument\nlist. V1 conservatively counts one rendered UTF-8 byte as one budget unit; this is not\na model-token count.\n";
 
@@ -414,14 +427,88 @@ fn run_mcp(options: ServeMcpOptions) -> Result<ExitCode, CliFailure> {
 
 #[cfg(target_os = "macos")]
 fn run_durable_mcp_v2() -> Result<ExitCode, CliFailure> {
-    // Resolve and validate the stable platform root before authority setup.
-    // The production backend intentionally cannot fall back to the
-    // process-local conformance authority: doing so would misrepresent
-    // restart visibility and rollback protection.
-    let _repository_root = durable_cache_root_v2()?;
-    Err(CliFailure::runtime(
-        "EVIDENTRAIL_CLI_DURABLE_AUTHORITY_UNAVAILABLE",
-    ))
+    let repository_root = durable_cache_root_v2()?;
+    let authority = MacOsKeychainAuthorityV2::production().map_err(|error| {
+        if error == evidentrail_store::KeyAuthorityErrorV2::Locked {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_LOCKED")
+        } else {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_UNAVAILABLE")
+        }
+    })?;
+    authority.verify_access().map_err(|error| {
+        if error == evidentrail_store::KeyAuthorityErrorV2::Locked {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_LOCKED")
+        } else {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_UNAVAILABLE")
+        }
+    })?;
+    let authority = Arc::new(authority);
+    prepare_durable_cache_parent_v2(&repository_root)?;
+    let repository = DurableResultRepositoryV2::open(&repository_root, authority)
+        .map_err(map_durable_repository_failure_v2)?;
+    let product = DurableProductV2::new(repository);
+    let (backend, _) =
+        DurablePublishingMcpRetentionBackendV2::new_with_startup_recovery(product, unix_now_v1()?)
+            .map_err(map_durable_backend_failure_v2)?;
+    run_mcp_stdio_with_backend_v1(io::stdin().lock(), io::stdout().lock(), backend)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_MCP_STDIO_FAILURE"))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(target_os = "macos")]
+fn prepare_durable_cache_parent_v2(repository_root: &Path) -> Result<(), CliFailure> {
+    let parent = repository_root
+        .parent()
+        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE"))?;
+    match fs::symlink_metadata(parent) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(CliFailure::runtime(
+                "EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE",
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            fs::create_dir(parent)
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE"))?;
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE"))?;
+        }
+        Err(_) => {
+            return Err(CliFailure::runtime(
+                "EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE",
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn map_durable_repository_failure_v2(error: DurableRepositoryErrorV2) -> CliFailure {
+    match error {
+        DurableRepositoryErrorV2::AuthorityLocked => {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_LOCKED")
+        }
+        DurableRepositoryErrorV2::AuthorityUnavailable => {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_UNAVAILABLE")
+        }
+        _ => CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_REPOSITORY_UNAVAILABLE"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn map_durable_backend_failure_v2(error: McpRetentionBackendErrorV1) -> CliFailure {
+    match error {
+        McpRetentionBackendErrorV1::AuthorityLocked => {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_LOCKED")
+        }
+        McpRetentionBackendErrorV1::AuthorityUnavailable => {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_UNAVAILABLE")
+        }
+        McpRetentionBackendErrorV1::RollbackOrCorruption => {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_ROLLBACK_OR_CORRUPTION")
+        }
+        _ => CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_RECOVERY_FAILED"),
+    }
 }
 
 #[cfg(not(target_os = "macos"))]

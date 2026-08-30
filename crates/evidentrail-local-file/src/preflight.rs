@@ -391,9 +391,14 @@ pub(crate) fn snapshot_from_stats(
     let size = u64::try_from(file_stat.st_size)
         .map_err(|_| LocalFilePreflightError::MetadataOutOfRange)?;
     let modified_seconds = file_stat.st_mtime;
-    let modified_nanoseconds = file_stat.st_mtime_nsec;
+    // Linux rustix exposes these fields as u64 while Darwin exposes i64.
+    #[allow(clippy::useless_conversion)]
+    let modified_nanoseconds = i64::try_from(file_stat.st_mtime_nsec)
+        .map_err(|_| LocalFilePreflightError::MetadataOutOfRange)?;
     let changed_seconds = file_stat.st_ctime;
-    let changed_nanoseconds = file_stat.st_ctime_nsec;
+    #[allow(clippy::useless_conversion)]
+    let changed_nanoseconds = i64::try_from(file_stat.st_ctime_nsec)
+        .map_err(|_| LocalFilePreflightError::MetadataOutOfRange)?;
 
     UnixFileSnapshotV1::new(
         root,

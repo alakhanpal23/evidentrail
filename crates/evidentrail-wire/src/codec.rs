@@ -2,11 +2,14 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 #[cfg(feature = "product")]
 use evidentrail_schema::ResultId;
+#[cfg(any(feature = "ledger", feature = "product"))]
 use schemars::JsonSchema;
+#[cfg(any(feature = "ledger", feature = "product"))]
 use serde::{Deserialize, Serialize};
 
 use crate::WireErrorV1;
 
+#[cfg(any(feature = "ledger", feature = "product"))]
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct BinaryWireV1 {
@@ -15,6 +18,7 @@ pub(crate) struct BinaryWireV1 {
     byte_length: u64,
 }
 
+#[cfg(any(feature = "ledger", feature = "product"))]
 impl BinaryWireV1 {
     #[cfg(any(feature = "ledger", feature = "product"))]
     pub(crate) fn encode(bytes: &[u8]) -> Result<Self, WireErrorV1> {

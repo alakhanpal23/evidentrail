@@ -49,6 +49,7 @@ pub enum DurableProductErrorV2 {
     InvalidTime,
     InvalidArtifact,
     RepositoryUnavailable,
+    AuthorityLocked,
     AuthorityUnavailable,
     PublicationFailed,
     ResultUnavailable,
@@ -66,6 +67,7 @@ impl DurableProductErrorV2 {
             Self::InvalidTime => "EVIDENTRAIL_PRODUCT_DURABLE_INVALID_TIME",
             Self::InvalidArtifact => "EVIDENTRAIL_PRODUCT_DURABLE_INVALID_ARTIFACT",
             Self::RepositoryUnavailable => "EVIDENTRAIL_PRODUCT_DURABLE_REPOSITORY_UNAVAILABLE",
+            Self::AuthorityLocked => "EVIDENTRAIL_PRODUCT_DURABLE_AUTHORITY_LOCKED",
             Self::AuthorityUnavailable => "EVIDENTRAIL_PRODUCT_DURABLE_AUTHORITY_UNAVAILABLE",
             Self::PublicationFailed => "EVIDENTRAIL_PRODUCT_DURABLE_PUBLICATION_FAILED",
             Self::ResultUnavailable => "EVIDENTRAIL_PRODUCT_DURABLE_RESULT_UNAVAILABLE",
@@ -209,10 +211,10 @@ impl<A: KeyAuthorityV2> DurableProductV2<A> {
     }
 
     /// Reconcile trusted-authority entries and active filesystem objects at
-    /// startup without exposing a result catalog. Matching published results
-    /// are counted but do not become MCP capabilities: reopening their sealed
-    /// alias products requires the repository product-read API tracked in the
-    /// integration handoff.
+    /// startup without exposing a result catalog. Authenticated published
+    /// alias manifests are reopened into the private capability map so a
+    /// caller that retained a result identity and alias can expand after a
+    /// process or machine restart.
     pub fn reconcile_startup(
         &mut self,
         now: UnixTimestampNanos,
@@ -226,7 +228,14 @@ impl<A: KeyAuthorityV2> DurableProductV2<A> {
         for entry in report.entries() {
             match entry.disposition() {
                 RecoveryDispositionV2::AlreadyVisible
-                | RecoveryDispositionV2::CompletedPublication => summary.visible += 1,
+                | RecoveryDispositionV2::CompletedPublication => {
+                    let aliases = self
+                        .repository
+                        .reopen_published_alias_manifest(entry.result_id(), now)
+                        .map_err(map_repository_error)?;
+                    self.install_recovered_capability(aliases);
+                    summary.visible += 1;
+                }
                 RecoveryDispositionV2::ResumeOpen | RecoveryDispositionV2::ResumeCompilation => {
                     summary.resumable += 1
                 }
@@ -238,6 +247,25 @@ impl<A: KeyAuthorityV2> DurableProductV2<A> {
             }
         }
         Ok(summary)
+    }
+
+    fn install_recovered_capability(&mut self, manifest: DisplayedAliasManifestV1) {
+        let result_id = manifest.result_id();
+        let aliases = manifest
+            .entries()
+            .iter()
+            .map(|entry| FrozenReferenceV1 {
+                reference: entry.reference().clone(),
+                ordered_event_ids: entry.ordered_event_ids().to_vec(),
+            })
+            .collect();
+        self.published.insert(
+            result_id,
+            PublishedCapabilityV2 {
+                expires_at: manifest.expires_at(),
+                aliases,
+            },
+        );
     }
 
     /// Persist the authorized data, run the shared deterministic semantic
@@ -403,11 +431,16 @@ impl<A: KeyAuthorityV2> DurableProductV2<A> {
             }
             _ => return Err(DurableProductErrorV2::PublicationFailed),
         }
-        let authority = self
-            .repository
-            .authority()
-            .snapshot(result_id)
-            .map_err(|_| DurableProductErrorV2::AuthorityUnavailable)?;
+        let authority =
+            self.repository
+                .authority()
+                .snapshot(result_id)
+                .map_err(|error| match error {
+                    evidentrail_store::KeyAuthorityErrorV2::Locked => {
+                        DurableProductErrorV2::AuthorityLocked
+                    }
+                    _ => DurableProductErrorV2::AuthorityUnavailable,
+                })?;
         if authority.state() != ResultLifecycleStateV1::Published
             || authority.publication_generation() == 0
         {
@@ -487,10 +520,9 @@ impl<A: KeyAuthorityV2> DurableProductV2<A> {
         })
     }
 
-    /// Reconcile a caller-presented result at startup without revealing any
-    /// result catalog. V2 store currently cannot reopen the encrypted alias
-    /// product, so a recovered publication remains unavailable for expansion
-    /// until that repository read capability is integrated.
+    /// Reconcile a caller-presented result without revealing any result
+    /// catalog. Startup reconciliation installs all verified published alias
+    /// capabilities; this narrower method exposes only the disposition.
     pub fn recover_presented_result(
         &self,
         result_id: evidentrail_schema::ResultId,
@@ -705,6 +737,7 @@ fn map_repository_error(error: DurableRepositoryErrorV2) -> DurableProductErrorV
         DurableRepositoryErrorV2::AuthorityUnavailable => {
             DurableProductErrorV2::AuthorityUnavailable
         }
+        DurableRepositoryErrorV2::AuthorityLocked => DurableProductErrorV2::AuthorityLocked,
         DurableRepositoryErrorV2::PublicationFailed => DurableProductErrorV2::PublicationFailed,
         DurableRepositoryErrorV2::ResultUnavailable => DurableProductErrorV2::ResultUnavailable,
         DurableRepositoryErrorV2::RollbackOrCorruption

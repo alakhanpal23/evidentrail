@@ -284,6 +284,14 @@ duplicate handling, deletion, locked-Keychain behavior, and prompts for both
 signed and unsigned CLI binaries. The high-level crate API is evidence of API
 surface, not proof of those runtime behaviors.
 
+The V2 spike confirmed that an unsigned command-line host receives
+`errSecMissingEntitlement` when selecting the data-protection Keychain. This is
+the expected Apple platform boundary, not a reason to fall back to the legacy
+file-based Keychain: production packaging must embed an Apple-authorized
+provisioning profile and sign the executable with its Keychain access group.
+The unsigned path maps to a contentless unavailable-authority error. See
+[`MACOS_KEYCHAIN_PROVISIONING.md`](../MACOS_KEYCHAIN_PROVISIONING.md).
+
 `EphemeralKeyProvider` is an in-memory map of random result IDs to zeroizing key
 records. It is compiled only under `cfg(test)` or a non-default internal test
 feature and cannot be selected by a release CLI. It models locked, unavailable,

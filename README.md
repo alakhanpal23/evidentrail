@@ -226,11 +226,10 @@ finished product and not a validated performance claim. It currently provides:
   most 32 successful results and 64 MiB of aggregate source bytes for their
   fixed 30-minute TTL, and loses all sessions at process exit. It does not
   discover a path, invoke a model, or claim durable/cross-process expansion.
-  A library-level injected retention seam can instead serve only
-  `evidentrail_expand` from one explicitly supplied authenticated recovered result,
-  under both modern and legacy MCP handshakes. The default binary deliberately
-  remains memory-only because production key authority and authenticated
-  startup result discovery do not yet exist.
+  Memory remains the default. On macOS, explicit `--retention durable` uses the
+  data-protection Keychain authority and authenticated startup reconciliation;
+  a provisioned release signature is required and unsigned binaries fail
+  closed without falling back to process-only authority.
 
 The legacy bulk-ingestion, path-reopening file adapter, and combined-receipt
 compatibility layer have been deleted. The local-file path is still
@@ -238,11 +237,8 @@ intentionally frozen at public host-certification admission: its descriptor
 engine and 13-cell macOS/APFS evidence matrix are implemented and tested, and
 `evidentrail doctor` exposes only their contentless health evidence, but ordinary
 callers cannot mint the host certification token or read the file. Release work
-still requires a production Keychain
-authority, an independently authenticated key/expected-context catalog,
-configured ciphertext-root startup recovery, rollback and cross-process
-coordination, and the durability gates needed to activate the injected recovery
-backend in the default MCP binary. It also requires non-synthetic preregistered
+still requires Apple-provisioned signing plus the signed/locked/reboot Keychain
+matrix and dedicated-host durability/performance gates. It also requires non-synthetic preregistered
 outcomes with broader downstream reader/tool-loop evaluation, and
 a separately pinned hosted Evidentrail arm when its terms and case policy permit. The
 current governed corpus and pinned-engine resource/output artifacts are method,

@@ -25,15 +25,24 @@ pub struct RealMemoryProductObservationV2 {
 #[serde(rename_all = "snake_case")]
 pub enum RealDurableQualificationAvailabilityV2 {
     Ready,
+    RequiresProvisionedExecutable,
     MissingExternalTrustedAuthority,
 }
 
 #[must_use]
 pub const fn real_durable_qualification_availability_v2() -> RealDurableQualificationAvailabilityV2
 {
-    // The real V2 product path is wired, but storage currently exposes only
-    // ProcessKeyAuthorityV2. It must never be promoted to a qualification root.
-    RealDurableQualificationAvailabilityV2::MissingExternalTrustedAuthority
+    // Compiling the Keychain authority does not grant the host executable a
+    // data-protection Keychain access group. A provisioned release signature
+    // and successful runtime probe remain mandatory qualification evidence.
+    #[cfg(target_os = "macos")]
+    {
+        RealDurableQualificationAvailabilityV2::RequiresProvisionedExecutable
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        RealDurableQualificationAvailabilityV2::MissingExternalTrustedAuthority
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
