@@ -421,6 +421,7 @@ pub(crate) fn snapshot_from_stats(
 }
 
 fn object_id_from_stat(stat: &Stat) -> Result<UnixFileObjectIdV1, LocalFilePreflightError> {
+    #[allow(clippy::useless_conversion)]
     let device =
         u64::try_from(stat.st_dev).map_err(|_| LocalFilePreflightError::MetadataOutOfRange)?;
     let inode = stat.st_ino;
