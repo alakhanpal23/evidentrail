@@ -508,7 +508,17 @@ fn execute_raw_subprocess_impl(
     let mut termination_causes = Vec::new();
     let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => break status,
+            Ok(Some(status)) => {
+                // The harness can be descheduled across the deadline while
+                // the child exits naturally. We cannot prove that the exit
+                // happened before the limit, so fail closed instead of
+                // accepting a receipt whose observed wall time exceeds its
+                // declared cap.
+                if started.elapsed() >= deadline {
+                    termination_causes.push(HarnessTerminationCauseV1::WallDeadline);
+                }
+                break status;
+            }
             Ok(None) => {}
             Err(_) => {
                 force_kill_and_reap(&mut child, process_group)?;
