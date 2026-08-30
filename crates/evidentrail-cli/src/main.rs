@@ -22,7 +22,7 @@ use evidentrail_local_file::{
 };
 use evidentrail_schema::InternalPathPolicyDigest;
 
-const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] < logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp\n\nThe V1 brief command reads only explicit standard input. The memory-only MCP service\naccepts log bytes only when supplied by its caller and retains successful results for\nbounded expansion until their fixed 30-minute expiry or process exit. Doctor inspects\nmetadata for exactly one explicit file; it never reads file contents, approves a source,\nor mints host certification. The product does not discover files beyond that exact\ndoctor path, crawl a workspace, inspect ambient logs, persist results, or invoke a model.\nUse --question-file when the question should not appear in the process argument list. V1\nconservatively counts one rendered UTF-8 byte as one budget unit; this is not a\nmodel-token count.\n";
+const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] < logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nThe V1 brief command reads only explicit standard input. MCP retention defaults to\nmemory; successful results remain available for bounded expansion until their fixed\n30-minute expiry or process exit. Durable retention is explicit and requires the\nplatform external-authority implementation; it uses the platform Evidentrail cache root.\nDoctor inspects metadata for exactly one explicit file; it never reads file contents,\napproves a source, or mints host certification. The product does not discover files\nbeyond that exact doctor path, crawl a workspace, inspect ambient logs, or invoke a\nmodel. Use --question-file when the question should not appear in the process argument\nlist. V1 conservatively counts one rendered UTF-8 byte as one budget unit; this is not\na model-token count.\n";
 
 const DOCTOR_SUCCESS_CODE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_FILE_METADATA_OK";
 const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_INTERNAL_PATH_POLICY_UNAVAILABLE";
@@ -36,10 +36,20 @@ struct DoctorOptions {
     path: PathBuf,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum McpRetentionSelectionV1 {
+    Memory,
+    Durable,
+}
+
+struct ServeMcpOptions {
+    retention: McpRetentionSelectionV1,
+}
+
 enum ParseDecision {
     Run(BriefOptions),
     Doctor(DoctorOptions),
-    ServeMcp,
+    ServeMcp(ServeMcpOptions),
     Help,
     Version,
 }
@@ -92,7 +102,7 @@ fn run() -> Result<ExitCode, CliFailure> {
         }
         ParseDecision::Run(options) => run_brief(options),
         ParseDecision::Doctor(options) => run_doctor(options),
-        ParseDecision::ServeMcp => run_mcp(),
+        ParseDecision::ServeMcp(options) => run_mcp(options),
     }
 }
 
@@ -110,13 +120,31 @@ fn parse_args(
         return Ok(ParseDecision::Version);
     }
     if command == "serve-mcp" {
-        if let Some(argument) = args.next() {
-            if (argument == "--help" || argument == "-h") && args.next().is_none() {
+        let mut retention = McpRetentionSelectionV1::Memory;
+        let mut saw_retention = false;
+        while let Some(argument) = args.next() {
+            if argument == "--retention" {
+                if saw_retention {
+                    return Err(CliFailure::usage("EVIDENTRAIL_CLI_DUPLICATE_OPTION"));
+                }
+                saw_retention = true;
+                let value = args
+                    .next()
+                    .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_CLI_MISSING_OPTION_VALUE"))?;
+                retention = if value == "memory" {
+                    McpRetentionSelectionV1::Memory
+                } else if value == "durable" {
+                    McpRetentionSelectionV1::Durable
+                } else {
+                    return Err(CliFailure::usage("EVIDENTRAIL_CLI_INVALID_RETENTION"));
+                };
+            } else if argument == "--help" || argument == "-h" {
                 return Ok(ParseDecision::Help);
+            } else {
+                return Err(CliFailure::usage("EVIDENTRAIL_CLI_UNKNOWN_OPTION"));
             }
-            return Err(CliFailure::usage("EVIDENTRAIL_CLI_UNKNOWN_OPTION"));
         }
-        return Ok(ParseDecision::ServeMcp);
+        return Ok(ParseDecision::ServeMcp(ServeMcpOptions { retention }));
     }
     if command == "doctor" {
         let mut file = None;
@@ -373,10 +401,56 @@ fn doctor_internal_path_policy_v1() -> Result<InternalPathPolicyV1, CliFailure> 
         .map_err(|_| CliFailure::runtime(DOCTOR_INTERNAL_POLICY_FAILURE_V1))
 }
 
-fn run_mcp() -> Result<ExitCode, CliFailure> {
-    run_mcp_stdio_v1(io::stdin().lock(), io::stdout().lock())
-        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_MCP_STDIO_FAILURE"))?;
-    Ok(ExitCode::SUCCESS)
+fn run_mcp(options: ServeMcpOptions) -> Result<ExitCode, CliFailure> {
+    match options.retention {
+        McpRetentionSelectionV1::Memory => {
+            run_mcp_stdio_v1(io::stdin().lock(), io::stdout().lock())
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_MCP_STDIO_FAILURE"))?;
+            Ok(ExitCode::SUCCESS)
+        }
+        McpRetentionSelectionV1::Durable => run_durable_mcp_v2(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn run_durable_mcp_v2() -> Result<ExitCode, CliFailure> {
+    // Resolve and validate the stable platform root before authority setup.
+    // The production backend intentionally cannot fall back to the
+    // process-local conformance authority: doing so would misrepresent
+    // restart visibility and rollback protection.
+    let _repository_root = durable_cache_root_v2()?;
+    Err(CliFailure::runtime(
+        "EVIDENTRAIL_CLI_DURABLE_AUTHORITY_UNAVAILABLE",
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn run_durable_mcp_v2() -> Result<ExitCode, CliFailure> {
+    Err(CliFailure::runtime(
+        "EVIDENTRAIL_CLI_DURABLE_UNSUPPORTED_PLATFORM",
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn durable_cache_root_v2() -> Result<PathBuf, CliFailure> {
+    let home = env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE"))?;
+    durable_cache_root_for_home_v2(&home)
+}
+
+#[cfg(target_os = "macos")]
+fn durable_cache_root_for_home_v2(home: &Path) -> Result<PathBuf, CliFailure> {
+    if !home.is_absolute() {
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE",
+        ));
+    }
+    Ok(home
+        .join("Library")
+        .join("Caches")
+        .join("ai.evidentrail")
+        .join("results-v2"))
 }
 
 fn run_brief(options: BriefOptions) -> Result<ExitCode, CliFailure> {
@@ -486,11 +560,19 @@ mod tests {
     }
 
     #[test]
-    fn parser_accepts_only_bare_serve_mcp_command() {
-        assert!(matches!(
-            parse_args(["serve-mcp".into()]),
-            Ok(ParseDecision::ServeMcp)
-        ));
+    fn parser_accepts_explicit_mcp_retention_with_memory_default() {
+        match parse_args(["serve-mcp".into()]) {
+            Ok(ParseDecision::ServeMcp(options)) => {
+                assert_eq!(options.retention, McpRetentionSelectionV1::Memory);
+            }
+            _ => panic!("expected MCP decision"),
+        }
+        match parse_args(["serve-mcp".into(), "--retention".into(), "durable".into()]) {
+            Ok(ParseDecision::ServeMcp(options)) => {
+                assert_eq!(options.retention, McpRetentionSelectionV1::Durable);
+            }
+            _ => panic!("expected durable MCP decision"),
+        }
         assert!(matches!(
             parse_args(["serve-mcp".into(), "--help".into()]),
             Ok(ParseDecision::Help)
@@ -501,6 +583,32 @@ mod tests {
                 .unwrap()
                 .code,
             "EVIDENTRAIL_CLI_UNKNOWN_OPTION"
+        );
+        assert_eq!(
+            parse_args(["serve-mcp".into(), "--retention".into(), "forever".into(),])
+                .err()
+                .unwrap()
+                .code,
+            "EVIDENTRAIL_CLI_INVALID_RETENTION"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn durable_cache_root_is_platform_scoped_and_requires_absolute_home() {
+        match durable_cache_root_for_home_v2(Path::new("/Users/tester")) {
+            Ok(root) => assert_eq!(
+                root,
+                PathBuf::from("/Users/tester/Library/Caches/ai.evidentrail/results-v2")
+            ),
+            Err(_) => panic!("absolute home must produce the platform cache root"),
+        }
+        assert_eq!(
+            durable_cache_root_for_home_v2(Path::new("relative"))
+                .err()
+                .unwrap()
+                .code,
+            "EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE"
         );
     }
 

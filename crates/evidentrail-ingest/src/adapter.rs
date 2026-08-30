@@ -10,6 +10,7 @@ use evidentrail_schema::{
 };
 
 use crate::IngestError;
+use crate::{EnvelopeBatchSinkV1, EnvelopeBatchV1};
 
 /// Immutable identity binding supplied to one adapter execution.
 #[derive(Clone, PartialEq, Eq)]
@@ -212,6 +213,65 @@ impl<'a> ExecutionSession<'a> {
         }
         self.final_cursor = cursor;
         AcceptStatus::Acknowledged
+    }
+
+    pub(crate) fn accept_batch(
+        &mut self,
+        sink: &mut dyn EnvelopeBatchSinkV1,
+        batch: &EnvelopeBatchV1,
+    ) -> AcceptStatus {
+        let acknowledged_count = match sink.commit_batch(batch) {
+            Ok(acknowledgements) => acknowledgements.as_slice().len(),
+            Err(error) => {
+                let acknowledged = error.acknowledged_prefix().len();
+                if !self.observe_acknowledged_prefix(batch, acknowledged) {
+                    return AcceptStatus::AdapterStopped;
+                }
+                return AcceptStatus::SinkStopped;
+            }
+        };
+        if acknowledged_count != batch.envelopes().len()
+            || !self.observe_acknowledged_prefix(batch, acknowledged_count)
+        {
+            return AcceptStatus::AdapterStopped;
+        }
+        AcceptStatus::Acknowledged
+    }
+
+    fn observe_acknowledged_prefix(
+        &mut self,
+        batch: &EnvelopeBatchV1,
+        acknowledged_count: usize,
+    ) -> bool {
+        let Some(prefix) = batch.envelopes().get(..acknowledged_count) else {
+            return false;
+        };
+        for envelope in prefix {
+            let Ok(payload_bytes) = u64::try_from(envelope.record().payload_len()) else {
+                return false;
+            };
+            let Ok(source_bytes) = u64::try_from(envelope.record().source_len()) else {
+                return false;
+            };
+            let Some(records) = self.acknowledged_records.checked_add(1) else {
+                return false;
+            };
+            let Some(payload) = self.acknowledged_payload_bytes.checked_add(payload_bytes) else {
+                return false;
+            };
+            let Some(source) = self.acknowledged_source_bytes.checked_add(source_bytes) else {
+                return false;
+            };
+            let cursor = envelope.cursor().cloned();
+            self.acknowledged_records = records;
+            self.acknowledged_payload_bytes = payload;
+            self.acknowledged_source_bytes = source;
+            if self.first_cursor.is_none() {
+                self.first_cursor.clone_from(&cursor);
+            }
+            self.final_cursor = cursor;
+        }
+        true
     }
 
     pub(crate) const fn acknowledged(&self) -> AcknowledgedCounts {

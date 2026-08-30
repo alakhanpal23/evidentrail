@@ -60,6 +60,9 @@ pub const MAX_PROVIDER_ATTESTATION_VALUE_BYTES_V1: usize = 4 * 1024;
 /// applied to input occurrences before exact duplicates are removed.
 pub const MAX_PROVIDER_ATTESTATIONS_PER_EVENT_V1: usize = 64;
 
+/// Largest number of sorted byte-range replacements in one transformation.
+pub const MAX_TRANSFORMATION_OPERATIONS: usize = 256;
+
 /// Largest number of events in one atomic block.
 pub const MAX_EVENT_BLOCK_MEMBERS: usize = 4_096;
 
@@ -112,6 +115,7 @@ mod tests {
         assert_eq!(MAX_NATIVE_METADATA_BYTES, 256 * 1024);
         assert_eq!(MAX_PROVIDER_ATTESTATION_VALUE_BYTES_V1, 4 * 1024);
         assert_eq!(MAX_PROVIDER_ATTESTATIONS_PER_EVENT_V1, 64);
+        assert_eq!(MAX_TRANSFORMATION_OPERATIONS, 256);
         assert_eq!(MAX_EVENT_BLOCK_MEMBERS, 4_096);
         assert_eq!(MAX_RECEIPT_CHUNK_ENTRIES, 4_096);
         assert_eq!(MAX_LOG_BRIEF_EVIDENCE_PACKETS, 512);

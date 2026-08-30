@@ -13,6 +13,8 @@ use evidentrail_wire::{VerifiedLocalFilePlanV1, derive_local_file_source_identit
 use rustix::fd::OwnedFd;
 use rustix::fs::{self, FileType, Mode, OFlags, Stat};
 
+use crate::LocalFileExecutionAdmissionV1;
+
 /// Perform the safe, zero-content-read local-file V1 descriptor preflight.
 ///
 /// This public entrypoint obtains all host facts from the running process and
@@ -20,7 +22,8 @@ use rustix::fs::{self, FileType, Mode, OFlags, Stat};
 /// certification record is frozen in this crate, an otherwise valid plan and
 /// live platform observation end with
 /// [`LocalFilePreflightError::CertificationProfileNotAdmitted`] before any path
-/// access, and no token is issued.
+/// access, and no token is issued. Use [`preflight_admitted_local_file_v1`]
+/// with a fresh process-local live-matrix admission for executable preflight.
 pub fn preflight_local_file_v1<'binding_registry, 'path_registry>(
     plan: &VerifiedLocalFilePlanV1,
     authority: RegistryAuthorizedLocalFilePlanV1<'binding_registry, 'path_registry>,
@@ -29,6 +32,25 @@ pub fn preflight_local_file_v1<'binding_registry, 'path_registry>(
         plan,
         authority,
         &FrozenCertificationAuthorityV1,
+        &LiveFilesystemObserverV1,
+        &SystemWallClockV1,
+        &NoopPathAccessObserverV1,
+        || {},
+    )
+}
+
+/// Perform public executable preflight under an explicit process-local host
+/// admission minted by a fresh successful run of the complete certification
+/// matrix. The admission is checked before any caller path is touched.
+pub fn preflight_admitted_local_file_v1<'binding_registry, 'path_registry>(
+    plan: &VerifiedLocalFilePlanV1,
+    authority: RegistryAuthorizedLocalFilePlanV1<'binding_registry, 'path_registry>,
+    admission: &LocalFileExecutionAdmissionV1,
+) -> Result<PreflightedLocalFileV1<'binding_registry, 'path_registry>, LocalFilePreflightError> {
+    preflight_with(
+        plan,
+        authority,
+        admission,
         &LiveFilesystemObserverV1,
         &SystemWallClockV1,
         &NoopPathAccessObserverV1,
@@ -567,6 +589,27 @@ impl CertificationAuthorityV1 for FrozenCertificationAuthorityV1 {
         // Intentionally empty until the external certification matrix freezes
         // an exact profile digest and allowed Darwin build set.
         Err(LocalFilePreflightError::CertificationProfileNotAdmitted)
+    }
+}
+
+impl CertificationAuthorityV1 for LocalFileExecutionAdmissionV1 {
+    fn admit(
+        &self,
+        profile: LocalFileRuntimeProfileV1,
+        observation: &LivePlatformObservationV1,
+    ) -> Result<LiveHostCertificationV1, LocalFilePreflightError> {
+        let receipt = self.receipt();
+        if receipt.operating_system() != profile.operating_system()
+            || receipt.architecture() != profile.architecture()
+            || receipt.filesystem() != profile.filesystem()
+            || receipt.architecture() != observation.architecture
+            || observation.release.is_empty()
+            || observation.version.is_empty()
+            || receipt.matrix_version() != crate::HOST_CERTIFICATION_MATRIX_VERSION_V1
+        {
+            return Err(LocalFilePreflightError::CertificationProfileNotAdmitted);
+        }
+        Ok(LiveHostCertificationV1 { _private: () })
     }
 }
 

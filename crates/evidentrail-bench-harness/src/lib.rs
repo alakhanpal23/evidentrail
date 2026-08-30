@@ -17,14 +17,18 @@ mod first_party_log_brief;
 mod first_party_subprocess;
 mod hermetic_drain_fixture;
 mod hosted_reader_jsonl;
+mod incident_lab;
 mod matched_representation;
 mod paired_reader;
 mod paired_trials;
 mod peak_rss_observer;
+mod performance_trials;
 mod pinned_matched_case;
 mod process;
 mod public_case_input;
+mod qualification;
 mod reader;
+mod real_product_arm;
 mod submission;
 
 pub use legacy_drain::{
@@ -132,6 +136,15 @@ pub use hosted_reader_jsonl::{
     hosted_reader_prompt_template_artifact_digest_v1,
     hosted_reader_redaction_policy_artifact_digest_v1,
 };
+pub use incident_lab::{
+    EXECUTABLE_INCIDENT_LAB_CONTRACT_VERSION_V1, ExecutableIncidentCaseV1,
+    ExecutableIncidentErrorV1, ExecutableIncidentRunV1, FrozenExecutableIncidentV1,
+    GovernedIncidentOutcomeV1, GovernedIncidentTruthV1, IncidentAgentAnswerV1, IncidentAgentCapsV1,
+    IncidentAgentExecutionV1, IncidentArmDecisionV1, IncidentArmKindV1, IncidentExitExpectationV1,
+    IncidentLogStreamV1, IncidentMethodArtifactV1, IncidentVerificationV1, IncidentVerifierCapsV1,
+    IncidentVerifierExecutionV1, evaluate_governed_incident_v1, execute_incident_agent_v1,
+    execute_incident_verifier_v1, freeze_executable_incident_v1, prepare_incident_method_arms_v1,
+};
 pub use matched_representation::{
     MatchedRepresentationArmReceiptV1, MatchedRepresentationArmV1, MatchedRepresentationArmsV1,
     MatchedRepresentationComparisonV1, MatchedRepresentationErrorV1,
@@ -162,6 +175,17 @@ pub use peak_rss_observer::{
     MACOS_TIME_L_PEAK_RSS_REPORT_FORMAT_VERSION_V1, MacOsTimePeakRssObserverV1,
     MacOsTimePeakRssReceiptV1, PeakRssObserverErrorV1,
 };
+pub use performance_trials::{
+    ArmMeasurementV1, BOOTSTRAP_CONFIDENCE_LEVEL_V1, BenchmarkArmV1, BenchmarkCacheStateV1,
+    BenchmarkExecutionFailureV1, BenchmarkPhaseV1, BenchmarkScaleV1, CompletenessExpectationV1,
+    ConfidenceIntervalV1, DEFAULT_BOOTSTRAP_RESAMPLES_V1, ExpansionMeasurementV1,
+    FrozenMemoryBaselineV1, GateDispositionV1, M1_MEASURED_OBSERVATIONS_V1,
+    M1_WARMUP_OBSERVATIONS_V1, M1GateReportV1, M1PairedRunConfigV1, M1PairedRunV1,
+    M1PerformanceErrorV1, M1PerformanceSuiteReportV1, M1SliceIdentityV1, M1TrialObservationV1,
+    M1TrialOrderV1, M1TrialRequestV1, ProviderFixtureRecordV1, ProviderFixtureStreamV1,
+    ProviderShapeV1, SemanticObservationV1, StorageOverheadV1, evaluate_m1_performance_suite_v1,
+    freeze_memory_baseline_v1, provider_fixture_commitment_v1, run_m1_paired_trials_v1,
+};
 pub use pinned_matched_case::{
     BoundPeakRssObservationV1, FinalizedPinnedDrainMatchedCaseV1, FirstPartyInProcessBuildV1,
     MatchedCostComparisonEligibilityV1, MatchedExecutionScopeV1,
@@ -183,6 +207,14 @@ pub use public_case_input::{
     MAX_CANONICAL_PUBLIC_SOURCE_RECORDS_V1, canonical_public_case_artifact_v1,
     canonical_public_run_manifest_artifact_v1,
 };
+pub use qualification::{
+    AuthorityQualificationV2, BcaOneSidedBoundV2, CacheQualificationV2, ExpansionScalingReportV2,
+    LATENCY_MEASURED_PAIRS_V2, LATENCY_WARMUPS_V2, QUALIFICATION_BCA_RESAMPLES_V2,
+    QualificationArmObservationV2, QualificationEnvironmentV2, QualificationMetricV2,
+    QualificationPairV2, QualificationProtocolV2, QualificationRunReportV2, QualificationRunV2,
+    QualificationThermalStateV2, THROUGHPUT_MEASURED_PAIRS_V2, THROUGHPUT_WARMUPS_V2,
+    evaluate_expansion_scaling_v2, evaluate_qualification_run_v2, qualification_trial_orders_v2,
+};
 pub use reader::{
     DETERMINISTIC_FIXTURE_READER_CONTRACT_VERSION_V1, DeterministicFixtureReaderModeV1,
     DeterministicFixtureReaderV1, FrozenReaderSingleShotReceiptV1, GovernedReaderScoreV1,
@@ -194,6 +226,11 @@ pub use reader::{
     ReaderErrorV1, ReaderMethodArtifactV1, ReaderPromptV1, ReaderPublicInputV1,
     ReaderRepeatabilityReceiptV1, ReaderResourceCapsV1, evaluate_governed_reader_v1,
     execute_deterministic_fixture_reader_v1,
+};
+pub use real_product_arm::{
+    RealDurableQualificationAvailabilityV2, RealMemoryProductObservationV2, RealProductArmErrorV2,
+    execute_real_durable_product_arm_v2, execute_real_memory_product_arm_v2,
+    real_durable_qualification_availability_v2,
 };
 pub use submission::{
     PeakRssProvenanceV1, PublicExternalResultSubmissionV1,

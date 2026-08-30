@@ -7,7 +7,14 @@
 //! typed core-manifest encryption, repository-derived event indexing, exact
 //! authenticated event expansion, key-provider seal binding, and a bounded
 //! canonical sealed-ciphertext export/import substrate without making it a
-//! complete filesystem backend. On Unix, a ciphertext-only filesystem
+//! complete filesystem backend. The V2 Unix durable repository implements the
+//! four-state lifecycle, batch-level sync barriers, independently encrypted
+//! event frames, authenticated indexes, create-only publication, shared read
+//! leases, exclusive destruction, and authority/filesystem reconciliation. It
+//! is generic over `KeyAuthorityV2`; production durable mode must inject a
+//! Keychain-backed authority. `ProcessKeyAuthorityV2` is conformance-only and
+//! is not a rollback anchor. The older V1 APIs remain readable for compatibility.
+//! Separately, a ciphertext-only filesystem
 //! substrate can issue ordered file/directory sync barriers, publish a
 //! create-only canonical name, strictly read it back, and conservatively
 //! quarantine synthetic crash states. That boundary does not claim
@@ -18,6 +25,10 @@
 //! durable-ack claim. The in-memory provider used to exercise that contract is
 //! unavailable unless tests or the non-default `internal-test-provider` feature
 //! explicitly compile it.
+//! Rollback protection trusts the external authority. Rollback of the OS
+//! Keychain itself is outside the V1/V2 threat model. Plaintext/key zeroization
+//! is best-effort memory hygiene and cannot erase allocator copies, kernel
+//! buffers, caches, or swap.
 //! This layer enforces whole-event count and byte bounds. Canonical rendered
 //! token bounds belong to the later evidence renderer and must pass before an
 //! expansion is returned through the product API.
@@ -25,11 +36,14 @@
 mod alias_manifest;
 #[cfg(unix)]
 mod authenticated_restart;
+#[cfg(unix)]
+mod durable_repository_v2;
 mod encrypted_core_repository;
 #[cfg(any(test, feature = "internal-test-provider"))]
 mod ephemeral_key_provider;
 #[cfg(unix)]
 mod filesystem_bundle;
+mod key_authority_v2;
 mod key_provider;
 mod memory;
 mod sealed_bundle;
@@ -44,6 +58,15 @@ pub use authenticated_restart::{
     AuthenticatedFilesystemRecoveryDispositionV1, AuthenticatedFilesystemRecoveryPublicationV1,
     AuthenticatedFilesystemRestartCoordinatorV1, AuthenticatedFilesystemRestartErrorV1,
     RecoveredExactAliasResultV1, RecoveredProductAliasExpansionV1,
+};
+#[cfg(unix)]
+pub use durable_repository_v2::{
+    BatchCommitInputV2, CREATING_RECOVERY_GRACE_NANOS_V2, DataCommitInputV2, DurableBatchCommitV2,
+    DurableEventAcknowledgementV2, DurableEventInputV2, DurableExpansionV2,
+    DurableRepositoryErrorV2, DurableRepositoryFaultInjectorV2, DurableRepositoryFaultPointV2,
+    DurableResultRepositoryV2, MAX_DURABLE_BATCH_EVENTS_V2, MAX_DURABLE_EXPANSION_BYTES_V2,
+    MAX_DURABLE_EXPANSION_EVENTS_V2, NoDurableRepositoryFaultsV2, OpenedDurableEventV2,
+    RecoveryDispositionV2, RecoveryEntryV2, RecoveryReportV2, SealInputV2,
 };
 pub use encrypted_core_repository::{
     EncryptedCoreResultDestroyOutcomeV1, EncryptedCoreResultEventPublicationV1,
@@ -65,6 +88,9 @@ pub use filesystem_bundle::{
     FilesystemSealedBundleErrorV1, FilesystemSealedBundleStoreV1,
     MAX_FILESYSTEM_BUNDLE_DIRECTORY_ENTRIES_V1, sealed_bundle_filename_v1,
     sealed_bundle_temporary_filename_v1,
+};
+pub use key_authority_v2::{
+    AuthorityDestroyOutcomeV2, KeyAuthorityErrorV2, KeyAuthorityV2, ProcessKeyAuthorityV2,
 };
 pub use key_provider::{
     CreatingKeyContextV1, ExpectedKeyContextV1, KeyContextErrorV1, KeyDestroyOutcomeV1,

@@ -14,6 +14,7 @@ internal-test-provider = []
 evidentrail-core.workspace = true
 evidentrail-schema.workspace = true
 evidentrail-snapshot-format.workspace = true
+getrandom.workspace = true
 sha2.workspace = true
 zeroize.workspace = true
 rustix = { workspace = true, features = ["process"] }

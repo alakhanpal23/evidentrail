@@ -120,6 +120,23 @@ fn help_states_the_narrow_explicit_input_contract() {
     assert!(output.stderr.is_empty());
 }
 
+#[test]
+fn durable_mcp_selection_fails_closed_without_platform_authority() {
+    let output = command()
+        .args(["serve-mcp", "--retention", "durable"])
+        .env("HOME", "/tmp/evidentrail-durable-authority-test-home")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let expected = if cfg!(target_os = "macos") {
+        "EVIDENTRAIL_CLI_DURABLE_AUTHORITY_UNAVAILABLE\n"
+    } else {
+        "EVIDENTRAIL_CLI_DURABLE_UNSUPPORTED_PLATFORM\n"
+    };
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), expected);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn doctor_observes_an_unreadable_file_without_leaking_or_granting_authority() {

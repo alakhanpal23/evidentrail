@@ -395,6 +395,12 @@ pub(crate) fn execute_wrapped_raw_subprocess_v1(
     execute_raw_subprocess_impl(spec, Some(wrapper))
 }
 
+pub(crate) fn execute_raw_subprocess_v1(
+    spec: RawSubprocessSpecV1<'_>,
+) -> Result<RawSubprocessExecutionV1, HarnessError> {
+    execute_raw_subprocess_impl(spec, None)
+}
+
 pub(crate) fn public_receipt_from_raw_v1(
     invocation: &PublicSubprocessInvocationV1,
     raw: RawSubprocessExecutionV1,

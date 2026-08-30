@@ -19,8 +19,12 @@ the output contract in [`docs/LOG_BRIEF_CONTRACT.md`](docs/LOG_BRIEF_CONTRACT.md
 the wire/product contract plan in
 [`docs/WIRE_CONTRACT_PLAN.md`](docs/WIRE_CONTRACT_PLAN.md),
 the defensibility plan in [`docs/PRODUCT_MOAT.md`](docs/PRODUCT_MOAT.md),
+the speed and LLM-assistance roadmap in
+[`docs/PRODUCT_ROADMAP.md`](docs/PRODUCT_ROADMAP.md),
 and the current engineering truth in
 [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md).
+The benchmark-only executable coding-agent outcome loop is described in
+[`docs/EXECUTABLE_INCIDENT_LAB.md`](docs/EXECUTABLE_INCIDENT_LAB.md).
 
 ## Current status
 
@@ -113,6 +117,16 @@ finished product and not a validated performance claim. It currently provides:
   raw truncation scores 1.9/8.0 with 0/8 perfect, grep/head/tail 4.2/8.0 with
   3/8, quota hybrid 4.9/8.0 with 3/8, and BM25F-style 1.9/8.0 with 1/8. This is
   synthetic conformance evidence, not a general incident-quality claim;
+- a benchmark-only executable incident episode that runs three deterministic
+  fault families twice through the bounded subprocess boundary, freezes exact
+  20-KiB-class logs, prepares Evidentrail/grep-head-tail/raw-prefix arms under one
+  7,000-byte budget, executes a strict agent protocol, verifies proposed repair
+  invariants in a second process, and joins hidden cause/citation/claim truth
+  only afterward. The conformance agent repairs all three Evidentrail arms; the raw
+  prefix honestly loses the deliberately late database-pool precursor, while
+  grep/head-tail repairs that fixture without gaining source-exact citation
+  authority. One read-only local Codex CLI exploration also solved all three
+  Evidentrail artifacts, but is not preregistered or a comparative quality claim;
 - a benchmark-only, shell-free external subprocess harness and reproducible
   smoke runs against one pinned `legacy-drain` executable, including a forced
   compiled-path 200-event case; the same-case proposal bridge freezes the exact

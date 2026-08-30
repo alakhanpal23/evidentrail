@@ -1,15 +1,11 @@
-//! A bounded product entry point for explicit standard input.
+//! Bounded memory and durable product entry points for explicit standard input.
 //!
-//! The default CLI and MCP server do not reopen a path, crawl a workspace,
-//! inspect ambient logs, or persist a result. The caller owns the exact bytes,
-//! supplies one question, and receives either the canonical deterministic Log
-//! Brief or an honest `needs_more` decision. Resident callers may retain the
-//! returned memory session to serve bounded expansion; the one-shot API
-//! deliberately discards it. On Unix, an explicitly injected library-only
-//! bridge can publish an already-rendered result through the authenticated
-//! ciphertext substrate. That bridge is not selected by the default binary
-//! and makes no Keychain, provider-discovery, rollback, or cross-process
-//! durability claim.
+//! Neither mode reopens a source path, crawls a workspace, nor inspects ambient
+//! logs. The caller owns the exact bytes, supplies one question, and receives
+//! either the canonical deterministic Log Brief or an honest `needs_more`
+//! decision. Memory remains the binary default. On Unix, injected V1 and V2
+//! backends provide authenticated exact expansion; V2 returns a rendered result
+//! only after repository publication authority has been verified.
 
 mod mcp;
 
@@ -31,12 +27,16 @@ use evidentrail_product::{
     CompiledProductResultV1, DeterministicProductDecisionV1, MemoryProductV1,
     RenderedProductResultV1,
 };
+#[cfg(unix)]
+use evidentrail_product::{DurableProductErrorV2, DurableProductV2};
 use evidentrail_schema::ResultId;
 use evidentrail_schema::bounds::{
     JSON_SAFE_INTEGER_MAX, MAX_AUTHORIZED_RECORD_BYTES, MAX_WIRE_OBJECT_BYTES,
 };
 #[cfg(unix)]
 use evidentrail_snapshot_format::ExpectedCoreResultManifestContextV1;
+#[cfg(unix)]
+use evidentrail_store::KeyAuthorityV2;
 use evidentrail_store::{AliasExpansionRequestV1, ExpansionResponseV1, ResultStoreError};
 #[cfg(unix)]
 use evidentrail_store::{
@@ -46,7 +46,10 @@ use evidentrail_store::{
 use sha2::{Digest as _, Sha256};
 
 #[cfg(unix)]
-pub use mcp::AuthenticatedRecoveredMcpRetentionBackendV1;
+pub use mcp::{
+    AuthenticatedPublishingMcpRetentionBackendV1, AuthenticatedRecoveredMcpRetentionBackendV1,
+    DurablePublishingMcpRetentionBackendV2,
+};
 pub use mcp::{
     MCP_PROTOCOL_VERSION_V1, McpAliasExpansionV1, McpExpandedEventV1, McpRetentionBackendErrorV1,
     McpRetentionBackendV1, McpRetentionModeV1, MemoryOnlyMcpRetentionBackendV1, run_mcp_stdio_v1,
@@ -314,6 +317,45 @@ impl fmt::Display for StdinBriefErrorV1 {
 
 impl StdError for StdinBriefErrorV1 {}
 
+/// Contentless failure from the real V2 durable stdin path.
+#[cfg(unix)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DurableStdinErrorV2 {
+    Input(StdinBriefErrorV1),
+    Durable(DurableProductErrorV2),
+}
+
+#[cfg(unix)]
+impl DurableStdinErrorV2 {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Input(error) => error.code(),
+            Self::Durable(error) => error.code(),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl fmt::Debug for DurableStdinErrorV2 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DurableStdinErrorV2")
+            .field("code", &self.code())
+            .finish()
+    }
+}
+
+#[cfg(unix)]
+impl fmt::Display for DurableStdinErrorV2 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.code())
+    }
+}
+
+#[cfg(unix)]
+impl StdError for DurableStdinErrorV2 {}
+
 /// One memory-resident explicit-input product session.
 ///
 /// Keeping this value alive keeps the exact authorized events and the frozen
@@ -324,6 +366,7 @@ impl StdError for StdinBriefErrorV1 {}
 pub struct StdinBriefSessionV1 {
     product: MemoryProductV1,
     outcome: StdinBriefOutcomeV1,
+    created_at: UnixTimestampNanos,
     retention_state: StdinSessionRetentionStateV1,
 }
 
@@ -458,6 +501,14 @@ impl StdinBriefSessionV1 {
         self.outcome.expires_at()
     }
 
+    /// Exact execution instant used to construct this result's immutable
+    /// lifetime. Authenticated publication uses this value rather than a
+    /// later wall-clock observation or TTL subtraction.
+    #[must_use]
+    pub const fn created_at(&self) -> UnixTimestampNanos {
+        self.created_at
+    }
+
     /// Expand a published short evidence alias inside this session's retained
     /// product. The request remains explicitly result-scoped and bounded by
     /// the store contract.
@@ -589,6 +640,69 @@ pub fn compile_explicit_stdin_retained_v1(
     identity_seed: [u8; 32],
     now: UnixTimestampNanos,
 ) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
+    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
+    let PreparedExplicitStdinV1 {
+        result_id,
+        ledger,
+        record_count,
+        source_byte_count,
+    } = prepared;
+    let mut product = MemoryProductV1::new();
+    let decision = product
+        .create_deterministic_result_v1(result_id, question, ledger, now, token_budget)
+        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
+
+    let (outcome, retention_state) =
+        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
+    Ok(StdinBriefSessionV1 {
+        product,
+        outcome,
+        created_at: now,
+        retention_state,
+    })
+}
+
+/// Compile through the same deterministic product path as memory mode, but
+/// return the public outcome only after the injected V2 repository has
+/// durably advanced and reread matching `PUBLISHED` authority.
+#[cfg(unix)]
+pub fn compile_explicit_stdin_durable_v2<A: KeyAuthorityV2>(
+    product: &mut DurableProductV2<A>,
+    input: &[u8],
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+) -> Result<StdinBriefOutcomeV1, DurableStdinErrorV2> {
+    let PreparedExplicitStdinV1 {
+        result_id,
+        ledger,
+        record_count,
+        source_byte_count,
+    } = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)
+        .map_err(DurableStdinErrorV2::Input)?;
+    let decision = product
+        .create_deterministic_result_v2(result_id, question, ledger, now, token_budget)
+        .map_err(DurableStdinErrorV2::Durable)?;
+    retained_outcome_v1(decision, result_id, record_count, source_byte_count)
+        .map(|(outcome, _)| outcome)
+        .map_err(DurableStdinErrorV2::Input)
+}
+
+struct PreparedExplicitStdinV1 {
+    result_id: ResultId,
+    ledger: evidentrail_core::EventLedger,
+    record_count: u64,
+    source_byte_count: u64,
+}
+
+fn prepare_explicit_stdin_v1(
+    input: &[u8],
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+) -> Result<PreparedExplicitStdinV1, StdinBriefErrorV1> {
     if input.is_empty() {
         return Err(StdinBriefErrorV1::EmptyInput);
     }
@@ -698,12 +812,21 @@ pub fn compile_explicit_stdin_retained_v1(
     let ledger = builder
         .seal(completion)
         .map_err(|_| StdinBriefErrorV1::LedgerConstruction)?;
-    let mut product = MemoryProductV1::new();
-    let decision = product
-        .create_deterministic_result_v1(result_id, question, ledger, now, token_budget)
-        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
+    Ok(PreparedExplicitStdinV1 {
+        result_id,
+        ledger,
+        record_count,
+        source_byte_count,
+    })
+}
 
-    let (outcome, retention_state) = match decision {
+fn retained_outcome_v1(
+    decision: DeterministicProductDecisionV1,
+    result_id: ResultId,
+    record_count: u64,
+    source_byte_count: u64,
+) -> Result<(StdinBriefOutcomeV1, StdinSessionRetentionStateV1), StdinBriefErrorV1> {
+    Ok(match decision {
         DeterministicProductDecisionV1::Passthrough(rendered) => {
             let expires_at = rendered.expires_at();
             let evidence_alias_count = u64::try_from(rendered.references().count())
@@ -752,11 +875,6 @@ pub fn compile_explicit_stdin_retained_v1(
             }),
             StdinSessionRetentionStateV1::NeedsMore,
         ),
-    };
-    Ok(StdinBriefSessionV1 {
-        product,
-        outcome,
-        retention_state,
     })
 }
 

@@ -20,6 +20,10 @@ pub const LOCAL_FILE_HOST_MATRIX_ALL_CELLS_PASSED_CODE_V1: &str =
 /// Stable reminder that matrix evidence is not public-preflight admission.
 pub const LOCAL_FILE_HOST_MATRIX_PREFLIGHT_NOT_ADMITTED_CODE_V1: &str =
     "EVIDENTRAIL_LOCAL_HOST_MATRIX_EVIDENCE_ONLY_PREFLIGHT_NOT_ADMITTED";
+/// Stable status for an explicit process-local admission minted only after a
+/// successful live execution of every frozen matrix cell.
+pub const LOCAL_FILE_HOST_EXECUTION_ADMITTED_CODE_V1: &str =
+    "EVIDENTRAIL_LOCAL_HOST_EXECUTION_ADMITTED_AFTER_LIVE_MATRIX";
 const LOCAL_FILE_HOST_IDENTITY_DOMAIN_V1: &str = "evidentrail/local-file/host-identity/v1";
 const RECEIPT_DIGEST_PREFIX_V1: &str = "local_file_host_matrix_receipt_sha256_";
 
@@ -333,6 +337,46 @@ pub fn run_local_file_host_certification_matrix_v1()
     }
 }
 
+/// Process-local executable admission minted from a successful live matrix
+/// run. It is intentionally non-serializable and cannot be reconstructed from
+/// the receipt digest alone.
+pub struct LocalFileExecutionAdmissionV1 {
+    receipt: LocalFileHostCertificationReceiptV1,
+}
+
+impl LocalFileExecutionAdmissionV1 {
+    #[must_use]
+    pub const fn status_code(&self) -> &'static str {
+        LOCAL_FILE_HOST_EXECUTION_ADMITTED_CODE_V1
+    }
+
+    #[must_use]
+    pub(crate) const fn receipt(&self) -> &LocalFileHostCertificationReceiptV1 {
+        &self.receipt
+    }
+}
+
+impl fmt::Debug for LocalFileExecutionAdmissionV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LocalFileExecutionAdmissionV1")
+            .field("live_matrix_passed", &true)
+            .field("process_local", &true)
+            .field("serializable", &false)
+            .field("status_code", &self.status_code())
+            .finish()
+    }
+}
+
+/// Run the complete live host matrix and mint a non-serializable admission
+/// only if every cell passes. A cached receipt or caller assertion is never
+/// accepted by this boundary.
+pub fn admit_current_local_file_host_v1()
+-> Result<LocalFileExecutionAdmissionV1, LocalFileHostCertificationMatrixErrorV1> {
+    run_local_file_host_certification_matrix_v1()
+        .map(|receipt| LocalFileExecutionAdmissionV1 { receipt })
+}
+
 fn derive_host_identity_digest(fields: &[&[u8]]) -> LocalFileHostIdentityDigestV1 {
     let mut body = Vec::new();
     for field in fields {
@@ -463,6 +507,19 @@ mod tests {
         assert_eq!(error.code(), "EVIDENTRAIL_LOCAL_HOST_MATRIX_CELL_FAILED");
         assert!(!error_text.contains("CONTENT_CANARY"));
         assert!(!error_text.contains("PATH_CANARY"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn executable_admission_requires_a_fresh_live_matrix_and_is_contentless() {
+        let admission = admit_current_local_file_host_v1().unwrap();
+        assert_eq!(
+            admission.status_code(),
+            "EVIDENTRAIL_LOCAL_HOST_EXECUTION_ADMITTED_AFTER_LIVE_MATRIX"
+        );
+        let debug = format!("{admission:?}");
+        assert!(!debug.contains("local_file_host_matrix_receipt_sha256_"));
+        assert!(!debug.contains("PATH_CANARY"));
     }
 
     #[cfg(target_os = "macos")]

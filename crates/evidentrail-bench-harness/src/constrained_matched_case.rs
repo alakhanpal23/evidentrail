@@ -1034,8 +1034,7 @@ fn generate_records_v1() -> Result<(Vec<GeneratedRecordV1>, Vec<u8>), Constraine
         &mut lane_sequences,
         RuntimeLaneV1::GoLog,
         format!(
-            "2026-08-24T12:00:00Z INFO evidentrail-bench constrained-generator-v1 seed={} runtimes=python,jvm,rust,go",
-            CONSTRAINED_MATCHED_GENERATOR_SEED_V1
+            "2026-08-24T12:00:00Z INFO evidentrail-bench constrained-generator-v1 seed={CONSTRAINED_MATCHED_GENERATOR_SEED_V1} runtimes=python,jvm,rust,go"
         )
         .into_bytes(),
         b"\n".to_vec(),

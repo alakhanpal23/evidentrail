@@ -10,6 +10,9 @@ pub enum IngestError {
     InvalidLimit,
     InvalidFetchCompletion,
     InvalidReplayFixture,
+    AdapterIdentityMismatch,
+    InvalidBatch,
+    ProviderInvariantViolation,
 }
 
 impl IngestError {
@@ -20,6 +23,9 @@ impl IngestError {
             Self::InvalidLimit => "EVIDENTRAIL_INGEST_INVALID_LIMIT",
             Self::InvalidFetchCompletion => "EVIDENTRAIL_INGEST_INVALID_FETCH_COMPLETION",
             Self::InvalidReplayFixture => "EVIDENTRAIL_INGEST_INVALID_REPLAY_FIXTURE",
+            Self::AdapterIdentityMismatch => "EVIDENTRAIL_INGEST_ADAPTER_IDENTITY_MISMATCH",
+            Self::InvalidBatch => "EVIDENTRAIL_INGEST_INVALID_BATCH",
+            Self::ProviderInvariantViolation => "EVIDENTRAIL_INGEST_PROVIDER_INVARIANT_VIOLATION",
         }
     }
 }

@@ -827,6 +827,63 @@ latency, recovery time, and delete time across event-size/cardinality strata.
 They tune segment caps only; they cannot relax the acknowledgment barrier or
 security gates.
 
+## V2 production-qualification addendum
+
+The V2 commitment hierarchy is non-circular. The data manifest commits the
+immutable authorized acquisition basis, batch chain, authenticated event index,
+receipts, source identity, question/configuration, and build context. Product
+frames commit the Log Brief, references, presentation receipt, status, and
+alias authorization. The final manifest commits those data/product roots and
+the repository commitment excludes its own digest field. The external authority
+seals the final commitments before rename and advances the publication
+generation only after the final directory and results parent are synchronized.
+
+Exact retry history lives for the entire result lifetime, including after
+publication, so `(ResultId, operation ID, ordinal, canonical digest)` can return
+the original acknowledgement while changed bytes fail closed. Cleanup destroys
+external key authority before ciphertext and removes retry history only as part
+of that terminal crypto-erasure operation.
+
+The V2 event index is a sorted directory of encrypted shards, with at most
+16,384 fixed-width entries per shard and at most 62 shards for the one-million
+event cap. Every shard remains below the 8-MiB frame plaintext limit. Directory
+descriptors bind ordinal, EventId range, count, authorized-byte total, encoded
+length, and shard digest; point expansion scans fixed headers and decrypts only
+the requested shards. Each durable batch also ends with an encrypted canonical
+journal that binds the operation/digest, nonce reservation, and exact
+acknowledgement locators. The authority record persists one pending reservation
+across a crash until its segment is synchronized, and the trusted authority—not
+the repository caller—allocates the monotonic repository-wide publication
+generation.
+
+Recovery implements the authority/filesystem crash table as reconciliation,
+not as an inferred transaction. Missing authority never opens ciphertext;
+sealed authority may complete the create-only rename; published authority
+admits reads only when the final repository commitment matches; conflicting
+active objects are quarantined. `DATA_COMMITTED` compilation resumes only with
+an identical build context. No recovery path silently falls back to memory,
+another filesystem copy, or a source reread.
+
+The single-user stdio authorization boundary is possession plus independent
+manifest authorization: callers present a previously returned ResultId and
+alias, the alias manifest is authenticated and result-scoped, and there is no
+result enumeration or socket service. Identifier possession alone is not an
+authorization decision.
+
+Rollback resistance covers replacement or replay of repository files while the
+external Keychain authority remains trusted. Restoring or rolling back the OS
+Keychain itself is outside the V2 threat model and must not be implied by a
+qualification report. `ProcessKeyAuthorityV2` is a deterministic conformance
+double, never a production rollback anchor.
+
+Production performance qualification requires a dedicated macOS reference
+host, a Keychain-backed authority, nominal thermal state, and the frozen
+memory/durable semantic baseline. Throughput uses 30 randomized pairs after
+five warmups; latency uses 200 pairs after ten warmups. Paired BCa one-sided
+95% bounds use 20,000 resamples. Cold-cache observations run one arm per clean
+boot from pre-staged byte-identical fixture copies. Ordinary CI runs reduced
+functional/performance smoke tests and cannot create a release claim.
+
 ## Unresolved choices and required spikes
 
 These are explicit blockers or bounded follow-ups, not implicit assumptions:
@@ -840,8 +897,9 @@ These are explicit blockers or bounded follow-ups, not implicit assumptions:
    binaries. Failure of any required property blocks the persistent backend.
 3. **Cross-process locking:** admit `fs4` only after crash release, shared versus
    exclusive contention, rename/delete, network-volume rejection, and MSRV tests.
-4. **Encrypted manifest codec:** select a deterministic, bounded, versioned
-   representation and freeze golden vectors. The outer fixed codec is decided.
+4. **Additional manifest components:** the deterministic bounded V2 data/final
+   manifests, sharded event index, and batch journal codecs are fixed. Any new
+   component must receive its own bounded versioned codec and golden vectors.
 5. **Interrupted acquisition schema:** add or select a truthful typed completion
    state before recovery may automatically publish an interrupted prefix.
 6. **Cache availability:** the Phase 1 cache location permits OS purging. A

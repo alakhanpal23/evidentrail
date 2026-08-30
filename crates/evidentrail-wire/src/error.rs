@@ -1,6 +1,58 @@
 use std::error::Error as StdError;
 use std::fmt;
 
+/// Stable, contentless public failure classes shared by all wire families.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum WireErrorV1 {
+    EmptyDocument,
+    DocumentTooLarge,
+    Malformed,
+    NonCanonical,
+    UnsupportedContract,
+    UnsupportedVersion,
+    SemanticallyInvalid,
+    IdentityMismatch,
+    CrossContext,
+    ReissueRequired,
+    CanonicalizationFailed,
+}
+
+impl WireErrorV1 {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::EmptyDocument => "EVIDENTRAIL_WIRE_EMPTY_DOCUMENT",
+            Self::DocumentTooLarge => "EVIDENTRAIL_WIRE_DOCUMENT_TOO_LARGE",
+            Self::Malformed => "EVIDENTRAIL_WIRE_MALFORMED",
+            Self::NonCanonical => "EVIDENTRAIL_WIRE_NONCANONICAL",
+            Self::UnsupportedContract => "EVIDENTRAIL_WIRE_UNSUPPORTED_CONTRACT",
+            Self::UnsupportedVersion => "EVIDENTRAIL_WIRE_UNSUPPORTED_VERSION",
+            Self::SemanticallyInvalid => "EVIDENTRAIL_WIRE_SEMANTICALLY_INVALID",
+            Self::IdentityMismatch => "EVIDENTRAIL_WIRE_IDENTITY_MISMATCH",
+            Self::CrossContext => "EVIDENTRAIL_WIRE_CROSS_CONTEXT",
+            Self::ReissueRequired => "EVIDENTRAIL_WIRE_REISSUE_REQUIRED",
+            Self::CanonicalizationFailed => "EVIDENTRAIL_WIRE_CANONICALIZATION_FAILED",
+        }
+    }
+}
+
+impl fmt::Debug for WireErrorV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WireErrorV1")
+            .field("code", &self.code())
+            .finish()
+    }
+}
+
+impl fmt::Display for WireErrorV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.code())
+    }
+}
+
+impl StdError for WireErrorV1 {}
+
 /// Contentless failures produced while encoding or verifying a local-file
 /// query-plan wire object.
 #[derive(Clone, Copy, PartialEq, Eq)]

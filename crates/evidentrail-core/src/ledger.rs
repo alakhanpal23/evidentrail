@@ -14,6 +14,7 @@ use evidentrail_schema::{
 
 use crate::ack::expected_source_record_id;
 use crate::hash::{acquisition_receipt_id, authorized_content_hash, event_id};
+use crate::transformation::{PreparedTransformationReceiptV1, TransformationReceiptV1};
 
 /// Explicit result of applying a deterministic local policy to one envelope.
 #[derive(Clone, PartialEq, Eq)]
@@ -26,6 +27,12 @@ pub enum PolicyAuthorization {
         policy_digest: PolicyDigest,
         transformation_receipt_id: TransformationReceiptId,
     },
+    /// Constructor-verified replacement receipt. The sink binds it to the
+    /// resulting event and retains the sealed record in the ledger.
+    PostPolicyReceipt {
+        authorized_record: RecordBytes,
+        transformation_receipt: PreparedTransformationReceiptV1,
+    },
     /// Retain no payload and make no content-derived commitment.
     OmittedByPolicy { policy_digest: PolicyDigest },
 }
@@ -35,7 +42,7 @@ impl PolicyAuthorization {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::SourceExact => "source_exact",
-            Self::PostPolicy { .. } => "post_policy",
+            Self::PostPolicy { .. } | Self::PostPolicyReceipt { .. } => "post_policy",
             Self::OmittedByPolicy { .. } => "omitted_by_policy",
         }
     }
@@ -226,6 +233,7 @@ pub enum LedgerBuildError {
     ByteCountOverflow,
     SourceRecordIdCollision(SourceRecordId),
     EventIdCollision(EventId),
+    TransformationReceiptCollision,
     CompletionIdentityMismatch,
     CompletionRecordCountMismatch,
     CompletionPayloadByteCountMismatch,
@@ -253,6 +261,7 @@ impl LedgerBuildError {
             Self::ByteCountOverflow => "EVIDENTRAIL_LEDGER_BYTE_COUNT_OVERFLOW",
             Self::SourceRecordIdCollision(_) => "EVIDENTRAIL_LEDGER_SOURCE_RECORD_ID_COLLISION",
             Self::EventIdCollision(_) => "EVIDENTRAIL_LEDGER_EVENT_ID_COLLISION",
+            Self::TransformationReceiptCollision => "EVIDENTRAIL_LEDGER_TRANSFORMATION_RECEIPT_COLLISION",
             Self::CompletionIdentityMismatch => "EVIDENTRAIL_LEDGER_COMPLETION_IDENTITY_MISMATCH",
             Self::CompletionRecordCountMismatch => "EVIDENTRAIL_LEDGER_COMPLETION_RECORD_COUNT_MISMATCH",
             Self::CompletionPayloadByteCountMismatch => {
@@ -367,6 +376,7 @@ pub struct LedgerBuilder<P> {
     source_record_ids: BTreeSet<SourceRecordId>,
     expected_source_records: Vec<SourceRecordId>,
     acquisition_assignments: Vec<AcquisitionOutcomeAssignment>,
+    transformation_receipts: BTreeMap<TransformationReceiptId, TransformationReceiptV1>,
     events: Vec<Event>,
     positions: BTreeMap<EventId, usize>,
     acknowledged_records: u64,
@@ -406,6 +416,7 @@ where
             source_record_ids: BTreeSet::new(),
             expected_source_records: Vec::new(),
             acquisition_assignments: Vec::new(),
+            transformation_receipts: BTreeMap::new(),
             events: Vec::new(),
             positions: BTreeMap::new(),
             acknowledged_records: 0,
@@ -466,6 +477,7 @@ where
             completion,
             acquisition_receipt_id,
             acquisition_receipt,
+            transformation_receipts: self.transformation_receipts,
             events: self.events,
             positions: self.positions,
             lane_positions,
@@ -547,32 +559,68 @@ where
         }
 
         let authorization = self.policy.authorize(&envelope);
-        let (outcome, authorized_byte_count, event) = match authorization {
-            PolicyAuthorization::SourceExact => self.persist_authorized(
-                &envelope,
-                envelope.record().clone(),
-                ExactnessBasis::SourceExact,
-                source_record_id,
-            )?,
+        let (outcome, authorized_byte_count, event, transformation_receipt) = match authorization {
+            PolicyAuthorization::SourceExact => self
+                .persist_authorized(
+                    &envelope,
+                    envelope.record().clone(),
+                    ExactnessBasis::SourceExact,
+                    source_record_id,
+                )?
+                .with_receipt(None),
             PolicyAuthorization::PostPolicy {
                 authorized_record,
                 policy_digest,
                 transformation_receipt_id,
-            } => self.persist_authorized(
-                &envelope,
+            } => self
+                .persist_authorized(
+                    &envelope,
+                    authorized_record,
+                    ExactnessBasis::PostPolicy {
+                        policy_digest,
+                        transformation_receipt_id,
+                    },
+                    source_record_id,
+                )?
+                .with_receipt(None),
+            PolicyAuthorization::PostPolicyReceipt {
                 authorized_record,
-                ExactnessBasis::PostPolicy {
-                    policy_digest,
-                    transformation_receipt_id,
-                },
-                source_record_id,
-            )?,
+                transformation_receipt,
+            } => {
+                let exactness = ExactnessBasis::PostPolicy {
+                    policy_digest: transformation_receipt.policy_digest(),
+                    transformation_receipt_id: transformation_receipt.id(),
+                };
+                let persisted = self.persist_authorized(
+                    &envelope,
+                    authorized_record,
+                    exactness,
+                    source_record_id,
+                )?;
+                let event_id = persisted
+                    .2
+                    .as_ref()
+                    .expect("authorized persistence returns an event")
+                    .id();
+                persisted.with_receipt(Some(transformation_receipt.bind(event_id)))
+            }
             PolicyAuthorization::OmittedByPolicy { policy_digest } => (
                 AcquisitionOutcome::OmittedByPolicy { policy_digest },
                 0,
                 None,
+                None,
             ),
         };
+
+        if let Some(receipt) = transformation_receipt {
+            if self
+                .transformation_receipts
+                .insert(receipt.id(), receipt)
+                .is_some()
+            {
+                return Err(LedgerBuildError::TransformationReceiptCollision);
+            }
+        }
 
         if let Some(event) = event {
             self.positions.insert(event.id, self.events.len());
@@ -599,6 +647,32 @@ where
             authorized_byte_count,
             outcome,
         ))
+    }
+}
+
+trait WithTransformationReceipt {
+    fn with_receipt(
+        self,
+        receipt: Option<TransformationReceiptV1>,
+    ) -> (
+        AcquisitionOutcome,
+        u64,
+        Option<Event>,
+        Option<TransformationReceiptV1>,
+    );
+}
+
+impl WithTransformationReceipt for (AcquisitionOutcome, u64, Option<Event>) {
+    fn with_receipt(
+        self,
+        receipt: Option<TransformationReceiptV1>,
+    ) -> (
+        AcquisitionOutcome,
+        u64,
+        Option<Event>,
+        Option<TransformationReceiptV1>,
+    ) {
+        (self.0, self.1, self.2, receipt)
     }
 }
 
@@ -670,6 +744,7 @@ pub struct EventLedger {
     completion: FetchCompletion,
     acquisition_receipt_id: AcquisitionReceiptId,
     acquisition_receipt: AcquisitionReceipt,
+    transformation_receipts: BTreeMap<TransformationReceiptId, TransformationReceiptV1>,
     events: Vec<Event>,
     positions: BTreeMap<EventId, usize>,
     lane_positions: BTreeMap<LaneKey, Vec<usize>>,
@@ -728,6 +803,22 @@ impl EventLedger {
     #[must_use]
     pub const fn acquisition_receipt_id(&self) -> AcquisitionReceiptId {
         self.acquisition_receipt_id
+    }
+
+    /// Sealed transformation records keyed by their recomputed identities.
+    #[must_use]
+    pub fn transformation_receipts(
+        &self,
+    ) -> impl ExactSizeIterator<Item = &TransformationReceiptV1> {
+        self.transformation_receipts.values()
+    }
+
+    #[must_use]
+    pub fn transformation_receipt(
+        &self,
+        id: TransformationReceiptId,
+    ) -> Option<&TransformationReceiptV1> {
+        self.transformation_receipts.get(&id)
     }
 
     #[must_use]
@@ -834,6 +925,168 @@ impl EventLedger {
             events,
         })
     }
+
+    /// Validate every derived identity and join before exposing an export view.
+    pub fn checked_export_v1(
+        &self,
+    ) -> Result<CheckedSealedLedgerViewV1<'_>, LedgerIntegrityErrorV1> {
+        validate_sealed_ledger(self)?;
+        Ok(CheckedSealedLedgerViewV1 { ledger: self })
+    }
+}
+
+/// Read-only export authority available only after complete reconciliation.
+pub struct CheckedSealedLedgerViewV1<'ledger> {
+    ledger: &'ledger EventLedger,
+}
+impl<'ledger> CheckedSealedLedgerViewV1<'ledger> {
+    #[must_use]
+    pub const fn ledger(&self) -> &'ledger EventLedger {
+        self.ledger
+    }
+}
+impl fmt::Debug for CheckedSealedLedgerViewV1<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CheckedSealedLedgerViewV1")
+            .field("event_count", &self.ledger.len())
+            .field(
+                "transformation_receipt_count",
+                &self.ledger.transformation_receipts.len(),
+            )
+            .finish()
+    }
+}
+
+/// Consume an already constructor-built ledger and recheck all derived state.
+/// Importers must first reconstruct through `LedgerBuilder`; this function
+/// never assigns a private event, receipt, or index field from decoded data.
+pub fn checked_sealed_ledger_import_v1(
+    ledger: EventLedger,
+) -> Result<EventLedger, LedgerIntegrityErrorV1> {
+    validate_sealed_ledger(&ledger)?;
+    Ok(ledger)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum LedgerIntegrityErrorV1 {
+    OrderingMismatch,
+    ContentHashMismatch,
+    EventIdentityMismatch,
+    AcquisitionReceiptMismatch,
+    TransformationReceiptMissing,
+    TransformationReceiptDuplicate,
+    TransformationReceiptMismatch,
+}
+impl LedgerIntegrityErrorV1 {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::OrderingMismatch => "EVIDENTRAIL_LEDGER_INTEGRITY_ORDERING_MISMATCH",
+            Self::ContentHashMismatch => "EVIDENTRAIL_LEDGER_INTEGRITY_CONTENT_HASH_MISMATCH",
+            Self::EventIdentityMismatch => "EVIDENTRAIL_LEDGER_INTEGRITY_EVENT_IDENTITY_MISMATCH",
+            Self::AcquisitionReceiptMismatch => {
+                "EVIDENTRAIL_LEDGER_INTEGRITY_ACQUISITION_RECEIPT_MISMATCH"
+            }
+            Self::TransformationReceiptMissing => {
+                "EVIDENTRAIL_LEDGER_INTEGRITY_TRANSFORMATION_RECEIPT_MISSING"
+            }
+            Self::TransformationReceiptDuplicate => {
+                "EVIDENTRAIL_LEDGER_INTEGRITY_TRANSFORMATION_RECEIPT_DUPLICATE"
+            }
+            Self::TransformationReceiptMismatch => {
+                "EVIDENTRAIL_LEDGER_INTEGRITY_TRANSFORMATION_RECEIPT_MISMATCH"
+            }
+        }
+    }
+}
+impl fmt::Debug for LedgerIntegrityErrorV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LedgerIntegrityErrorV1")
+            .field("code", &self.code())
+            .finish()
+    }
+}
+impl fmt::Display for LedgerIntegrityErrorV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.code())
+    }
+}
+impl StdError for LedgerIntegrityErrorV1 {}
+
+fn validate_sealed_ledger(ledger: &EventLedger) -> Result<(), LedgerIntegrityErrorV1> {
+    let mut prior_acquisition = None;
+    let mut seen_events = BTreeSet::new();
+    for (position, event) in ledger.events.iter().enumerate() {
+        if event.ordinal != position as u64
+            || ledger.positions.get(&event.id) != Some(&position)
+            || prior_acquisition.is_some_and(|prior| event.acquisition_sequence.get() <= prior)
+        {
+            return Err(LedgerIntegrityErrorV1::OrderingMismatch);
+        }
+        prior_acquisition = Some(event.acquisition_sequence.get());
+        if authorized_content_hash(event.raw()) != event.content_hash {
+            return Err(LedgerIntegrityErrorV1::ContentHashMismatch);
+        }
+        if event_id(
+            ledger.retrieval_id,
+            event.source_record_id,
+            event.content_hash,
+            event.exactness_basis,
+            &event.provider_attestations,
+        ) != event.id
+        {
+            return Err(LedgerIntegrityErrorV1::EventIdentityMismatch);
+        }
+        seen_events.insert(event.id);
+    }
+    if acquisition_receipt_id(&ledger.acquisition_receipt) != ledger.acquisition_receipt_id {
+        return Err(LedgerIntegrityErrorV1::AcquisitionReceiptMismatch);
+    }
+    let mut receipt_events = BTreeSet::new();
+    for entry in ledger.acquisition_receipt.entries() {
+        if let AcquisitionOutcome::Persisted {
+            event_id,
+            exactness_basis,
+        } = entry.outcome()
+        {
+            let event = ledger
+                .event(*event_id)
+                .map_err(|_| LedgerIntegrityErrorV1::AcquisitionReceiptMismatch)?;
+            if event.source_record_id != entry.source_record_id()
+                || event.exactness_basis != *exactness_basis
+            {
+                return Err(LedgerIntegrityErrorV1::AcquisitionReceiptMismatch);
+            }
+            seen_events.remove(event_id);
+            if let ExactnessBasis::PostPolicy {
+                policy_digest,
+                transformation_receipt_id,
+            } = exactness_basis
+            {
+                let receipt = ledger
+                    .transformation_receipts
+                    .get(transformation_receipt_id)
+                    .ok_or(LedgerIntegrityErrorV1::TransformationReceiptMissing)?;
+                if !receipt_events.insert(receipt.resulting_event_id()) {
+                    return Err(LedgerIntegrityErrorV1::TransformationReceiptDuplicate);
+                }
+                if receipt.resulting_event_id() != *event_id
+                    || receipt.policy_digest() != *policy_digest
+                    || receipt.output_content_hash() != event.content_hash
+                    || receipt.output_length() != event.raw.len() as u64
+                    || receipt.output_payload_length() != event.payload_len as u64
+                    || receipt.output_terminator_length()
+                        != event.terminator_len.map(|value| value as u64)
+                {
+                    return Err(LedgerIntegrityErrorV1::TransformationReceiptMismatch);
+                }
+            }
+        }
+    }
+    if !seen_events.is_empty() || receipt_events.len() != ledger.transformation_receipts.len() {
+        return Err(LedgerIntegrityErrorV1::AcquisitionReceiptMismatch);
+    }
+    Ok(())
 }
 
 /// Exact, bounded neighborhood in one source-member/stream lane.

@@ -6,13 +6,33 @@ rust-version.workspace = true
 publish.workspace = true
 description = "Strict versioned wire contracts for Evidentrail"
 
+[features]
+default = ["local-file"]
+local-file = []
+ledger = ["dep:evidentrail-core"]
+product = ["ledger", "dep:evidentrail-evidence"]
+bench = ["dep:evidentrail-bench"]
+all-contracts = ["local-file", "ledger", "product", "bench"]
+
 [dependencies]
 base64.workspace = true
+evidentrail-bench = { workspace = true, optional = true }
+evidentrail-core = { workspace = true, optional = true }
+evidentrail-evidence = { workspace = true, optional = true }
 evidentrail-schema.workspace = true
+schemars.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_json_canonicalizer.workspace = true
 sha2.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true
+
+[[bin]]
+name = "evidentrail-wire-schema"
+path = "src/bin/evidentrail-wire-schema.rs"
+required-features = ["all-contracts"]
 
 [lints]
 workspace = true

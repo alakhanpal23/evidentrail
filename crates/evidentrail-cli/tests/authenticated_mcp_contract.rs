@@ -10,20 +10,22 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use evidentrail_cli::{
-    AuthenticatedRecoveredMcpRetentionBackendV1, AuthenticatedStdinPublicationErrorV1,
-    MCP_PROTOCOL_VERSION_V1, StdinBriefOutcomeV1, compile_explicit_stdin_retained_v1,
+    AuthenticatedPublishingMcpRetentionBackendV1, AuthenticatedRecoveredMcpRetentionBackendV1,
+    AuthenticatedStdinPublicationErrorV1, MCP_PROTOCOL_VERSION_V1, McpRetentionBackendErrorV1,
+    McpRetentionBackendV1, StdinBriefOutcomeV1, compile_explicit_stdin_retained_v1,
     run_mcp_stdio_with_backend_v1,
 };
-use evidentrail_core::UnixTimestampNanos;
+use evidentrail_core::{ExpansionRelationV1, UnixTimestampNanos};
 use evidentrail_product::AuthenticatedEncryptedRetentionV1;
 use evidentrail_schema::ResultId;
 use evidentrail_snapshot_format::{
     EntropySourceFailureV1, EntropySourceV1, ExpectedCoreResultManifestContextV1,
 };
 use evidentrail_store::{
-    AuthenticatedFilesystemRestartCoordinatorV1, AuthenticatedFilesystemRestartErrorV1,
-    CreatingKeyContextV1, DEFAULT_RESULT_TTL_NANOS, EphemeralKeyProviderV1,
-    FilesystemSealedBundleStoreV1, MemoryEncryptedCoreResultRepositoryV1,
+    AliasExpansionRequestV1, AuthenticatedFilesystemRestartCoordinatorV1,
+    AuthenticatedFilesystemRestartErrorV1, CreatingKeyContextV1, DEFAULT_RESULT_TTL_NANOS,
+    EphemeralKeyProviderV1, EvidenceAliasV1, ExpansionLimitV1, FilesystemBundleFaultPointV1,
+    FilesystemSealedBundleStoreV1, KeyProviderV1, MemoryEncryptedCoreResultRepositoryV1,
     sealed_bundle_filename_v1,
 };
 use serde_json::{Value, json};
@@ -188,7 +190,7 @@ fn request_v1(id: u64, method: &str, params: Value) -> Value {
 }
 
 fn run_requests_v1(
-    backend: AuthenticatedRecoveredMcpRetentionBackendV1<TestProvider>,
+    backend: impl McpRetentionBackendV1 + 'static,
     requests: impl IntoIterator<Item = Value>,
 ) -> Vec<Value> {
     let mut input = Vec::new();
@@ -477,4 +479,204 @@ fn needs_more_cannot_publish_a_fake_restartable_alias_manifest() {
     );
     assert_eq!(retention.result_count(), 0);
     assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn publishing_backend_matches_memory_bytes_and_exposes_only_published_exact_aliases() {
+    let root = SyntheticRootV1::new();
+    let now = wall_clock_now_v1();
+    let log_bytes = b"ERROR request=REQ-PUBLISH arbitrary=\0\xff\n".to_vec();
+    let question = b"why did the request fail?";
+    let seed = [0x71; 32];
+    let memory =
+        compile_explicit_stdin_retained_v1(&log_bytes, question, 100_000, seed, now).unwrap();
+    let durable =
+        compile_explicit_stdin_retained_v1(&log_bytes, question, 100_000, seed, now).unwrap();
+    let StdinBriefOutcomeV1::Rendered(memory_rendered) = memory.outcome() else {
+        panic!("fixture must render");
+    };
+    let StdinBriefOutcomeV1::Rendered(durable_rendered) = durable.outcome() else {
+        panic!("fixture must render");
+    };
+    assert_eq!(
+        memory_rendered.text().as_bytes(),
+        durable_rendered.text().as_bytes()
+    );
+    assert_eq!(memory_rendered.result_id(), durable_rendered.result_id());
+    assert_eq!(memory_rendered.evidence_alias_count(), 1);
+    let result_id = durable_rendered.result_id();
+
+    let provider = Arc::new(EphemeralKeyProviderV1::new(CountingEntropy::new(), 8).unwrap());
+    let repository = MemoryEncryptedCoreResultRepositoryV1::new(Arc::clone(&provider), 8).unwrap();
+    let retention = AuthenticatedEncryptedRetentionV1::new(repository);
+    let coordinator =
+        AuthenticatedFilesystemRestartCoordinatorV1::new(root.store(), Arc::clone(&provider), 8)
+            .unwrap();
+    let mut backend = AuthenticatedPublishingMcpRetentionBackendV1::new(retention, coordinator);
+    assert_eq!(backend.retained_result_count(), 0);
+    backend.retain_rendered_session(durable).unwrap();
+    assert_eq!(backend.retained_result_count(), 1);
+    assert!(
+        root.path()
+            .join(sealed_bundle_filename_v1(result_id))
+            .is_file()
+    );
+
+    drop(log_bytes);
+    let request = AliasExpansionRequestV1::new(
+        result_id,
+        EvidenceAliasV1::new(result_id, 1).unwrap(),
+        ExpansionRelationV1::Exact,
+        ExpansionLimitV1::new(4, 4096, 0, 0).unwrap(),
+    );
+    let expanded = backend
+        .expand_alias(request, UnixTimestampNanos::new(now.get() + 1))
+        .unwrap();
+    assert_eq!(expanded.events().len(), 1);
+    assert_eq!(
+        expanded.events()[0].authorized_bytes(),
+        b"ERROR request=REQ-PUBLISH arbitrary=\0\xff\n"
+    );
+    assert_eq!(expanded.relation(), ExpansionRelationV1::Exact);
+    assert!(!expanded.truncated());
+    assert!(expanded.events()[0].acquisition_sequence().is_none());
+}
+
+#[test]
+fn publishing_backend_failure_destroys_authority_and_never_installs_a_handle() {
+    let root = SyntheticRootV1::new();
+    let now = wall_clock_now_v1();
+    let session = compile_explicit_stdin_retained_v1(
+        b"publication must fail\n",
+        b"why?",
+        100_000,
+        [0x72; 32],
+        now,
+    )
+    .unwrap();
+    let result_id = session.outcome().result_id();
+    let provider = Arc::new(EphemeralKeyProviderV1::new(CountingEntropy::new(), 8).unwrap());
+    let repository = MemoryEncryptedCoreResultRepositoryV1::new(Arc::clone(&provider), 8).unwrap();
+    let retention = AuthenticatedEncryptedRetentionV1::new(repository);
+    let filesystem = root.store();
+    filesystem
+        .fail_next_for_test(FilesystemBundleFaultPointV1::BeforeAtomicPublish)
+        .unwrap();
+    let coordinator =
+        AuthenticatedFilesystemRestartCoordinatorV1::new(filesystem, Arc::clone(&provider), 8)
+            .unwrap();
+    let mut backend = AuthenticatedPublishingMcpRetentionBackendV1::new(retention, coordinator);
+    assert_eq!(
+        backend.retain_rendered_session(session),
+        Err(McpRetentionBackendErrorV1::PublicationFailed)
+    );
+    assert_eq!(backend.retained_result_count(), 0);
+    let request = AliasExpansionRequestV1::new(
+        result_id,
+        EvidenceAliasV1::new(result_id, 1).unwrap(),
+        ExpansionRelationV1::Exact,
+        ExpansionLimitV1::new(1, 4096, 0, 0).unwrap(),
+    );
+    assert_eq!(
+        backend
+            .expand_alias(request, UnixTimestampNanos::new(now.get() + 1))
+            .err(),
+        Some(McpRetentionBackendErrorV1::ResultUnavailable)
+    );
+    assert!(
+        provider
+            .list_managed_records()
+            .unwrap()
+            .iter()
+            .all(|record| record.result_id() != result_id)
+    );
+}
+
+#[test]
+fn publishing_mcp_returns_no_result_before_the_publication_gate() {
+    let root = SyntheticRootV1::new();
+    let provider = Arc::new(EphemeralKeyProviderV1::new(CountingEntropy::new(), 8).unwrap());
+    let repository = MemoryEncryptedCoreResultRepositoryV1::new(Arc::clone(&provider), 8).unwrap();
+    let retention = AuthenticatedEncryptedRetentionV1::new(repository);
+    let coordinator =
+        AuthenticatedFilesystemRestartCoordinatorV1::new(root.store(), Arc::clone(&provider), 8)
+            .unwrap();
+    let backend = AuthenticatedPublishingMcpRetentionBackendV1::new(retention, coordinator);
+    let responses = run_requests_v1(
+        backend,
+        [
+            request_v1(1, "tools/list", json!({"_meta": modern_meta_v1()})),
+            request_v1(
+                2,
+                "tools/call",
+                json!({
+                    "_meta": modern_meta_v1(),
+                    "arguments": {
+                        "logs_base64": STANDARD.encode(b"published MCP source removed later\n"),
+                        "question": "why?",
+                        "token_budget": 100_000,
+                    },
+                    "name": "evidentrail_logs",
+                }),
+            ),
+        ],
+    );
+    let tools = responses[0]["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 2);
+    assert_eq!(tools[0]["name"], "evidentrail_logs");
+    assert_eq!(
+        tools[1]["inputSchema"]["properties"]["relation"]["const"],
+        "exact"
+    );
+    assert_eq!(responses[1]["result"]["isError"], false);
+    assert!(responses[1]["result"]["structuredContent"]["retained"] == true);
+    assert_eq!(
+        fs::read_dir(root.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("r_"))
+            .count(),
+        1
+    );
+
+    let failed_root = SyntheticRootV1::new();
+    let failed_provider = Arc::new(EphemeralKeyProviderV1::new(CountingEntropy::new(), 8).unwrap());
+    let failed_repository =
+        MemoryEncryptedCoreResultRepositoryV1::new(Arc::clone(&failed_provider), 8).unwrap();
+    let failed_retention = AuthenticatedEncryptedRetentionV1::new(failed_repository);
+    let filesystem = failed_root.store();
+    filesystem
+        .fail_next_for_test(FilesystemBundleFaultPointV1::BeforeAtomicPublish)
+        .unwrap();
+    let failed_coordinator = AuthenticatedFilesystemRestartCoordinatorV1::new(
+        filesystem,
+        Arc::clone(&failed_provider),
+        8,
+    )
+    .unwrap();
+    let failed_backend =
+        AuthenticatedPublishingMcpRetentionBackendV1::new(failed_retention, failed_coordinator);
+    let failed = run_requests_v1(
+        failed_backend,
+        [request_v1(
+            3,
+            "tools/call",
+            json!({
+                "_meta": modern_meta_v1(),
+                "arguments": {
+                    "logs_base64": STANDARD.encode(b"never visible\n"),
+                    "question": "why?",
+                    "token_budget": 100_000,
+                },
+                "name": "evidentrail_logs",
+            }),
+        )],
+    );
+    assert_eq!(failed[0]["result"]["isError"], true);
+    assert_eq!(
+        failed[0]["result"]["content"][0]["text"],
+        McpRetentionBackendErrorV1::PublicationFailed.code()
+    );
+    assert!(failed[0]["result"].get("structuredContent").is_none());
+    assert!(failed_provider.list_managed_records().unwrap().is_empty());
 }

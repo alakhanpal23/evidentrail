@@ -1,0 +1,15 @@
+{
+  "contract_version": 2,
+  "status": "unmeasured",
+  "dedicated_reference_host": false,
+  "thermal_monitoring_available": false,
+  "authority": "process_conformance_only",
+  "cache_qualification": "warm_process",
+  "host_identity_commitment": null,
+  "boot_identity_commitment": null,
+  "os_build_commitment": null,
+  "hardware_commitment": null,
+  "filesystem_commitment": null,
+  "executable_commitment": null,
+  "qualification_eligible": false
+}

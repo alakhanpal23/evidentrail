@@ -6,16 +6,37 @@
 //! exported from this crate.
 
 mod adapter;
+mod batch;
+mod cloudwatch;
 mod deadline;
 mod error;
+mod kubernetes;
 mod replay;
 
 pub use adapter::{Cancellation, CancellationToken, ExecutionContext, SourceAdapter};
+pub use batch::{
+    BatchConstructionErrorV1, BatchOperationIdV1, BatchSinkErrorCodeV1, BatchSinkErrorV1,
+    EnvelopeBatchAcknowledgementsV1, EnvelopeBatchSinkV1, EnvelopeBatchV1,
+    MAX_ENVELOPES_PER_BATCH_V1, SingleEnvelopeBatchSinkV1, SingleEnvelopeSourceAdapterV1,
+    SourceBatchAdapterV1,
+};
+pub use cloudwatch::{
+    CLOUDWATCH_ADAPTER_KIND_V1, CLOUDWATCH_ADAPTER_VERSION_V1, CloudWatchAdapterV1,
+    CloudWatchCapsV1, CloudWatchEventV1, CloudWatchFilterRequestV1, CloudWatchPageV1,
+    CloudWatchPlanErrorV1, CloudWatchPlanV1, CloudWatchTransportErrorV1, CloudWatchTransportV1,
+};
 pub use deadline::{
     CooperativeDeadline, CooperativeStopReason, DeadlineConstructionError, MonotonicClock,
     SystemMonotonicClock,
 };
 pub use error::IngestError;
+pub use kubernetes::{
+    KUBERNETES_ADAPTER_KIND_V1, KUBERNETES_ADAPTER_VERSION_V1, KubernetesAdapterV1,
+    KubernetesCapsV1, KubernetesContainerInstanceKindV1, KubernetesContainerInstanceV1,
+    KubernetesContainerObservationV1, KubernetesLogRecordV1, KubernetesLogRequestV1,
+    KubernetesLogResponseV1, KubernetesLogStreamV1, KubernetesPlanErrorV1, KubernetesPlanV1,
+    KubernetesTransportErrorV1, KubernetesTransportV1,
+};
 pub use replay::InMemoryReplayAdapter;
 
 pub use evidentrail_core::EnvelopeSink;

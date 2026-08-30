@@ -197,7 +197,7 @@ impl fmt::Debug for RecoveredProductAliasExpansionV1 {
 ///
 /// It exposes no raw repository, EventId lookup, full-reference lookup,
 /// neighborhood relation, source refresh, or mutable alias installation. The
-/// authenticated frozen manifest is the only E<n> namespace it can resolve.
+/// authenticated frozen manifest is the only `E<n>` namespace it can resolve.
 pub struct RecoveredExactAliasResultV1<P: KeyProviderV1 + ?Sized> {
     repository: Arc<MemoryEncryptedCoreResultRepositoryV1<Arc<P>>>,
     expected: ExpectedCoreResultManifestContextV1,

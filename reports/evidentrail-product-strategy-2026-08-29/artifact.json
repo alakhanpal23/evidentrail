@@ -1,0 +1,187 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Evidentrail's path to a massive product",
+    "description": "A product strategy for speed leadership, team adoption, and high-leverage expansion beyond log compression.",
+    "generatedAt": "2026-08-30T05:12:45Z",
+    "sources": [
+      {
+        "id": "evidentrail_readme",
+        "label": "Evidentrail repository README",
+        "path": "README.md"
+      },
+      {
+        "id": "evidentrail_roadmap",
+        "label": "Evidentrail product roadmap",
+        "path": "docs/PRODUCT_ROADMAP.md"
+      },
+      {
+        "id": "evidentrail_moat",
+        "label": "Evidentrail product boundary and moat",
+        "path": "docs/PRODUCT_MOAT.md"
+      },
+      {
+        "id": "evidentrail_competition",
+        "label": "Evidentrail competitive teardown",
+        "path": "docs/EVIDENTRAIL_COMPETITIVE_TEARDOWN.md"
+      },
+      {
+        "id": "public_evidentrail",
+        "label": "Current public Evidentrail product",
+        "href": "https://evidentrail.ai/"
+      },
+      {
+        "id": "github_octoverse",
+        "label": "GitHub Octoverse 2025",
+        "href": "https://github.blog/news-insights/octoverse/octoverse-a-new-developer-joins-github-every-second-as-ai-leads-typescript-to-1/"
+      },
+      {
+        "id": "grafana_momentum",
+        "label": "Grafana Labs customer and AI adoption update",
+        "href": "https://grafana.com/press/2026/08/26/grafana-labs-crosses-10000-customer-milestone-as-ai-adoption-accelerates-growth-across-the-platform/"
+      },
+      {
+        "id": "grafana_investigations",
+        "label": "Grafana Assistant Investigations documentation",
+        "href": "https://grafana.com/docs/grafana-cloud/platform/grafana-assistant/platform/investigation/"
+      },
+      {
+        "id": "datadog_bits",
+        "label": "Datadog Bits Investigation documentation",
+        "href": "https://docs.datadoghq.com/bits_ai/bits_investigation/investigate_issues/"
+      },
+      {
+        "id": "sentry_seer",
+        "label": "Sentry Seer documentation",
+        "href": "https://docs.sentry.io/product/ai-in-sentry/seer"
+      },
+      {
+        "id": "honeycomb_mcp",
+        "label": "Honeycomb MCP documentation",
+        "href": "https://docs.honeycomb.io/integrations/mcp/concepts"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "report_title",
+        "type": "markdown",
+        "body": "# Evidentrail's path to a massive product"
+      },
+      {
+        "id": "executive_summary",
+        "type": "markdown",
+        "body": "## Executive Summary\n\n- **Yes, the opportunity can be large—but not as a standalone log compressor.** Compression is a strong wedge and cost-saving utility. The defensible category is *diagnostic evidence infrastructure*: the neutral layer that gives agents and humans the smallest trustworthy context needed to diagnose and verify a fix.\n- **Win one workflow before expanding.** Start with CI, test, build, and local failure output inside coding-agent loops. It has frequent use, immediate ROI, lower security friction than production telemetry, and an executable definition of success: did the agent identify and fix the failure?\n- **Make speed mean time to useful evidence.** The winning architecture is a staged local pipeline: instant passthrough when input fits, streaming deterministic evidence immediately, indexed reuse across questions, and optional LLM reasoning only over a dramatically reduced candidate set.\n- **The highest-impact expansion is verified change evidence.** After finding the cause, Evidentrail should package the evidence that a proposed change fixed it. That turns Evidentrail from a context-cost tool into the trust layer for agent-written software."
+      },
+      {
+        "id": "market_finding",
+        "type": "markdown",
+        "body": "## The market is large, but generic AI investigation is already crowded\n\nThe demand side is strong. GitHub reports more than 180 million developers and says nearly 80% of new developers use Copilot in their first week. Grafana says it has surpassed 10,000 customers and $600 million in ARR, with more than 18,000 organizations using Grafana Assistant across free and paid plans. These are company-reported figures, but they show that both coding agents and observability workflows already have substantial distribution and budget. ([GitHub](https://github.blog/news-insights/octoverse/octoverse-a-new-developer-joins-github-every-second-as-ai-leads-typescript-to-1/), [Grafana](https://grafana.com/press/2026/08/26/grafana-labs-crosses-10000-customer-milestone-as-ai-adoption-accelerates-growth-across-the-platform/))\n\nThe supply side is crowded. [Grafana Assistant Investigations](https://grafana.com/docs/grafana-cloud/platform/grafana-assistant/platform/investigation/) already queries logs, metrics, traces, and profiles and produces cited team reports. [Datadog Bits](https://docs.datadoghq.com/bits_ai/bits_investigation/investigate_issues/) forms hypotheses across many telemetry sources and can abstain when evidence is insufficient. [Sentry Seer](https://docs.sentry.io/product/ai-in-sentry/seer) joins errors, traces, logs, profiles, and code to propose fixes. [Honeycomb MCP](https://docs.honeycomb.io/integrations/mcp/concepts) exposes observability investigation tools directly to coding agents. The current public [Evidentrail product](https://evidentrail.ai/) also markets one-command agent-output reduction, local exact retrieval, usage analytics, and team pricing.\n\n**Implication:** Evidentrail should not compete as another observability dashboard, chat assistant, or autonomous root-cause agent. Those products own data and distribution. Evidentrail can win as the fast, model-neutral *evidence plane* beneath them: exact provenance, bounded context, local expansion, honest uncertainty, and a stable contract that works across agents and telemetry vendors."
+      },
+      {
+        "id": "category_definition",
+        "type": "markdown",
+        "body": "## Define the category as evidence infrastructure, not compression\n\nThe durable product architecture is:\n\n```text\nCI output   local logs   production logs   traces   deploy/change data\n    \\          |             |              |             /\n              Evidentrail Evidence Compiler\n        authorize -> select -> cite -> retain -> verify\n                         |\n        +----------------+----------------+\n        |                |                |\n   Agent pack       Human brief      Verified-fix record\n```\n\nThis keeps the existing trust architecture relevant while increasing the product ceiling. The same immutable evidence identity can power coding agents, incident responders, code reviewers, and audit/compliance workflows. The expansion is across diagnostic sources and evidence consumers—not into storing all telemetry or autonomously executing remediation.\n\nThe commercial wedge and platform can therefore be stated simply: **land by saving agent time and tokens on CI failures; expand by becoming the team's trusted record of why a diagnosis and fix should be believed.**"
+      },
+      {
+        "id": "speed_strategy",
+        "type": "markdown",
+        "body": "## Build for first useful evidence, not only total runtime\n\nA market-leading speed program should optimize four separately reported moments: time to first cited clue, time to a usable brief, time to an exact expansion, and total acquisition/receipt completion. One aggregate latency number will hide the user experience.\n\n1. **Use a latency cascade.** Route small inputs directly to exact passthrough. For large inputs, return high-confidence failures, validated identifiers, and onset evidence as soon as those packets are safe to display. Continue the exhaustive receipt in the background and keep the result explicitly `Partial` until completion is proven.\n2. **Scan bytes once.** Share one streaming event/block representation across framing, lexical matching, typed-identifier extraction, coverage, and cost estimation. Avoid reparsing or retokenizing each evidence lane.\n3. **Make the hot path allocation-light.** Use borrowed byte slices, pooled arenas, SIMD-accelerated delimiter/search primitives where benchmarks justify them, compact integer IDs, batched hashing, and one canonical render-size pass. Optimize from profiles, not intuition.\n4. **Index once, ask many questions.** Cache snapshot-bound block boundaries, safe token fingerprints, typed identifiers, error signatures, and provider relations. A second question should rerank a compact index rather than rescan the source bytes.\n5. **Parallelize at stable boundaries.** Run independent source reads and evidence lanes concurrently, then merge through a deterministic ordering contract. Avoid locks on the per-event path and use bounded channels for backpressure.\n6. **Put the LLM after deterministic reduction.** A model should see tens or hundreds of cited candidates, not gigabytes of raw logs. Use it for query expansion, reranking, role labeling, and audience-specific explanation. Cache by snapshot, question, model, and configuration; enforce a deadline and fall back to deterministic output.\n7. **Precompute near the source.** For CI and recurring sources, generate the block/index receipt while the output is produced. This converts an expensive post-run scan into an incremental append path and makes the final brief mostly a selection operation.\n8. **Benchmark the full episode.** Compare cold and warm runs at 10K, 100K, and 1M records on identical hardware. Report p50/p95/p99, throughput, CPU, RSS, output tokens, expansions, and verified fix success. A speed win that lowers outcome quality is a loss.\n\nThe key product trick is progressive certainty: show useful evidence early, but never label the acquisition complete until it is complete."
+      },
+      {
+        "id": "team_strategy",
+        "type": "markdown",
+        "body": "## Teams need a workflow, not a compressor API\n\n**Activation should take minutes.** Provide one-command local setup, automatic MCP configuration for supported agents, a GitHub Actions integration, and copy-paste support for raw stdin. Keep source access explicit and show a dry-run plan before any production connector reads data.\n\n**The default artifact should be shareable.** Every result needs a stable team link or portable encrypted artifact containing the human brief, agent pack, coverage state, and exact evidence references. Teammates should be able to comment, assign an owner, mark a hypothesis disproven, and attach the verified root cause without copying raw logs into Slack.\n\n**Integrate where teams already coordinate.** The first team surfaces should be GitHub checks/PRs and Slack incident threads. Sentry, Datadog, Grafana, CloudWatch, and CI systems should remain systems of record; Evidentrail stores source identity and deep links while retaining only the explicitly approved evidence snapshot.\n\n**Make governance visible and boring.** Add workspace policies, RBAC, SSO/SAML when enterprise demand appears, retention controls, audit trails, region/model routing, local or customer-owned keys, and separate consent for model use and learning. The current trust work becomes a reason a platform team can approve Evidentrail, not merely an internal implementation virtue.\n\n**Close the learning loop.** Ask whether the evidence led to the correct diagnosis, which citations were expanded, whether the change passed verification, and what clue was missing. Show contentless team ROI: agent tokens avoided, time to first useful evidence, successful fixes, repeat expansions avoided, and incidents where Evidentrail correctly abstained."
+      },
+      {
+        "id": "opportunity_ranking",
+        "type": "markdown",
+        "body": "## The highest-leverage adjacent products\n\nThe ranking below is a strategic inference from Evidentrail's current architecture and the observed competitive surface; it is not customer-validated demand.\n\n| Opportunity | Potential impact | Fit with Evidentrail | Main risk | Recommendation |\n| --- | --- | --- | --- | --- |\n| CI Failure Intelligence | High-frequency agent workflow with immediate cost and time ROI | Excellent: bounded output, exact failures, executable outcome | Crowded dev-tool integrations | **Do now; use as the wedge** |\n| Verified Fix Certificates | Makes agent-generated changes reviewable and auditable | Excellent: extends evidence receipts into test/fix outcomes | Must avoid implying proof beyond executed invariants | **Make this the flagship expansion** |\n| Cross-signal Incident Evidence | Applies one evidence identity across logs, traces, metrics, and deploys | Strong: same selection and provenance primitive | Connector and authorization complexity | **Build after CI traction** |\n| Team Debugging Memory | Compounds verified incidents, queries, and evidence into reusable knowledge | Strong after shared usage exists | Knowledge can become stale or leak scope | **Add after team collaboration** |\n| Agent Reliability Evaluation | Productizes EvidentrailBench for enterprise agent/tool-loop evaluation | Technically strong and strategically differentiated | Different buyer and sales motion | **Incubate as a second product line** |\n| Generic Tool-Output Gateway | Large volume across search, files, tests, and APIs | Moderate, but the public Evidentrail market already targets it | Commodity bundling by agent vendors | **Support selectively, not as identity** |\n| Autonomous RCA and Remediation | Very large headline value | Weak fit with the read-only trust boundary | Crowded, high liability, hard to verify | **Integrate with it; do not make it the core** |\n\nThe standout bet is **Verified Fix Certificates**: a compact artifact that binds the original symptom, selected evidence, diagnosis, code change, tests or runtime checks, and remaining uncertainty. It is similar in scope to the current evidence compiler, but it addresses the larger enterprise question: *Can we trust this agent-authored change?*"
+      },
+      {
+        "id": "execution_sequence",
+        "type": "markdown",
+        "body": "## Recommended sequence\n\n### Stage 1: dominate one repeatable loop\n\nShip the fastest CI/test failure brief for coding agents. Support one local command and one GitHub Actions path. Prove install-to-first-value, latency, citation correctness, agent fix rate, and weekly repeat use with design partners.\n\n### Stage 2: become team software\n\nAdd shared results, GitHub checks, Slack handoffs, workspace policy, roles, retention, and contentless ROI. The buyer is initially the developer-experience or platform lead; the user is every developer and coding agent.\n\n### Stage 3: verify the fix\n\nAttach the proposed patch and bounded verification run to the evidence result. Produce a reviewable certificate with what passed, what was not tested, and which claims remain hypotheses. This is where Evidentrail moves from token savings to software-delivery trust.\n\n### Stage 4: expand across diagnostic sources\n\nAdd a small number of highly conformant connectors for Sentry, Datadog/Grafana, CloudWatch, and CI providers. Correlate source-exact evidence without becoming the telemetry store.\n\n### Stage 5: add admitted LLM intelligence\n\nUse optional models for candidate reranking and agent/human explanation only after the deterministic candidate set is frozen. Offer local, customer-owned, and approved hosted model paths. Admit a model only when it improves held-out agent or human outcomes after latency, cost, privacy, and worst-slice effects are included."
+      },
+      {
+        "id": "validation_plan",
+        "type": "markdown",
+        "body": "## Validate the company before overbuilding the platform\n\nRun a focused design-partner program with engineering teams that already use coding agents on CI failures. The decision gates should be behavioral, not survey-only:\n\n- Can a new team reach the first useful cited brief without a meeting?\n- Do at least several developers in the same workspace use it repeatedly each week?\n- Does Evidentrail improve verified fix success or total episode time at the same or lower cost?\n- Do engineers share the result or use it in PR/incident review?\n- Will a team pay for collaboration, policy, retention, and connectors—not merely token savings?\n- Is one missing source or workflow responsible for most failed cases?\n\nA sensible provisional target is ten design partners across CI-heavy SaaS, developer infrastructure, and AI-native teams. Do not infer product-market fit from benchmark quality alone. The strongest next evidence would be repeated team usage, successful fixes, and paid conversion under a real deployment policy."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Further Questions\n\n- Which initial buyer has the shortest path to budget: developer experience, platform engineering, or SRE?\n- Is the first painful workflow CI/test output, local development logs, or production incident handoff?\n- Will teams permit hosted LLM processing, require local models, or accept only deterministic operation?\n- Does exact evidence expansion materially improve agent fixes and human trust, or is it mainly a compliance feature?\n- Can Verified Fix Certificates become part of the required PR check for agent-authored changes?\n- Which incumbent systems must Evidentrail integrate with to avoid forcing a new operational console?"
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "body": "## Caveats and Assumptions\n\nThis recommendation is evidence-informed but provisional. The repository documents a tested deterministic core, not a production-ready product or validated market-performance claim. It contains no customer interviews, active-user data, willingness-to-pay evidence, funnel data, support history, or production latency baseline. Public vendor adoption and revenue figures are self-reported and establish category activity, not Evidentrail demand.\n\nThe opportunity ranking therefore reflects architectural fit, competitive differentiation, and likely workflow leverage. Customer evidence could change the recommended wedge, buyer, sequence, or pricing model. Any claim that Evidentrail is the fastest product must remain gated on reproducible matched benchmarks against current versions."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-30T05:12:45Z",
+    "status": "ready",
+    "datasets": {}
+  },
+  "sources": [
+    {
+      "id": "evidentrail_readme",
+      "label": "Evidentrail repository README",
+      "path": "README.md"
+    },
+    {
+      "id": "evidentrail_roadmap",
+      "label": "Evidentrail product roadmap",
+      "path": "docs/PRODUCT_ROADMAP.md"
+    },
+    {
+      "id": "evidentrail_moat",
+      "label": "Evidentrail product boundary and moat",
+      "path": "docs/PRODUCT_MOAT.md"
+    },
+    {
+      "id": "evidentrail_competition",
+      "label": "Evidentrail competitive teardown",
+      "path": "docs/EVIDENTRAIL_COMPETITIVE_TEARDOWN.md"
+    },
+    {
+      "id": "public_evidentrail",
+      "label": "Current public Evidentrail product",
+      "href": "https://evidentrail.ai/"
+    },
+    {
+      "id": "github_octoverse",
+      "label": "GitHub Octoverse 2025",
+      "href": "https://github.blog/news-insights/octoverse/octoverse-a-new-developer-joins-github-every-second-as-ai-leads-typescript-to-1/"
+    },
+    {
+      "id": "grafana_momentum",
+      "label": "Grafana Labs customer and AI adoption update",
+      "href": "https://grafana.com/press/2026/08/26/grafana-labs-crosses-10000-customer-milestone-as-ai-adoption-accelerates-growth-across-the-platform/"
+    },
+    {
+      "id": "grafana_investigations",
+      "label": "Grafana Assistant Investigations documentation",
+      "href": "https://grafana.com/docs/grafana-cloud/platform/grafana-assistant/platform/investigation/"
+    },
+    {
+      "id": "datadog_bits",
+      "label": "Datadog Bits Investigation documentation",
+      "href": "https://docs.datadoghq.com/bits_ai/bits_investigation/investigate_issues/"
+    },
+    {
+      "id": "sentry_seer",
+      "label": "Sentry Seer documentation",
+      "href": "https://docs.sentry.io/product/ai-in-sentry/seer"
+    },
+    {
+      "id": "honeycomb_mcp",
+      "label": "Honeycomb MCP documentation",
+      "href": "https://docs.honeycomb.io/integrations/mcp/concepts"
+    }
+  ]
+}

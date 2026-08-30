@@ -9,6 +9,7 @@ description = "Bounded byte-exact source adapters for Evidentrail"
 [dependencies]
 evidentrail-core.workspace = true
 evidentrail-schema.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true

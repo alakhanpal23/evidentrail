@@ -194,9 +194,9 @@ impl fmt::Debug for AuthenticatedRetentionExpansionV1 {
     }
 }
 
-struct FrozenReferenceV1 {
-    reference: EvidenceReferenceV1,
-    ordered_event_ids: Vec<EventId>,
+pub(crate) struct FrozenReferenceV1 {
+    pub(crate) reference: EvidenceReferenceV1,
+    pub(crate) ordered_event_ids: Vec<EventId>,
 }
 
 struct RetainedResultMetadataV1 {
@@ -205,10 +205,10 @@ struct RetainedResultMetadataV1 {
     aliases: Vec<EvidenceReferenceId>,
 }
 
-struct PreparedReferenceManifestV1 {
-    result_id: evidentrail_schema::ResultId,
-    references: BTreeMap<EvidenceReferenceId, FrozenReferenceV1>,
-    aliases: Vec<EvidenceReferenceId>,
+pub(crate) struct PreparedReferenceManifestV1 {
+    pub(crate) result_id: evidentrail_schema::ResultId,
+    pub(crate) references: BTreeMap<EvidenceReferenceId, FrozenReferenceV1>,
+    pub(crate) aliases: Vec<EvidenceReferenceId>,
 }
 
 /// Provider-generic process-local encrypted retention for finalized artifacts.
@@ -689,7 +689,7 @@ impl MemoryProductV1 {
     }
 }
 
-fn prepare_passthrough_manifest(
+pub(crate) fn prepare_passthrough_manifest(
     key_context: &CreatingKeyContextV1,
     ledger: &EventLedger,
     artifact: &OwnedRenderedPassthroughBriefV1,
@@ -736,7 +736,7 @@ fn prepare_passthrough_manifest(
     })
 }
 
-fn prepare_compiled_manifest(
+pub(crate) fn prepare_compiled_manifest(
     key_context: &CreatingKeyContextV1,
     ledger: &EventLedger,
     artifact: &OwnedRenderedCompiledBriefV1,

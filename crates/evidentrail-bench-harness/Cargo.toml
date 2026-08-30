@@ -9,6 +9,7 @@ description = "Hermetic subprocess boundary for external EvidentrailBench method
 [dependencies]
 evidentrail-bench.workspace = true
 evidentrail-candidates.workspace = true
+evidentrail-cli.workspace = true
 evidentrail-compile.workspace = true
 evidentrail-core.workspace = true
 evidentrail-evidence.workspace = true

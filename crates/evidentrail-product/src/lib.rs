@@ -1,13 +1,20 @@
-//! Memory-only orchestration for one already-sealed Evidentrail result.
+//! Deterministic orchestration for one Evidentrail result.
 //!
 //! This crate does not acquire sources, invoke models, generate diagnoses,
-//! claim durable storage, or generate production randomness. A Unix-only
-//! bridge may publish already-sealed ciphertext for authenticated process-local
-//! restart, but it persists neither product capability metadata nor a
-//! durability/rollback guarantee. Callers supply the opaque random-by-contract
-//! result identity.
+//! or generate production randomness. Memory mode and Unix V2 durable mode
+//! share the same compiler and renderer. Durable guarantees come from the
+//! injected repository and external key authority; the process-local authority
+//! is test-only. Callers supply the opaque random-by-contract result identity.
 
+#[cfg(unix)]
+mod durable_lifecycle;
 mod encrypted_retention;
+
+#[cfg(unix)]
+pub use durable_lifecycle::{
+    DurableProductErrorV2, DurableProductExpansionV2, DurableProductV2, DurableStartupRecoveryV2,
+    durable_product_build_context_v2,
+};
 
 pub use encrypted_retention::{
     AuthenticatedEncryptedRetentionErrorV1, AuthenticatedEncryptedRetentionV1,

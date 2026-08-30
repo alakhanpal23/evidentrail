@@ -374,6 +374,27 @@ fn basic_fixture() -> (SyntheticFixture, InternalPathPolicyV1, Documents, PathBu
     (fixture, policy, docs, file)
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn explicit_live_matrix_admission_enables_public_executable_preflight() {
+    let (_fixture, policy, docs, _file) = basic_fixture();
+    let bindings = install_binding(&docs);
+    let internal_paths = InternalPathRegistryV1::new(policy);
+    let admission = crate::admit_current_local_file_host_v1().unwrap();
+    let preflight = preflight_admitted_local_file_v1(
+        &docs.plan,
+        authorize(&docs, &bindings, &internal_paths),
+        &admission,
+    )
+    .unwrap();
+    assert_eq!(preflight.plan_id(), docs.plan.plan_id());
+    assert_eq!(
+        rustix::fs::seek(&preflight.file_fd, SeekFrom::Current(0)).unwrap(),
+        0
+    );
+    assert!(!preflight.is_completion_proof());
+}
+
 #[test]
 fn frozen_certification_and_expired_authority_touch_no_paths() {
     let (_fixture, policy, docs, _file) = basic_fixture();

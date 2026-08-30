@@ -32,6 +32,7 @@ getrandom = { version = "=0.4.3", default-features = false }
 hkdf = { version = "=0.12.4", default-features = false }
 evidentrail-authority = { path = "crates/evidentrail-authority" }
 evidentrail-candidates = { path = "crates/evidentrail-candidates" }
+evidentrail-cli = { path = "crates/evidentrail-cli" }
 evidentrail-compile = { path = "crates/evidentrail-compile" }
 evidentrail-core = { path = "crates/evidentrail-core" }
 evidentrail-bench = { path = "crates/evidentrail-bench" }
@@ -48,6 +49,8 @@ evidentrail-wire = { path = "crates/evidentrail-wire" }
 serde = "1.0.228"
 serde_json = "1.0.149"
 serde_json_canonicalizer = "0.3.2"
+schemars = "=1.2.2"
+jsonschema = { version = "=0.52.0", default-features = false }
 sha2 = "0.10.9"
 zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
 rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs", "system"] }

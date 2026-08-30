@@ -8,11 +8,13 @@
 mod ack;
 mod block;
 mod coverage;
+mod expansion;
 mod hash;
 mod ledger;
 mod passthrough;
 mod reference;
 mod result_status;
+mod transformation;
 
 pub use ack::{
     PreparedSinkAckExpectation, SinkAckVerificationError, expected_source_record_id,
@@ -45,10 +47,15 @@ pub use coverage::{
     PresentationAssignment, PresentationReceipt, PresentationReceiptEntry,
     PresentationReconciliationError,
 };
+pub use expansion::{
+    ExpandedEventV1, ExpansionLimitV1, ExpansionRequestV1, ExpansionResponseV1,
+    MAX_EXPANSION_BYTES, MAX_EXPANSION_EVENTS, ResultStoreError, expand_retained_result_v1,
+};
 pub use hash::derive_question_digest_v1;
 pub use ledger::{
-    DeterministicPolicy, EnvelopeSink, Event, EventLedger, Expansion, LaneExpansion,
-    LedgerBuildError, LedgerBuilder, LedgerLookupError, PolicyAuthorization,
+    CheckedSealedLedgerViewV1, DeterministicPolicy, EnvelopeSink, Event, EventLedger, Expansion,
+    LaneExpansion, LedgerBuildError, LedgerBuilder, LedgerIntegrityErrorV1, LedgerLookupError,
+    PolicyAuthorization, checked_sealed_ledger_import_v1,
 };
 pub use passthrough::{
     PassthroughDecision, PassthroughSelection, PassthroughSelectionError, WholeRenderAssessmentV1,
@@ -61,4 +68,8 @@ pub use reference::{
 pub use result_status::{
     NeedsMoreReasonV1, RESULT_STATUS_CONTRACT_VERSION_V1, ResultStatusConstructionError,
     ResultStatusV1, SelectionStateV1,
+};
+pub use transformation::{
+    ByteRangeReplacementV1, PreparedTransformationReceiptV1, TransformationReceiptErrorV1,
+    TransformationReceiptV1,
 };
