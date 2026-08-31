@@ -7,10 +7,12 @@
 //! backends provide authenticated exact expansion; V2 returns a rendered result
 //! only after repository publication authority has been verified.
 
+mod external_corpus_v3;
 mod mcp;
 
 use std::error::Error as StdError;
 use std::fmt;
+use std::io::Read;
 
 use evidentrail_compile::ThreeLaneNeedsMoreV1;
 use evidentrail_core::{
@@ -19,13 +21,14 @@ use evidentrail_core::{
     FetchCompleteness, FetchCompletion, FetchIdentity, FetchTiming, LaneKey, LaneSequence,
     LedgerBuilder, PlanDigest, PlanId, PolicyAuthorization, RawEnvelopeIdentityV1, RawEnvelopeV1,
     RecordBytes, RecordState, RetrievalId, SourceIdentityDigest, SourceMember, SourceStream,
-    UnixTimestampNanos,
+    UnixTimestampNanos, derive_source_exact_event_id_v1,
 };
 #[cfg(unix)]
 use evidentrail_product::AuthenticatedEncryptedRetentionV1;
 use evidentrail_product::{
     CompiledProductResultV1, DeterministicProductDecisionV1, MemoryProductV1,
-    RenderedProductResultV1,
+    RenderedProductResultV1, StreamingAnalysisContextV3, StreamingProductV3,
+    streaming_product_build_context_v3,
 };
 #[cfg(unix)]
 use evidentrail_product::{DurableProductErrorV2, DurableProductV2};
@@ -37,7 +40,11 @@ use evidentrail_schema::bounds::{
 use evidentrail_snapshot_format::ExpectedCoreResultManifestContextV1;
 #[cfg(unix)]
 use evidentrail_store::KeyAuthorityV2;
-use evidentrail_store::{AliasExpansionRequestV1, ExpansionResponseV1, ResultStoreError};
+use evidentrail_store::{
+    AliasExpansionRequestV1, ExpansionResponseV1, MAX_STREAM_RECORDS_V3,
+    MAX_STREAM_SOURCE_BYTES_V3, ResultStoreError, RetainedAcquisitionFinishV3,
+    RetainedEventInputV3, RetainedEventStoreErrorV3, RetainedEventStoreV3, RetainedStoreBeginV3,
+};
 #[cfg(unix)]
 use evidentrail_store::{
     AuthenticatedFilesystemRestartCoordinatorV1, CreatingKeyContextV1,
@@ -45,6 +52,10 @@ use evidentrail_store::{
 };
 use sha2::{Digest as _, Sha256};
 
+pub use external_corpus_v3::{
+    ExternalCorpusImportErrorV3, ExternalCorpusImportReportV3,
+    import_external_adjudicated_corpus_v3,
+};
 #[cfg(unix)]
 pub use mcp::{
     AuthenticatedPublishingMcpRetentionBackendV1, AuthenticatedRecoveredMcpRetentionBackendV1,
@@ -71,6 +82,15 @@ const IDENTITY_DOMAIN_V1: &[u8] = b"evidentrail/cli/explicit-stdin-identity/v1\0
 const PLAN_DOMAIN_V1: &[u8] = b"evidentrail/cli/explicit-stdin-plan/v1\0";
 const SOURCE_DOMAIN_V1: &[u8] = b"evidentrail/cli/explicit-stdin-source/v1\0";
 const STDIN_COMPLETENESS_CODE_V1: u16 = 1;
+const IDENTITY_DOMAIN_V3: &[u8] = b"evidentrail/cli/explicit-stream-identity/v3\0";
+const PLAN_DOMAIN_V3: &[u8] = b"evidentrail/cli/explicit-stream-plan/v3\0";
+const SOURCE_DOMAIN_V3: &[u8] = b"evidentrail/cli/explicit-stream-source/v3\0";
+const STDIN_COMPLETENESS_CODE_V3: u16 = 3;
+
+/// Public V3 input limits. They are intentionally independent of the V1 wire
+/// object cap so a `Read` implementation is never materialized as one object.
+pub const MAX_STDIN_BYTES_V3: u64 = MAX_STREAM_SOURCE_BYTES_V3;
+pub const MAX_STDIN_RECORDS_V3: u64 = MAX_STREAM_RECORDS_V3;
 
 #[derive(Clone, Copy)]
 struct SourceExactPolicy;
@@ -611,6 +631,434 @@ impl fmt::Debug for StdinBriefSessionV1 {
     }
 }
 
+/// Contentless failure from the V3 incremental reader and shared compiler.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum StdinBriefErrorV3 {
+    Input(StdinBriefErrorV1),
+    ReadFailure,
+    Store(RetainedEventStoreErrorV3),
+    Product,
+}
+
+impl StdinBriefErrorV3 {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Input(error) => error.code(),
+            Self::ReadFailure => "EVIDENTRAIL_CLI_STDIN_READ_FAILURE",
+            Self::Store(error) => error.code(),
+            Self::Product => "EVIDENTRAIL_CLI_PRODUCT_V3_EXECUTION_FAILURE",
+        }
+    }
+}
+
+impl fmt::Debug for StdinBriefErrorV3 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("StdinBriefErrorV3")
+            .field("code", &self.code())
+            .finish()
+    }
+}
+
+impl fmt::Display for StdinBriefErrorV3 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.code())
+    }
+}
+
+impl StdError for StdinBriefErrorV3 {}
+
+/// Retained V3 session. The backend remains the sole expansion owner after
+/// compilation; a `needs_more` outcome has already destroyed it.
+pub struct StdinBriefSessionV3<B> {
+    product: StreamingProductV3<B>,
+    outcome: StdinBriefOutcomeV1,
+}
+
+impl<B: RetainedEventStoreV3> StdinBriefSessionV3<B> {
+    #[must_use]
+    pub const fn outcome(&self) -> &StdinBriefOutcomeV1 {
+        &self.outcome
+    }
+
+    #[must_use]
+    pub const fn product(&self) -> &StreamingProductV3<B> {
+        &self.product
+    }
+
+    #[must_use]
+    pub fn into_outcome(self) -> StdinBriefOutcomeV1 {
+        self.outcome
+    }
+
+    #[must_use]
+    pub fn into_parts(self) -> (StdinBriefOutcomeV1, B) {
+        (self.outcome, self.product.into_backend())
+    }
+}
+
+impl<B> fmt::Debug for StdinBriefSessionV3<B> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("StdinBriefSessionV3")
+            .field("outcome", &self.outcome)
+            .field("backend", &"retained_event_store_v3")
+            .finish_non_exhaustive()
+    }
+}
+
+/// Incrementally compile one explicit byte stream through V3.
+///
+/// Reader chunking is not semantic: identities, records, the authenticated
+/// acquisition manifest, partitions, and output depend only on the exact byte
+/// stream and explicit configuration. CRLF, invalid UTF-8, NUL, blank records,
+/// and an unterminated final record are retained byte-for-byte.
+pub fn compile_explicit_stream_v3<R: Read, B: RetainedEventStoreV3>(
+    reader: R,
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+    backend: B,
+) -> Result<StdinBriefSessionV3<B>, StdinBriefErrorV3> {
+    compile_explicit_stream_internal_v3(
+        reader,
+        question,
+        token_budget,
+        identity_seed,
+        now,
+        backend,
+        false,
+    )
+}
+
+/// Runs the same V3 path with contentless engineering instrumentation enabled.
+/// The resulting numeric receipt is profiling evidence, not certification.
+pub fn compile_explicit_stream_profiled_v3<R: Read, B: RetainedEventStoreV3>(
+    reader: R,
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+    backend: B,
+) -> Result<StdinBriefSessionV3<B>, StdinBriefErrorV3> {
+    compile_explicit_stream_internal_v3(
+        reader,
+        question,
+        token_budget,
+        identity_seed,
+        now,
+        backend,
+        true,
+    )
+}
+
+fn compile_explicit_stream_internal_v3<R: Read, B: RetainedEventStoreV3>(
+    mut reader: R,
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+    backend: B,
+    profile: bool,
+) -> Result<StdinBriefSessionV3<B>, StdinBriefErrorV3> {
+    validate_explicit_configuration_v3(question, token_budget).map_err(StdinBriefErrorV3::Input)?;
+    let budget_bytes = token_budget.to_be_bytes();
+    let question_digest = digest_parts_v3(b"question", &[question]);
+    let build_context = streaming_product_build_context_v3();
+    let namespace = digest_parts_v3(
+        b"namespace",
+        &[
+            &identity_seed,
+            &question_digest,
+            &budget_bytes,
+            &build_context,
+        ],
+    );
+    let result_id = ResultId::from_bytes(digest_parts_v3(b"result-id", &[&namespace]));
+    let retrieval_id = RetrievalId::from_bytes(digest_parts_v3(b"retrieval-id", &[&namespace]));
+    let plan_id = PlanId::from_bytes(digest_parts_v3(b"plan-id", &[&namespace, &question_digest]));
+    let plan_digest = PlanDigest::from_bytes(digest_parts_v3(
+        PLAN_DOMAIN_V3,
+        &[&question_digest, &budget_bytes, &build_context],
+    ));
+    let source_identity_digest = SourceIdentityDigest::from_bytes(digest_parts_v3(
+        SOURCE_DOMAIN_V3,
+        &[&identity_seed, &namespace],
+    ));
+    let adapter = AdapterIdentity::new("evidentrail-cli-explicit-stdin", "v3")
+        .map_err(|_| StdinBriefErrorV3::Input(StdinBriefErrorV1::IdentityConstruction))?;
+    let fetch_identity = FetchIdentity::new(retrieval_id, plan_id, plan_digest, adapter.clone());
+    let envelope_identity = RawEnvelopeIdentityV1::new(
+        retrieval_id,
+        plan_id,
+        plan_digest,
+        adapter,
+        source_identity_digest,
+    );
+    let lane = LaneKey::new(
+        SourceMember::new(b"explicit-stdin".to_vec())
+            .map_err(|_| StdinBriefErrorV3::Input(StdinBriefErrorV1::IdentityConstruction))?,
+        SourceStream::OtherVersioned {
+            version: 3,
+            code: 1,
+        },
+    );
+    let expires_at = now
+        .get()
+        .checked_add(evidentrail_store::DEFAULT_RESULT_TTL_NANOS)
+        .ok_or(StdinBriefErrorV3::Input(StdinBriefErrorV1::CountOverflow))?;
+    let mut product = StreamingProductV3::new(backend);
+    if profile {
+        product.enable_performance_instrumentation();
+    }
+    product
+        .backend_mut()
+        .begin(RetainedStoreBeginV3 {
+            result_id,
+            namespace,
+            created_unix_nanos: now.get(),
+            expires_unix_nanos: expires_at,
+        })
+        .map_err(StdinBriefErrorV3::Store)?;
+
+    let mut stream = StreamCountersV3::default();
+    let mut input_hasher = Sha256::new();
+    input_hasher.update(IDENTITY_DOMAIN_V3);
+    input_hasher.update(b"input");
+    let acquisition = read_exact_records_v3(&mut reader, &mut input_hasher, |record| {
+        accept_stream_record_v3(
+            product.backend_mut(),
+            &envelope_identity,
+            &lane,
+            &mut stream,
+            record,
+        )
+    });
+    if let Err(error) = acquisition {
+        let _ = product.backend_mut().destroy_authority_first();
+        return Err(error);
+    }
+    if stream.record_count == 0 {
+        let _ = product.backend_mut().destroy_authority_first();
+        return Err(StdinBriefErrorV3::Input(StdinBriefErrorV1::EmptyInput));
+    }
+    let input_digest: [u8; 32] = input_hasher.finalize().into();
+    let completion = FetchCompletion::new(
+        fetch_identity.clone(),
+        FetchTiming::new(now, now),
+        AcknowledgedCounts::new(
+            stream.record_count,
+            stream.payload_byte_count,
+            stream.source_byte_count,
+        ),
+        AttemptCounts::new(1, 1),
+        AttemptCounts::default(),
+        FetchBoundaries::default(),
+        [],
+        AdapterOutcome::Finished,
+        [],
+        FetchCompleteness::complete(CompletenessProof::OtherVersioned {
+            version: 3,
+            code: STDIN_COMPLETENESS_CODE_V3,
+        }),
+    )
+    .map_err(|_| StdinBriefErrorV3::Input(StdinBriefErrorV1::CompletionConstruction))?;
+    let completion_digest = digest_parts_v3(
+        b"completion",
+        &[
+            &stream.record_count.to_be_bytes(),
+            &stream.payload_byte_count.to_be_bytes(),
+            &stream.source_byte_count.to_be_bytes(),
+            &input_digest,
+        ],
+    );
+    let manifest = match product
+        .backend_mut()
+        .finish_acquisition(RetainedAcquisitionFinishV3 {
+            record_count: stream.record_count,
+            payload_byte_count: stream.payload_byte_count,
+            source_byte_count: stream.source_byte_count,
+            input_digest,
+            completion_digest,
+        }) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            let _ = product.backend_mut().destroy_authority_first();
+            return Err(StdinBriefErrorV3::Store(error));
+        }
+    };
+    let analysis_context = StreamingAnalysisContextV3::new(
+        fetch_identity,
+        envelope_identity,
+        source_identity_digest,
+        lane,
+        completion,
+    );
+    let decision = match product.compile_store(
+        result_id,
+        question,
+        &analysis_context,
+        manifest,
+        now,
+        token_budget,
+    ) {
+        Ok(decision) => decision,
+        Err(_) => {
+            let _ = product.backend_mut().destroy_authority_first();
+            return Err(StdinBriefErrorV3::Product);
+        }
+    };
+    let (outcome, _) = retained_outcome_v1(
+        decision,
+        result_id,
+        stream.record_count,
+        stream.source_byte_count,
+    )
+    .map_err(StdinBriefErrorV3::Input)?;
+    Ok(StdinBriefSessionV3 { product, outcome })
+}
+
+#[derive(Default)]
+struct StreamCountersV3 {
+    record_count: u64,
+    payload_byte_count: u64,
+    source_byte_count: u64,
+}
+
+fn validate_explicit_configuration_v3(
+    question: &[u8],
+    token_budget: u64,
+) -> Result<(), StdinBriefErrorV1> {
+    if question.is_empty() {
+        return Err(StdinBriefErrorV1::EmptyQuestion);
+    }
+    if question.len() > MAX_QUESTION_BYTES_V1 {
+        return Err(StdinBriefErrorV1::QuestionTooLarge);
+    }
+    if token_budget == 0 || token_budget > JSON_SAFE_INTEGER_MAX {
+        return Err(StdinBriefErrorV1::InvalidTokenBudget);
+    }
+    Ok(())
+}
+
+fn read_exact_records_v3(
+    reader: &mut impl Read,
+    input_hasher: &mut Sha256,
+    mut accept: impl FnMut(RecordBytes) -> Result<(), StdinBriefErrorV3>,
+) -> Result<(), StdinBriefErrorV3> {
+    let mut chunk = [0u8; 64 * 1024];
+    let mut pending = Vec::new();
+    let mut total = 0u64;
+    loop {
+        let read = reader
+            .read(&mut chunk)
+            .map_err(|_| StdinBriefErrorV3::ReadFailure)?;
+        if read == 0 {
+            break;
+        }
+        total = total
+            .checked_add(read as u64)
+            .ok_or(StdinBriefErrorV3::Input(StdinBriefErrorV1::CountOverflow))?;
+        if total > MAX_STDIN_BYTES_V3 {
+            return Err(StdinBriefErrorV3::Input(StdinBriefErrorV1::InputTooLarge));
+        }
+        input_hasher.update(&chunk[..read]);
+        let mut start = 0usize;
+        for newline in (0..read).filter(|position| chunk[*position] == b'\n') {
+            pending.extend_from_slice(&chunk[start..=newline]);
+            if pending.len() > MAX_AUTHORIZED_RECORD_BYTES {
+                return Err(StdinBriefErrorV3::Input(StdinBriefErrorV1::RecordTooLarge));
+            }
+            let terminator_start = if pending.len() >= 2 && pending[pending.len() - 2] == b'\r' {
+                pending.len() - 2
+            } else {
+                pending.len() - 1
+            };
+            let terminator = pending.split_off(terminator_start);
+            accept(RecordBytes::framed(
+                std::mem::take(&mut pending),
+                terminator,
+            ))?;
+            start = newline + 1;
+        }
+        pending.extend_from_slice(&chunk[start..read]);
+        if pending.len() > MAX_AUTHORIZED_RECORD_BYTES {
+            return Err(StdinBriefErrorV3::Input(StdinBriefErrorV1::RecordTooLarge));
+        }
+    }
+    if !pending.is_empty() {
+        accept(RecordBytes::whole(pending))?;
+    }
+    Ok(())
+}
+
+fn accept_stream_record_v3<B: RetainedEventStoreV3>(
+    backend: &mut B,
+    identity: &RawEnvelopeIdentityV1,
+    lane: &LaneKey,
+    counters: &mut StreamCountersV3,
+    record: RecordBytes,
+) -> Result<(), StdinBriefErrorV3> {
+    if counters.record_count >= MAX_STDIN_RECORDS_V3 {
+        return Err(StdinBriefErrorV3::Input(StdinBriefErrorV1::TooManyRecords));
+    }
+    let sequence = counters.record_count;
+    let payload_len = record.payload_len();
+    let terminator_len = record.terminator().map_or(0, <[u8]>::len);
+    let exact = record.exact_bytes();
+    let envelope = RawEnvelopeV1::new(
+        identity.clone(),
+        EnvelopeOrdering::new(
+            AcquisitionSequence::new(sequence),
+            lane.clone(),
+            LaneSequence::new(sequence),
+        ),
+        record,
+        RecordState::Complete,
+    );
+    let event_id = derive_source_exact_event_id_v1(&envelope);
+    backend
+        .append(RetainedEventInputV3 {
+            event_id,
+            acquisition_ordinal: sequence,
+            lane_ordinal: 0,
+            lane_sequence: sequence,
+            payload_len: u32::try_from(payload_len)
+                .map_err(|_| StdinBriefErrorV3::Input(StdinBriefErrorV1::RecordTooLarge))?,
+            terminator_len: u8::try_from(terminator_len)
+                .map_err(|_| StdinBriefErrorV3::Input(StdinBriefErrorV1::RecordTooLarge))?,
+            exact_bytes: &exact,
+        })
+        .map_err(StdinBriefErrorV3::Store)?;
+    counters.record_count = counters
+        .record_count
+        .checked_add(1)
+        .ok_or(StdinBriefErrorV3::Input(StdinBriefErrorV1::CountOverflow))?;
+    counters.payload_byte_count = counters
+        .payload_byte_count
+        .checked_add(payload_len as u64)
+        .ok_or(StdinBriefErrorV3::Input(StdinBriefErrorV1::CountOverflow))?;
+    counters.source_byte_count = counters
+        .source_byte_count
+        .checked_add(exact.len() as u64)
+        .ok_or(StdinBriefErrorV3::Input(StdinBriefErrorV1::CountOverflow))?;
+    Ok(())
+}
+
+fn digest_parts_v3(domain: &[u8], parts: &[&[u8]]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(IDENTITY_DOMAIN_V3);
+    hasher.update((domain.len() as u64).to_be_bytes());
+    hasher.update(domain);
+    for part in parts {
+        hasher.update((part.len() as u64).to_be_bytes());
+        hasher.update(part);
+    }
+    hasher.finalize().into()
+}
+
 /// Compile exact, explicitly supplied standard-input bytes into one Log Brief.
 ///
 /// `identity_seed` must be fresh cryptographic randomness in production. It is
@@ -939,7 +1387,117 @@ mod tests {
     use evidentrail_core::ExpansionRelationV1;
     use evidentrail_store::{
         AliasExpansionRequestV1, DEFAULT_RESULT_TTL_NANOS, EvidenceAliasV1, ExpansionLimitV1,
+        PackedMemoryEventStoreV3, RetainedEventStoreStateV3,
     };
+
+    struct ChunkedReader<'a> {
+        bytes: &'a [u8],
+        position: usize,
+        chunk: usize,
+    }
+
+    impl Read for ChunkedReader<'_> {
+        fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+            if self.position == self.bytes.len() {
+                return Ok(0);
+            }
+            let count = self
+                .chunk
+                .min(output.len())
+                .min(self.bytes.len() - self.position);
+            output[..count].copy_from_slice(&self.bytes[self.position..self.position + count]);
+            self.position += count;
+            Ok(count)
+        }
+    }
+
+    fn compile_chunked_v3(
+        input: &[u8],
+        chunk: usize,
+        budget: u64,
+    ) -> StdinBriefSessionV3<PackedMemoryEventStoreV3> {
+        compile_explicit_stream_v3(
+            ChunkedReader {
+                bytes: input,
+                position: 0,
+                chunk,
+            },
+            b"why ERR-9?",
+            budget,
+            [0x71; 32],
+            now(),
+            PackedMemoryEventStoreV3::new(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn v3_reader_chunking_does_not_change_output_or_authenticated_manifest() {
+        let input = b"ready\r\n\n\xffERR-9\0\nunterminated";
+        let one = compile_chunked_v3(input, 1, 100_000);
+        let wide = compile_chunked_v3(input, 65_536, 100_000);
+        assert_eq!(one.outcome().result_id(), wide.outcome().result_id());
+        match (one.outcome(), wide.outcome()) {
+            (StdinBriefOutcomeV1::Rendered(left), StdinBriefOutcomeV1::Rendered(right)) => {
+                assert_eq!(left.text(), right.text());
+                assert!(left.text().contains("\\r\\n"));
+                assert!(left.text().contains("\\xff"));
+                assert!(left.text().contains("\\x00"));
+            }
+            _ => panic!("large budget must render exact input"),
+        }
+        assert_eq!(
+            one.product().backend().manifest().unwrap().digest(),
+            wide.product().backend().manifest().unwrap().digest()
+        );
+        assert_eq!(
+            one.product().backend().state(),
+            RetainedEventStoreStateV3::Published
+        );
+    }
+
+    #[test]
+    fn v3_large_block_count_is_reduced_without_primary_block_count_needs_more() {
+        let mut input = Vec::new();
+        for ordinal in 0..5_000 {
+            if ordinal == 2_500 {
+                input.extend_from_slice(b"ERR-9 fatal root cause\n");
+            } else {
+                input.extend_from_slice(b"heartbeat ok\n");
+            }
+        }
+        let session = compile_chunked_v3(&input, 17, 20_000);
+        let plan = session.product().last_analysis_plan().unwrap();
+        assert!(plan.partition_count() > 1);
+        assert!(!plan.single_partition_v1_path());
+        assert!(plan.projected_block_count() <= 4_096);
+        if let StdinBriefOutcomeV1::Rendered(rendered) = session.outcome() {
+            assert!(rendered.text().contains("ERR-9"));
+            assert!(rendered.text().contains("fatal root cause"));
+        }
+        if let StdinBriefOutcomeV1::NeedsMore(needs_more) = session.outcome() {
+            assert_ne!(
+                needs_more
+                    .reason()
+                    .candidate_reason()
+                    .map(|reason| reason.code()),
+                Some("primary_block_count_cap")
+            );
+        }
+    }
+
+    #[test]
+    fn v3_needs_more_destroys_the_expandable_store() {
+        let session = compile_chunked_v3(b"ERR-9 failed\n", 2, 1);
+        assert!(matches!(
+            session.outcome(),
+            StdinBriefOutcomeV1::NeedsMore(_)
+        ));
+        assert_eq!(
+            session.product().backend().state(),
+            RetainedEventStoreStateV3::Destroyed
+        );
+    }
 
     fn now() -> UnixTimestampNanos {
         UnixTimestampNanos::new(1_800_000_000_000_000_000)

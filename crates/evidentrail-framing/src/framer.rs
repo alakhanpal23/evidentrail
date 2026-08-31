@@ -247,6 +247,9 @@ enum MonotonicRelation {
 }
 
 fn monotonic_relation(previous: &Event, next: &Event) -> MonotonicRelation {
+    if previous.lane_sequence().get().checked_add(1) != Some(next.lane_sequence().get()) {
+        return MonotonicRelation::Boundary;
+    }
     let Some(previous_time) = previous.timestamps().adapter_monotonic_time() else {
         return MonotonicRelation::Unavailable;
     };

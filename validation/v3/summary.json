@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-30T00:00:00-07:00",
+  "qualification_eligible": false,
+  "environment": {
+    "container_memory_limit_bytes": 7516192768,
+    "authority": "process_conformance_only",
+    "signed_executable": false,
+    "dedicated_reference_host": false
+  },
+  "measurements": [
+    {
+      "scale": "10K",
+      "records": 10000,
+      "source_bytes": 905327,
+      "memory_elapsed_ms": 219.749167,
+      "durable_elapsed_ms": 436.869083,
+      "durable_memory_throughput_ratio": 0.5030091978,
+      "memory_peak_rss_mib": 36.80859375,
+      "durable_peak_rss_mib": 43.2578125,
+      "durable_memory_rss_ratio": 1.1752095935,
+      "durable_storage_amplification": 7.3703899254,
+      "durable_expansion_p95_ms": 19.937958
+    },
+    {
+      "scale": "100K",
+      "records": 100000,
+      "source_bytes": 9153554,
+      "memory_elapsed_ms": 1294.11525,
+      "durable_elapsed_ms": 4112.44571,
+      "durable_memory_throughput_ratio": 0.3146826344,
+      "memory_peak_rss_mib": 235.2734375,
+      "durable_peak_rss_mib": 291.48828125,
+      "durable_memory_rss_ratio": 1.238934086,
+      "durable_storage_amplification": 7.2955420376,
+      "durable_expansion_p95_ms": 38.696791
+    },
+    {
+      "scale": "1M",
+      "records": 1000000,
+      "source_bytes": 92536266,
+      "memory_elapsed_ms": 20924.707385,
+      "durable_elapsed_ms": 141979.121148,
+      "durable_memory_throughput_ratio": 0.147378764,
+      "memory_peak_rss_mib": 2304.92578125,
+      "durable_peak_rss_mib": 2577.703125,
+      "durable_memory_rss_ratio": 1.1183453914,
+      "durable_storage_amplification": 7.2269184711,
+      "durable_expansion_p95_ms": 29.68725
+    }
+  ],
+  "test_results": {
+    "v2_crash_recovery_rollback_contracts": { "passed": 9, "failed": 0 },
+    "v3_retained_store_contracts": { "passed": 4, "failed": 0 },
+    "hermetic_product_corpus": { "passed": 2, "failed": 0 },
+    "governed_executable_incidents": { "passed": 7, "failed": 0 },
+    "one_million_boundary_corpus": { "passed": 1, "failed": 0 }
+  },
+  "gate_disposition": {
+    "independent_v3_packed_page_checkpoint_format": "fail",
+    "one_million_rss_target": "fail",
+    "one_million_rss_hard_ceiling": "fail",
+    "throughput_threshold_screen": "fail",
+    "ten_thousand_absolute_overhead_screen": "fail",
+    "storage_amplification_target": "fail",
+    "expansion_scaling_screen_100k_to_1m": "pass_non_certifying",
+    "v3_specific_full_fault_matrix": "fail_not_applicable_until_format_exists",
+    "large_boundary_evidence_fixture": "pass_synthetic",
+    "independently_adjudicated_public_corpus": "fail_missing_source"
+  }
+}

@@ -1,0 +1,2 @@
+{"schema_version":1,"qualification_eligible":false,"mode":"durable","records":100000,"source_bytes":9153554,"elapsed_nanos":4112445710,"records_per_second":24316.43042893811,"retained_or_stored_bytes":66780138,"storage_amplification":7.295542037551753,"rendered":true,"aliases":11,"exact_read_verified":true,"expansion_samples":200,"expansion_median_nanos":27499333,"expansion_p95_nanos":38696791}
+{"cgroup_peak_bytes":305647616}

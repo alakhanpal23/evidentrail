@@ -23,6 +23,7 @@ pub const MAX_ENCODED_FRAME_BYTES_V2: usize = FRAME_HEADER_BYTES_V2
 const SEGMENT_MAGIC_V2: [u8; 8] = *b"EVRSEG02";
 const FRAME_MAGIC_V2: [u8; 8] = *b"EVRFRM02";
 const FRAME_AAD_DOMAIN_V2: &[u8] = b"evidentrail.snapshot.frame-aad.v2";
+const FRAME_ADDITIONAL_AAD_DOMAIN_V1: &[u8] = b"evidentrail.snapshot.frame-additional-aad.v1";
 const FRAME_COMMITMENT_DOMAIN_V2: &[u8] = b"evidentrail.snapshot.frame-commitment.v2";
 
 /// Private encrypted object kinds. They never enter the public V1 JSON domain.
@@ -427,8 +428,21 @@ pub fn seal_frame_v2(
     header: FrameHeaderV2,
     plaintext: &[u8],
 ) -> Result<SealedFrameV2, SnapshotFrameErrorV2> {
+    seal_frame_v2_with_additional_aad(result_dek, segment, header, plaintext, &[])
+}
+
+/// Seal a frame while binding a caller-owned canonical object header as
+/// additional associated data. The extension is domain- and length-framed so
+/// it cannot collide with the fixed V2 segment/header AAD.
+pub fn seal_frame_v2_with_additional_aad(
+    result_dek: &ResultDekV1,
+    segment: SegmentHeaderV2,
+    header: FrameHeaderV2,
+    plaintext: &[u8],
+    additional_aad: &[u8],
+) -> Result<SealedFrameV2, SnapshotFrameErrorV2> {
     validate_header_against_segment(segment, header, plaintext.len())?;
-    let aad = canonical_frame_aad_v2(segment, header);
+    let aad = extended_frame_aad_v1(segment, header, additional_aad);
     let cipher = XChaCha20Poly1305::new_from_slice(result_dek.frame_key().as_bytes())
         .map_err(|_| SnapshotFrameErrorV2::AuthenticationFailed)?;
     let nonce = XNonce::from(header.nonce());
@@ -455,12 +469,22 @@ pub fn open_frame_v2(
     segment: SegmentHeaderV2,
     frame: &SealedFrameV2,
 ) -> Result<OpenedFrameV2, SnapshotFrameErrorV2> {
+    open_frame_v2_with_additional_aad(result_dek, segment, frame, &[])
+}
+
+/// Open a frame sealed with [`seal_frame_v2_with_additional_aad`].
+pub fn open_frame_v2_with_additional_aad(
+    result_dek: &ResultDekV1,
+    segment: SegmentHeaderV2,
+    frame: &SealedFrameV2,
+    additional_aad: &[u8],
+) -> Result<OpenedFrameV2, SnapshotFrameErrorV2> {
     validate_header_against_segment(segment, frame.header, frame.ciphertext.len())?;
     let expected = derive_frame_commitment_v2(segment, frame.header, &frame.ciphertext, &frame.tag);
     if expected != frame.commitment {
         return Err(SnapshotFrameErrorV2::CommitmentMismatch);
     }
-    let aad = canonical_frame_aad_v2(segment, frame.header);
+    let aad = extended_frame_aad_v1(segment, frame.header, additional_aad);
     let cipher = XChaCha20Poly1305::new_from_slice(result_dek.frame_key().as_bytes())
         .map_err(|_| SnapshotFrameErrorV2::AuthenticationFailed)?;
     let nonce = XNonce::from(frame.header.nonce());
@@ -470,6 +494,20 @@ pub fn open_frame_v2(
         .decrypt_inout_detached(&nonce, &aad, plaintext.as_mut_slice().into(), &tag)
         .map_err(|_| SnapshotFrameErrorV2::AuthenticationFailed)?;
     Ok(OpenedFrameV2(plaintext))
+}
+
+fn extended_frame_aad_v1(
+    segment: SegmentHeaderV2,
+    header: FrameHeaderV2,
+    additional_aad: &[u8],
+) -> Vec<u8> {
+    let mut aad = canonical_frame_aad_v2(segment, header);
+    if !additional_aad.is_empty() {
+        aad.extend_from_slice(FRAME_ADDITIONAL_AAD_DOMAIN_V1);
+        aad.extend_from_slice(&(additional_aad.len() as u64).to_be_bytes());
+        aad.extend_from_slice(additional_aad);
+    }
+    aad
 }
 
 fn validate_header_against_segment(

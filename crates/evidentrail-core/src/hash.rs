@@ -115,6 +115,23 @@ pub(crate) fn event_id(
     EventId::from_bytes(finish(hasher))
 }
 
+/// Derive the canonical persisted identity for a source-exact envelope without
+/// retaining it in an [`EventLedger`](crate::EventLedger).
+///
+/// Streaming acquisition uses this narrow helper to write exact bytes and
+/// fixed-width metadata directly to a packed store. The ordinary
+/// [`LedgerBuilder`](crate::LedgerBuilder) path derives the identical value.
+#[must_use]
+pub fn derive_source_exact_event_id_v1(envelope: &RawEnvelopeV1) -> EventId {
+    event_id(
+        envelope.identity().retrieval_id(),
+        source_record_id(envelope),
+        authorized_content_hash(&envelope.record().exact_bytes()),
+        ExactnessBasis::SourceExact,
+        envelope.provider_attestations(),
+    )
+}
+
 pub(crate) fn block_id(
     retrieval_id: RetrievalId,
     member_ids: &[EventId],

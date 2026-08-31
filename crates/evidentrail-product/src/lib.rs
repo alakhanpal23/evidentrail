@@ -9,6 +9,7 @@
 #[cfg(unix)]
 mod durable_lifecycle;
 mod encrypted_retention;
+mod streaming_v3;
 
 #[cfg(unix)]
 pub use durable_lifecycle::{
@@ -19,6 +20,12 @@ pub use durable_lifecycle::{
 pub use encrypted_retention::{
     AuthenticatedEncryptedRetentionErrorV1, AuthenticatedEncryptedRetentionV1,
     AuthenticatedRetentionExpansionV1, AuthenticatedRetentionPublicationV1,
+};
+pub use streaming_v3::{
+    AnalysisPlanV3, MAX_ANALYSIS_PARTITION_BLOCKS_V3, MAX_ANALYSIS_PARTITION_BYTES_V3,
+    MAX_ANALYSIS_PARTITIONS_V3, StreamingAnalysisContextV3, StreamingLaneContextV3,
+    StreamingPerformanceReceiptV3, StreamingProductErrorV3, StreamingProductV3,
+    streaming_product_build_context_v3,
 };
 
 use std::collections::BTreeMap;

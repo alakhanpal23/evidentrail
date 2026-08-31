@@ -51,7 +51,7 @@ pub use expansion::{
     ExpandedEventV1, ExpansionLimitV1, ExpansionRequestV1, ExpansionResponseV1,
     MAX_EXPANSION_BYTES, MAX_EXPANSION_EVENTS, ResultStoreError, expand_retained_result_v1,
 };
-pub use hash::derive_question_digest_v1;
+pub use hash::{derive_question_digest_v1, derive_source_exact_event_id_v1};
 pub use ledger::{
     CheckedSealedLedgerViewV1, DeterministicPolicy, EnvelopeSink, Event, EventLedger, Expansion,
     LaneExpansion, LedgerBuildError, LedgerBuilder, LedgerIntegrityErrorV1, LedgerLookupError,

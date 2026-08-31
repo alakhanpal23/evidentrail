@@ -11,6 +11,7 @@ default = []
 internal-test-provider = ["evidentrail-store/internal-test-provider"]
 
 [dependencies]
+evidentrail-candidates.workspace = true
 evidentrail-compile.workspace = true
 evidentrail-core.workspace = true
 evidentrail-evidence.workspace = true

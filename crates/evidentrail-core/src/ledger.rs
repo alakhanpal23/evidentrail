@@ -302,6 +302,7 @@ impl StdError for LedgerBuildError {}
 #[derive(PartialEq, Eq)]
 pub enum LedgerLookupError {
     UnknownEvent(EventId),
+    InvalidAnalysisProjection,
 }
 
 impl LedgerLookupError {
@@ -309,6 +310,7 @@ impl LedgerLookupError {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::UnknownEvent(_) => "EVIDENTRAIL_LEDGER_UNKNOWN_EVENT",
+            Self::InvalidAnalysisProjection => "EVIDENTRAIL_LEDGER_INVALID_ANALYSIS_PROJECTION",
         }
     }
 }
@@ -383,6 +385,7 @@ pub struct LedgerBuilder<P> {
     acknowledged_payload_bytes: u64,
     acknowledged_source_bytes: u64,
     saw_fragment: bool,
+    analysis_projection_v3: bool,
 }
 
 impl<P> fmt::Debug for LedgerBuilder<P> {
@@ -423,7 +426,26 @@ where
             acknowledged_payload_bytes: 0,
             acknowledged_source_bytes: 0,
             saw_fragment: false,
+            analysis_projection_v3: false,
         }
+    }
+
+    /// Construct a bounded V3 analysis ledger from a monotonic subset of an
+    /// already authenticated acquisition.
+    ///
+    /// Unlike ordinary ingestion, acquisition and lane sequences may contain
+    /// gaps, but they must remain strictly increasing. Event identities still
+    /// bind the original sequence values. This constructor is intentionally
+    /// unsuitable for authoritative acquisition or import.
+    #[must_use]
+    pub fn new_analysis_projection_v3(
+        identity: FetchIdentity,
+        source_identity_digest: SourceIdentityDigest,
+        policy: P,
+    ) -> Self {
+        let mut builder = Self::new(identity, source_identity_digest, policy);
+        builder.analysis_projection_v3 = true;
+        builder
     }
 
     #[must_use]
@@ -513,7 +535,9 @@ where
         self.validate_identity(&envelope)?;
 
         let actual_acquisition = envelope.ordering().acquisition_sequence().get();
-        if actual_acquisition != self.next_acquisition_sequence {
+        if (!self.analysis_projection_v3 && actual_acquisition != self.next_acquisition_sequence)
+            || (self.analysis_projection_v3 && actual_acquisition < self.next_acquisition_sequence)
+        {
             return Err(LedgerBuildError::UnexpectedAcquisitionSequence {
                 expected: self.next_acquisition_sequence,
                 actual: actual_acquisition,
@@ -526,7 +550,9 @@ where
         let lane = envelope.ordering().lane().clone();
         let expected_lane = self.next_lane_sequences.get(&lane).copied().unwrap_or(0);
         let actual_lane = envelope.ordering().lane_sequence().get();
-        if actual_lane != expected_lane {
+        if (!self.analysis_projection_v3 && actual_lane != expected_lane)
+            || (self.analysis_projection_v3 && actual_lane < expected_lane)
+        {
             return Err(LedgerBuildError::UnexpectedLaneSequence {
                 expected: expected_lane,
                 actual: actual_lane,
@@ -765,6 +791,83 @@ impl fmt::Debug for EventLedger {
 }
 
 impl EventLedger {
+    /// Attach the exhaustive acquisition completion to a bounded V3 analysis
+    /// projection. The projection's receipt remains a selected working view;
+    /// callers must not treat it as an importable authoritative ledger.
+    pub fn with_analysis_completion_v3(
+        mut self,
+        completion: FetchCompletion,
+    ) -> Result<Self, LedgerLookupError> {
+        let selected = self.completion.acknowledged();
+        let exhaustive = completion.acknowledged();
+        if completion.identity().retrieval_id() != self.retrieval_id
+            || completion.identity().plan_id() != self.plan_id
+            || completion.identity().plan_digest() != self.plan_digest
+            || completion.identity().adapter() != &self.adapter
+            || exhaustive.records() < selected.records()
+            || exhaustive.payload_bytes() < selected.payload_bytes()
+            || exhaustive.source_bytes() < selected.source_bytes()
+        {
+            return Err(LedgerLookupError::InvalidAnalysisProjection);
+        }
+        self.completion = completion;
+        Ok(self)
+    }
+
+    /// Construct the bounded working ledger used by V3 multi-partition
+    /// analysis while preserving every selected event identity exactly.
+    ///
+    /// The complete acquisition receipt remains attached to the projection;
+    /// the complete authorized bytes remain owned by the V3 retained-event
+    /// store. This value is intentionally an internal analysis view rather
+    /// than an importable sealed-ledger representation.
+    pub fn analysis_projection_v3(
+        &self,
+        ordered_positions: &[usize],
+    ) -> Result<Self, LedgerLookupError> {
+        let mut prior = None;
+        let mut events = Vec::with_capacity(ordered_positions.len());
+        for &position in ordered_positions {
+            if position >= self.events.len()
+                || prior.is_some_and(|prior_position| position <= prior_position)
+            {
+                return Err(LedgerLookupError::InvalidAnalysisProjection);
+            }
+            let mut event = self.events[position].clone();
+            event.ordinal = u64::try_from(events.len())
+                .map_err(|_| LedgerLookupError::InvalidAnalysisProjection)?;
+            events.push(event);
+            prior = Some(position);
+        }
+        if events.is_empty() {
+            return Err(LedgerLookupError::InvalidAnalysisProjection);
+        }
+
+        let mut positions = BTreeMap::new();
+        let mut lane_positions = BTreeMap::<LaneKey, Vec<usize>>::new();
+        for (position, event) in events.iter().enumerate() {
+            positions.insert(event.id(), position);
+            lane_positions
+                .entry(event.lane().clone())
+                .or_default()
+                .push(position);
+        }
+        Ok(Self {
+            retrieval_id: self.retrieval_id,
+            plan_id: self.plan_id,
+            plan_digest: self.plan_digest,
+            source_identity_digest: self.source_identity_digest,
+            adapter: self.adapter.clone(),
+            completion: self.completion.clone(),
+            acquisition_receipt_id: self.acquisition_receipt_id,
+            acquisition_receipt: self.acquisition_receipt.clone(),
+            transformation_receipts: self.transformation_receipts.clone(),
+            events,
+            positions,
+            lane_positions,
+        })
+    }
+
     #[must_use]
     pub const fn retrieval_id(&self) -> RetrievalId {
         self.retrieval_id

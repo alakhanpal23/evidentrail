@@ -1,0 +1,10 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic corpus manifest stores a scan receipt digest, not a secret"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''fixtures/manifests/synthetic-local-ci-example\.manifest\.json$''']
+regexes = ['''"secret_scan_sha256": "[0-9a-f]{64}"''']

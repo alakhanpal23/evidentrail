@@ -23,6 +23,11 @@ The release artifact must therefore be:
 5. verified with `codesign -d --entitlements :- PATH` before the Keychain
    integration and qualification suites run.
 
+The dedicated qualification Mac must be rebootable, APFS-backed, controlled by
+the release team, and isolated from implementation-owner credentials.
+Gatekeeper admission (`spctl --assess`) and notarization stapling are checked in
+addition to the entitlement dump.
+
 Do not commit signing certificates, private keys, provisioning profiles,
 notarization credentials, or expanded team identifiers to this repository.
 
@@ -44,6 +49,15 @@ cargo test -p evidentrail-store \
 Then run the dedicated-host performance protocol. A successful developer
 smoke does not replace the signed-binary, locked-session, reboot, and clean-boot
 checks.
+
+For every cold arm use `stage-cold-boot-arm-v3.sh` before reboot and
+`verify-cold-boot-arm-v3.sh` after execution. The resulting contentless receipt
+binds executable and fixture digests, distinct boot identities, APFS volume,
+OS build, authority mode, repository ciphertext digest, and semantic
+commitment. Process authority is engineering-only. The release bundle must
+also cover unlocked create/publish/restart/expansion, locked and unavailable
+Keychain behavior without fallback, missing items, every pack-transition crash,
+copied/corrupt/truncated/stale repositories, expiry, and key-first destruction.
 
 Apple references:
 

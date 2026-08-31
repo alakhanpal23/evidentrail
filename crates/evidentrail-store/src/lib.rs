@@ -37,6 +37,8 @@ mod alias_manifest;
 #[cfg(unix)]
 mod authenticated_restart;
 #[cfg(unix)]
+mod durable_packed_v3;
+#[cfg(unix)]
 mod durable_repository_v2;
 mod encrypted_core_repository;
 #[cfg(any(test, feature = "internal-test-provider"))]
@@ -48,6 +50,7 @@ mod key_provider;
 #[cfg(target_os = "macos")]
 mod macos_keychain_authority_v2;
 mod memory;
+mod retained_v3;
 mod sealed_bundle;
 
 pub use alias_manifest::{
@@ -60,6 +63,12 @@ pub use authenticated_restart::{
     AuthenticatedFilesystemRecoveryDispositionV1, AuthenticatedFilesystemRecoveryPublicationV1,
     AuthenticatedFilesystemRestartCoordinatorV1, AuthenticatedFilesystemRestartErrorV1,
     RecoveredExactAliasResultV1, RecoveredProductAliasExpansionV1,
+};
+#[cfg(unix)]
+pub use durable_packed_v3::{
+    DURABLE_PACK_FOOTER_BYTES_V3, DURABLE_PACK_HEADER_BYTES_V3, DurablePackedFaultInjectorV3,
+    DurablePackedFaultPointV3, DurablePackedPerformanceReceiptV3, DurablePackedRepositoryV3,
+    DurableRetainedEventStoreV3, NoDurablePackedFaultsV3, cleanup_obsolete_v3_authority_first,
 };
 #[cfg(unix)]
 pub use durable_repository_v2::{
@@ -106,6 +115,14 @@ pub use memory::{
     ExpansionLimitV1, ExpansionRequestV1, ExpansionResponseV1, MAX_EXPANSION_BYTES,
     MAX_EXPANSION_EVENTS, MemoryResultStore, PreparedPacketReferencesV1, RegisteredResultV1,
     ResultStoreError,
+};
+pub use retained_v3::{
+    CHECKPOINT_BYTE_INTERVAL_V3, CHECKPOINT_RECORD_INTERVAL_V3, MAX_EVENTS_PER_PAGE_V3,
+    MAX_STREAM_RECORDS_V3, MAX_STREAM_SOURCE_BYTES_V3, PackedMemoryEventStoreV3,
+    RetainedAcquisitionFinishV3, RetainedEventInputV3, RetainedEventLocatorV3,
+    RetainedEventStoreErrorV3, RetainedEventStoreStateV3, RetainedEventStoreV3,
+    RetainedEventViewV3, RetainedPublishedAliasV3, RetainedStoreBeginV3, RetainedStoreManifestV3,
+    TARGET_PAGE_PLAINTEXT_BYTES_V3,
 };
 pub use sealed_bundle::{
     MAX_SEALED_ENCRYPTED_CORE_RESULT_BUNDLE_BYTES_V1, SEALED_BUNDLE_ORIGIN_V1,

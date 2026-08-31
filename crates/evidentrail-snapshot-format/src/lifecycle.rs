@@ -578,6 +578,16 @@ impl ResultAuthorityRecordV2 {
         !self.pending_nonce_operation.is_zero()
     }
 
+    #[must_use]
+    pub const fn pending_nonce_operation(self) -> OperationIdV1 {
+        self.pending_nonce_operation
+    }
+
+    #[must_use]
+    pub const fn pending_nonce_digest(self) -> LifecycleDigestV1 {
+        self.pending_nonce_digest
+    }
+
     pub fn commit_data(
         &mut self,
         operation: OperationIdV1,

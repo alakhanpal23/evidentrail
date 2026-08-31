@@ -1,0 +1,117 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Streaming Product V3 readiness validation",
+    "description": "Technical validation of the V3 durability, resource, performance, fault, and corpus gates.",
+    "generatedAt": "2026-08-30T00:00:00-07:00",
+    "sources": [
+      {
+        "id": "validation-summary",
+        "label": "V3 local validation summary",
+        "path": "validation/v3/summary.json",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "sql": "SELECT m.scale, m.records, m.durable_memory_throughput_ratio AS throughput_ratio, m.memory_peak_rss_mib AS memory_rss_mib, m.durable_peak_rss_mib AS durable_rss_mib, m.durable_storage_amplification AS storage_amplification, m.durable_expansion_p95_ms AS expansion_p95_ms FROM read_json_auto('validation/v3/summary.json', maximum_object_size=1048576) AS t, UNNEST(t.measurements) AS u(m)",
+          "description": "Project the measured V3 scale rows from the saved validation summary.",
+          "executed_at": "2026-08-30T00:00:00-07:00",
+          "tables_used": ["validation/v3/summary.json"],
+          "filters": ["10K, 100K, and 1M generated records", "process conformance authority", "fresh 7 GiB Linux containers"],
+          "metric_definitions": ["Throughput ratio = durable records/second divided by memory records/second", "Storage amplification = durable repository bytes divided by exact source bytes", "Peak RSS = fresh-container cgroup memory.peak"]
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "performance-gates",
+        "title": "Measured V3 resource and performance screens",
+        "subtitle": "One full-product pair and 200 measured exact reads at each scale; release thresholds fail before certification sampling.",
+        "showDescription": true,
+        "dataset": "measurements",
+        "defaultSort": { "field": "records", "direction": "asc" },
+        "density": "spacious",
+        "layout": "full",
+        "sourceId": "validation-summary",
+        "columns": [
+          { "field": "scale", "label": "Scale", "type": "text" },
+          { "field": "records", "label": "Records", "format": "number" },
+          { "field": "throughput_ratio", "label": "Durable/memory throughput", "format": "number" },
+          { "field": "memory_rss_mib", "label": "Memory RSS, MiB", "format": "number" },
+          { "field": "durable_rss_mib", "label": "Durable RSS, MiB", "format": "number" },
+          { "field": "storage_amplification", "label": "Storage/source", "format": "number" },
+          { "field": "expansion_p95_ms", "label": "Durable expansion p95, ms", "format": "number" }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "throughput-screen",
+        "title": "Durable throughput relative to memory",
+        "subtitle": "Observed full-product ratio by scale; the frozen lower bound is 0.90.",
+        "showDescription": true,
+        "question": "Does durable throughput remain at least 90% of memory throughput at each scale?",
+        "rationale": "A categorical bar chart makes three discrete scale comparisons and their distance below the threshold easy to scan.",
+        "type": "bar",
+        "dataset": "measurements",
+        "sourceId": "validation-summary",
+        "encodings": {
+          "x": { "field": "scale", "type": "ordinal", "label": "Input scale" },
+          "y": { "field": "throughput_ratio", "type": "quantitative", "format": "number", "label": "Durable / memory throughput" },
+          "tooltip": [
+            { "field": "records", "type": "quantitative", "format": "number", "label": "Records" },
+            { "field": "throughput_ratio", "type": "quantitative", "format": "number", "label": "Throughput ratio" }
+          ]
+        },
+        "valueFormat": "number",
+        "layout": "full",
+        "maxRows": 3,
+        "labels": { "values": "all" },
+        "referenceLines": [
+          { "axis": "y", "value": 0.9, "label": "Required lower bound", "lineStyle": "dashed" }
+        ],
+        "settings": { "orientation": "vertical", "groupMode": "single", "showValues": true }
+      }
+    ],
+    "blocks": [
+      { "id": "title", "type": "markdown", "layout": "full", "body": "# Streaming Product V3 readiness validation" },
+      { "id": "summary", "type": "markdown", "layout": "full", "sourceId": "validation-summary", "body": "## V3 is not ready to ship\n\n**Overall assessment: Needs revision.** Exact streaming and the 1M boundary corpus pass, but the current durable backend remains a V2 adapter. At 1M records, memory peaked at 2,304.9 MiB and durable at 2,577.7 MiB, both above the 1 GiB hard ceiling. Durable throughput was 0.147x memory and storage amplification was 7.23x." },
+      { "id": "findings", "type": "markdown", "layout": "full", "sourceId": "validation-summary", "body": "## Point screens fail before confidence-interval certification\n\nAll measured scales miss the 0.90 durable/memory throughput threshold, and the durable repository misses the 2.5x storage target at every scale. The 10K absolute durable overhead was 217.1 ms, above the 20 ms ceiling. The table should be read as a decisive engineering screen, not as a paired-BCa release certificate." },
+      { "id": "throughput-chart", "type": "chart", "layout": "full", "chartId": "throughput-screen", "sourceId": "validation-summary" },
+      { "id": "performance-table", "type": "table", "layout": "full", "tableId": "performance-gates", "sourceId": "validation-summary" },
+      { "id": "scope", "type": "markdown", "layout": "full", "body": "## Scope and definitions\n\nThe probe drove `compile_explicit_stream_v3` through a generated `Read` stream without pre-materializing the source. Peak RSS is fresh-container cgroup `memory.peak`; stored bytes cover the complete repository tree. Each expansion result uses 10 warmups followed by 200 measured exact reads." },
+      { "id": "method", "type": "markdown", "layout": "full", "sourceId": "validation-summary", "body": "## Durability and corpus checks\n\nNine V2 crash/recovery/rollback contracts, four V3 adapter contracts, two hermetic corpus tests, seven governed executable-incident tests, and one 1M boundary-corpus test passed. The 1M test retained exact required evidence at the beginning, midpoint, and end." },
+      { "id": "limitations", "type": "markdown", "layout": "full", "body": "## What these results do not establish\n\nThe durable implementation has no independent V3 page/checkpoint format, so V2 fault passes cannot certify missing V3 boundaries. Measurements used a process authority and one full-product pair per scale. The large boundary corpus is synthetic, not independently adjudicated public evidence." },
+      { "id": "next", "type": "markdown", "layout": "full", "body": "## Required next work\n\n1. Implement the independent encrypted V3 packed-page/checkpoint repository.\n2. Replace the full-ledger memory representation to bring 1M RSS below 1 GiB.\n3. Rerun the complete randomized 5/30 and 10/200 paired protocols with 20,000-resample BCa intervals.\n4. Fault-inject every new V3 durability boundary.\n5. Add an approved independently adjudicated public incident corpus." },
+      { "id": "questions", "type": "markdown", "layout": "full", "body": "## Further questions\n\n- Which independently adjudicated corpus is approved for release gating?\n- Which dedicated signed macOS host will own final Keychain and APFS certification?" }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-30T00:00:00-07:00",
+    "status": "ready",
+    "datasets": {
+      "measurements": [
+        { "scale": "10K", "records": 10000, "throughput_ratio": 0.5030091978, "memory_rss_mib": 36.80859375, "durable_rss_mib": 43.2578125, "storage_amplification": 7.3703899254, "expansion_p95_ms": 19.937958 },
+        { "scale": "100K", "records": 100000, "throughput_ratio": 0.3146826344, "memory_rss_mib": 235.2734375, "durable_rss_mib": 291.48828125, "storage_amplification": 7.2955420376, "expansion_p95_ms": 38.696791 },
+        { "scale": "1M", "records": 1000000, "throughput_ratio": 0.147378764, "memory_rss_mib": 2304.92578125, "durable_rss_mib": 2577.703125, "storage_amplification": 7.2269184711, "expansion_p95_ms": 29.68725 }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "validation-summary",
+      "label": "V3 local validation summary",
+      "path": "validation/v3/summary.json",
+      "query": {
+        "engine": "duckdb",
+        "language": "sql",
+        "sql": "SELECT m.scale, m.records, m.durable_memory_throughput_ratio AS throughput_ratio, m.memory_peak_rss_mib AS memory_rss_mib, m.durable_peak_rss_mib AS durable_rss_mib, m.durable_storage_amplification AS storage_amplification, m.durable_expansion_p95_ms AS expansion_p95_ms FROM read_json_auto('validation/v3/summary.json', maximum_object_size=1048576) AS t, UNNEST(t.measurements) AS u(m)",
+        "description": "Project the measured V3 scale rows from the saved validation summary.",
+        "executed_at": "2026-08-30T00:00:00-07:00",
+        "tables_used": ["validation/v3/summary.json"]
+      }
+    }
+  ]
+}

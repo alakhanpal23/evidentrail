@@ -107,7 +107,7 @@ pub use frame_v2::{
     FRAME_HEADER_BYTES_V2, FrameHeaderV2, MAX_ENCODED_FRAME_BYTES_V2, OpenedFrameV2,
     SEGMENT_HEADER_BYTES_V2, SNAPSHOT_FORMAT_VERSION_V2, SealedFrameV2, SegmentHeaderV2,
     SnapshotFrameErrorV2, SnapshotObjectKindV2, canonical_frame_aad_v2, open_frame_v2,
-    seal_frame_v2,
+    open_frame_v2_with_additional_aad, seal_frame_v2, seal_frame_v2_with_additional_aad,
 };
 pub use journal_v2::{
     DURABLE_ACKNOWLEDGEMENT_BYTES_V2, DURABLE_BATCH_JOURNAL_HEADER_BYTES_V2,

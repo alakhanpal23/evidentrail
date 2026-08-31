@@ -31,6 +31,19 @@ The benchmark-only executable coding-agent outcome loop is described in
 This repository contains a tested **deterministic product core**, not a
 finished product and not a validated performance claim. It currently provides:
 
+- an internal streaming V3 path with a generic retained-event-store boundary,
+  incremental explicit-input parsing up to 1,000,000 records or 1 GiB, packed
+  memory retention, checkpoint-sized immutable encrypted durable packs with
+  independent page frames and an encrypted exact-lookup directory,
+  deterministic
+  block-boundary analysis partitions, and a bounded global reducer that avoids
+  treating total partition count as `PrimaryBlockCountCap`; rollout remains
+  gated because the packed-layout native screen has not yet been rerun (the
+  superseded one-object layout failed), and signed-Keychain plus independently
+  adjudicated external-corpus certification remain outstanding,
+  as recorded in
+  [`docs/STREAMING_PRODUCT_V3.md`](docs/STREAMING_PRODUCT_V3.md);
+
 - versioned raw-envelope and fetch-completion vocabulary with typed source,
   member, stream, cursor, timestamp, fragment, cap, completeness, native-ID,
   and closed provider-attestation facts;

@@ -18,7 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use evidentrail_authority::{CanonicalUnixPathV1, InternalPathPolicyV1, InternalPathRegistryV1};
 use evidentrail_cli::{
     DEFAULT_TOKEN_BUDGET_V1, MAX_QUESTION_BYTES_V1, MAX_STDIN_BYTES_V1, StdinBriefOutcomeV1,
-    compile_explicit_stdin_v1, run_mcp_stdio_v1,
+    compile_explicit_stdin_v1, compile_explicit_stream_v3, run_mcp_stdio_v1,
 };
 #[cfg(target_os = "macos")]
 use evidentrail_cli::{
@@ -33,9 +33,12 @@ use evidentrail_local_file::{
 use evidentrail_product::DurableProductV2;
 use evidentrail_schema::InternalPathPolicyDigest;
 #[cfg(target_os = "macos")]
+use evidentrail_store::DurableRetainedEventStoreV3;
+use evidentrail_store::PackedMemoryEventStoreV3;
+#[cfg(target_os = "macos")]
 use evidentrail_store::{DurableRepositoryErrorV2, DurableResultRepositoryV2, MacOsKeychainAuthorityV2};
 
-const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] < logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nThe V1 brief command reads only explicit standard input. MCP retention defaults to\nmemory; successful results remain available for bounded expansion until their fixed\n30-minute expiry or process exit. Durable retention is explicit and requires the\nplatform external-authority implementation; it uses the platform Evidentrail cache root.\nDoctor inspects metadata for exactly one explicit file; it never reads file contents,\napproves a source, or mints host certification. The product does not discover files\nbeyond that exact doctor path, crawl a workspace, inspect ambient logs, or invoke a\nmodel. Use --question-file when the question should not appear in the process argument\nlist. V1 conservatively counts one rendered UTF-8 byte as one budget unit; this is not\na model-token count.\n";
+const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] < logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nBrief reads only explicit standard input and retention defaults to memory. Streaming\nV3 is available behind the internal EVIDENTRAIL_STREAMING_V3=1 rollout gate; durable brief\nretention always uses V3 and is explicit, requires the platform external authority,\nand fails closed when that authority is locked or unavailable. Doctor inspects metadata\nfor exactly one explicit file; it never reads file contents, approves a source, or mints\nhost certification. The product does not discover files, crawl a workspace, inspect\nambient logs, or invoke a model. Use --question-file when the question should not appear\nin the process argument list. The pinned tokenizer conservatively counts one rendered\nUTF-8 byte as one budget unit; this is not a model-token count.\n";
 
 const DOCTOR_SUCCESS_CODE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_FILE_METADATA_OK";
 const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_INTERNAL_PATH_POLICY_UNAVAILABLE";
@@ -43,6 +46,7 @@ const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_INTERNAL
 struct BriefOptions {
     question: Vec<u8>,
     token_budget: u64,
+    retention: McpRetentionSelectionV1,
 }
 
 struct DoctorOptions {
@@ -186,6 +190,8 @@ fn parse_args(
     let mut question_file = None;
     let mut token_budget = DEFAULT_TOKEN_BUDGET_V1;
     let mut saw_token_budget = false;
+    let mut retention = McpRetentionSelectionV1::Memory;
+    let mut saw_retention = false;
     while let Some(argument) = args.next() {
         if argument == "--question" {
             let value = args
@@ -215,6 +221,21 @@ fn parse_args(
             token_budget = value
                 .parse::<u64>()
                 .map_err(|_| CliFailure::usage("EVIDENTRAIL_CLI_INVALID_TOKEN_BUDGET"))?;
+        } else if argument == "--retention" {
+            if saw_retention {
+                return Err(CliFailure::usage("EVIDENTRAIL_CLI_DUPLICATE_OPTION"));
+            }
+            saw_retention = true;
+            let value = args
+                .next()
+                .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_CLI_MISSING_OPTION_VALUE"))?;
+            retention = if value == "memory" {
+                McpRetentionSelectionV1::Memory
+            } else if value == "durable" {
+                McpRetentionSelectionV1::Durable
+            } else {
+                return Err(CliFailure::usage("EVIDENTRAIL_CLI_INVALID_RETENTION"));
+            };
         } else if argument == "--help" || argument == "-h" {
             return Ok(ParseDecision::Help);
         } else {
@@ -247,6 +268,7 @@ fn parse_args(
     Ok(ParseDecision::Run(BriefOptions {
         question,
         token_budget,
+        retention,
     }))
 }
 
@@ -540,31 +562,73 @@ fn durable_cache_root_for_home_v2(home: &Path) -> Result<PathBuf, CliFailure> {
         .join("results-v2"))
 }
 
+#[cfg(target_os = "macos")]
+fn durable_cache_root_v3() -> Result<PathBuf, CliFailure> {
+    let home = env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE"))?;
+    if !home.is_absolute() {
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE",
+        ));
+    }
+    Ok(home
+        .join("Library")
+        .join("Caches")
+        .join("ai.evidentrail")
+        .join("results-v3"))
+}
+
 fn run_brief(options: BriefOptions) -> Result<ExitCode, CliFailure> {
     if io::stdin().is_terminal() {
         return Err(CliFailure::usage("EVIDENTRAIL_CLI_EXPLICIT_STDIN_REQUIRED"));
     }
-    let input = match read_bounded(io::stdin().lock(), MAX_STDIN_BYTES_V1) {
-        Ok(input) => input,
-        Err(BoundedReadFailure::Io) => {
-            return Err(CliFailure::runtime("EVIDENTRAIL_CLI_STDIN_READ_FAILURE"));
-        }
-        Err(BoundedReadFailure::LimitExceeded) => {
-            return Err(CliFailure::runtime("EVIDENTRAIL_CLI_INPUT_TOO_LARGE"));
-        }
-    };
     let mut identity_seed = [0_u8; 32];
     getrandom::fill(&mut identity_seed)
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_RANDOMNESS_FAILURE"))?;
     let now = unix_now_v1()?;
-    let outcome = compile_explicit_stdin_v1(
-        &input,
-        &options.question,
-        options.token_budget,
-        identity_seed,
-        now,
-    )
-    .map_err(|error| CliFailure::runtime(error.code()))?;
+    let outcome = match options.retention {
+        McpRetentionSelectionV1::Memory if streaming_v3_enabled() => compile_explicit_stream_v3(
+            io::stdin().lock(),
+            &options.question,
+            options.token_budget,
+            identity_seed,
+            now,
+            PackedMemoryEventStoreV3::new(),
+        )
+        .map_err(|error| CliFailure::runtime(error.code()))?
+        .into_outcome(),
+        McpRetentionSelectionV1::Memory => {
+            let input = match read_bounded(io::stdin().lock(), MAX_STDIN_BYTES_V1) {
+                Ok(input) => input,
+                Err(BoundedReadFailure::Io) => {
+                    return Err(CliFailure::runtime("EVIDENTRAIL_CLI_STDIN_READ_FAILURE"));
+                }
+                Err(BoundedReadFailure::LimitExceeded) => {
+                    return Err(CliFailure::runtime("EVIDENTRAIL_CLI_INPUT_TOO_LARGE"));
+                }
+            };
+            compile_explicit_stdin_v1(
+                &input,
+                &options.question,
+                options.token_budget,
+                identity_seed,
+                now,
+            )
+            .map_err(|error| CliFailure::runtime(error.code()))?
+        }
+        McpRetentionSelectionV1::Durable => {
+            return run_durable_brief_v3(options, identity_seed, now);
+        }
+    };
+    emit_brief_outcome(outcome)
+}
+
+fn streaming_v3_enabled() -> bool {
+    env::var_os("EVIDENTRAIL_STREAMING_V3").is_some_and(|value| value == "1")
+}
+
+fn emit_brief_outcome(outcome: StdinBriefOutcomeV1) -> Result<ExitCode, CliFailure> {
     match outcome {
         StdinBriefOutcomeV1::Rendered(rendered) => {
             io::stdout()
@@ -585,6 +649,62 @@ fn run_brief(options: BriefOptions) -> Result<ExitCode, CliFailure> {
             Ok(ExitCode::from(3))
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+fn run_durable_brief_v3(
+    options: BriefOptions,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+) -> Result<ExitCode, CliFailure> {
+    let repository_root = durable_cache_root_v3()?;
+    let authority = MacOsKeychainAuthorityV2::production().map_err(|error| {
+        if error == evidentrail_store::KeyAuthorityErrorV2::Locked {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_LOCKED")
+        } else {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_UNAVAILABLE")
+        }
+    })?;
+    authority.verify_access().map_err(|error| {
+        if error == evidentrail_store::KeyAuthorityErrorV2::Locked {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_LOCKED")
+        } else {
+            CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_UNAVAILABLE")
+        }
+    })?;
+    prepare_durable_cache_parent_v2(&repository_root)?;
+    let backend = DurableRetainedEventStoreV3::open(&repository_root, Arc::new(authority))
+        .map_err(|error| match error {
+            evidentrail_store::RetainedEventStoreErrorV3::AuthorityLocked => {
+                CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_LOCKED")
+            }
+            evidentrail_store::RetainedEventStoreErrorV3::AuthorityUnavailable => {
+                CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_AUTHORITY_UNAVAILABLE")
+            }
+            _ => CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_REPOSITORY_UNAVAILABLE"),
+        })?;
+    let outcome = compile_explicit_stream_v3(
+        io::stdin().lock(),
+        &options.question,
+        options.token_budget,
+        identity_seed,
+        now,
+        backend,
+    )
+    .map_err(|error| CliFailure::runtime(error.code()))?
+    .into_outcome();
+    emit_brief_outcome(outcome)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn run_durable_brief_v3(
+    _options: BriefOptions,
+    _identity_seed: [u8; 32],
+    _now: UnixTimestampNanos,
+) -> Result<ExitCode, CliFailure> {
+    Err(CliFailure::runtime(
+        "EVIDENTRAIL_CLI_DURABLE_UNSUPPORTED_PLATFORM",
+    ))
 }
 
 fn read_bounded(mut reader: impl Read, limit: usize) -> Result<Vec<u8>, BoundedReadFailure> {
@@ -676,6 +796,41 @@ mod tests {
                 .err()
                 .unwrap()
                 .code,
+            "EVIDENTRAIL_CLI_INVALID_RETENTION"
+        );
+    }
+
+    #[test]
+    fn parser_accepts_brief_retention_with_memory_default() {
+        match parse_args(["brief".into(), "--question".into(), "why?".into()]) {
+            Ok(ParseDecision::Run(options)) => {
+                assert_eq!(options.retention, McpRetentionSelectionV1::Memory);
+            }
+            _ => panic!("expected brief decision"),
+        }
+        match parse_args([
+            "brief".into(),
+            "--question".into(),
+            "why?".into(),
+            "--retention".into(),
+            "durable".into(),
+        ]) {
+            Ok(ParseDecision::Run(options)) => {
+                assert_eq!(options.retention, McpRetentionSelectionV1::Durable);
+            }
+            _ => panic!("expected durable brief decision"),
+        }
+        assert_eq!(
+            parse_args([
+                "brief".into(),
+                "--question".into(),
+                "why?".into(),
+                "--retention".into(),
+                "invalid".into(),
+            ])
+            .err()
+            .unwrap()
+            .code,
             "EVIDENTRAIL_CLI_INVALID_RETENTION"
         );
     }
