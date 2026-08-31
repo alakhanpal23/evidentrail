@@ -52,11 +52,14 @@ pub const PROPOSAL_COMPILER_POLICY_NAME_V1: &[u8] =
 /// Frozen compiler policy version committed by every V1 proposal receipt.
 pub const PROPOSAL_COMPILER_POLICY_VERSION_V1: &[u8] = b"4";
 
-const CANDIDATE_CONFIG_DIGEST_DOMAIN_V1: &[u8] = b"evidentrail/compile/candidate-config-digest/v1\0";
+const CANDIDATE_CONFIG_DIGEST_DOMAIN_V1: &[u8] =
+    b"evidentrail/compile/candidate-config-digest/v1\0";
 const COMPILER_CONFIG_DIGEST_DOMAIN_V1: &[u8] =
     b"evidentrail/compile/proposal-compiler-config-digest/v1\0";
-const ADAPTER_IDENTITY_DIGEST_DOMAIN_V1: &[u8] = b"evidentrail/compile/adapter-identity-digest/v1\0";
-const PREPARATION_INPUT_DIGEST_DOMAIN_V1: &[u8] = b"evidentrail/compile/proposal-preparation-input/v1\0";
+const ADAPTER_IDENTITY_DIGEST_DOMAIN_V1: &[u8] =
+    b"evidentrail/compile/adapter-identity-digest/v1\0";
+const PREPARATION_INPUT_DIGEST_DOMAIN_V1: &[u8] =
+    b"evidentrail/compile/proposal-preparation-input/v1\0";
 const PROPOSAL_UNIVERSE_RECEIPT_DIGEST_DOMAIN_V1: &[u8] =
     b"evidentrail/compile/proposal-universe-receipt/v1\0";
 

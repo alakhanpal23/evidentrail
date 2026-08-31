@@ -397,9 +397,11 @@ pub fn encode_result_status_v1(
                 reasons: reasons.iter().map(|v| v.code().into()).collect(),
             }
         }
-        evidentrail_core::FetchCompleteness::Unknown { reason } => AcquisitionStatusWireV1::Unknown {
-            reason: reason.code().into(),
-        },
+        evidentrail_core::FetchCompleteness::Unknown { reason } => {
+            AcquisitionStatusWireV1::Unknown {
+                reason: reason.code().into(),
+            }
+        }
     };
     let selection = match status.selection().code() {
         "passthrough" => SelectionStatusWireV1::Passthrough,

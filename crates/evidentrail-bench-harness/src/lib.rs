@@ -5,8 +5,6 @@
 //! explicit input bytes, and execution policy. Governed annotations and hidden
 //! evaluation manifests are not accepted by any invocation API.
 
-mod legacy_drain;
-mod legacy_drain_normalizer;
 mod compact_agent_view;
 mod compact_agent_view_admission;
 mod constrained_matched_case;
@@ -18,6 +16,8 @@ mod first_party_subprocess;
 mod hermetic_drain_fixture;
 mod hosted_reader_jsonl;
 mod incident_lab;
+mod legacy_drain;
+mod legacy_drain_normalizer;
 mod matched_representation;
 mod paired_reader;
 mod paired_trials;
@@ -31,26 +31,6 @@ mod reader;
 mod real_product_arm;
 mod submission;
 
-pub use legacy_drain::{
-    LEGACY_DRAIN_FULL_MEMBERSHIP_STDOUT_CAP_V1, LEGACY_DRAIN_PINNED_COMMIT_V1,
-    LegacyDrainAdapterModeV1, LegacyDrainAdapterV1, LegacyDrainFullMembershipSupportV1,
-    LegacyDrainInputAssessmentV1, LegacyDrainInputNormalizationV1, LegacyDrainUnsupportedInputV1,
-    MAX_LEGACY_DRAIN_FULL_MEMBERSHIP_INPUT_BYTES_V1, MAX_LEGACY_DRAIN_FULL_MEMBERSHIP_RECORDS_V1,
-    legacy_drain_full_membership_adapter_artifact_digest_v1,
-};
-pub use legacy_drain_normalizer::{
-    LEGACY_DRAIN_FULL_MEMBERSHIP_NORMALIZER_CONTRACT_VERSION_V1,
-    LEGACY_DRAIN_JSON_NORMALIZER_CONTRACT_VERSION_V1, LegacyDrainFullMembershipArtifactV1,
-    LegacyDrainJsonLimitsV1, LegacyDrainMembershipUnprovableV1, LegacyDrainNormalizationErrorV1,
-    LegacyDrainNormalizerLimitDimensionV1, LegacyDrainOpaqueNormalizationReceiptV1,
-    LegacyDrainPatternRepresentedV1, LegacyDrainQualityBridgeV1, LegacyDrainTransformedSampleV1,
-    MAX_LEGACY_DRAIN_JSON_BYTES_V1, MAX_LEGACY_DRAIN_JSON_COLLECTION_ITEMS_V1,
-    MAX_LEGACY_DRAIN_JSON_GROUPS_V1, MAX_LEGACY_DRAIN_JSON_STRING_BYTES_V1,
-    legacy_drain_full_membership_normalizer_artifact_digest_v1,
-    legacy_drain_json_normalizer_artifact_digest_v1,
-    strict_normalize_pinned_legacy_drain_full_membership_v1,
-    strict_normalize_pinned_legacy_drain_output_v1,
-};
 pub use compact_agent_view::{
     COMPACT_AGENT_VIEW_CONTRACT_VERSION_V1, COMPACT_AGENT_VIEW_RENDERER_CONTRACT_VERSION_V1,
     CompactAgentViewAdmissionProposalV1, CompactAgentViewAdmissionStatusV1,
@@ -100,9 +80,10 @@ pub use domain::{
 };
 pub use fidelity_bridge::{
     CanonicalTokenCountProvenanceV1, LegacyDrainFidelityBridgeErrorV1,
-    LegacyDrainFullMembershipRepresentationReceiptV1, legacy_drain_compact_method_descriptor_v1,
-    legacy_drain_full_membership_method_descriptor_v1,
-    freeze_legacy_drain_full_membership_representation_v1, measure_canonical_utf8_byte_tokens_v1,
+    LegacyDrainFullMembershipRepresentationReceiptV1,
+    freeze_legacy_drain_full_membership_representation_v1,
+    legacy_drain_compact_method_descriptor_v1, legacy_drain_full_membership_method_descriptor_v1,
+    measure_canonical_utf8_byte_tokens_v1,
 };
 pub use first_party_log_brief::{
     FirstPartyInputUniverseChargeV1, FirstPartyLogBriefBridgeErrorV1,
@@ -144,6 +125,26 @@ pub use incident_lab::{
     IncidentLogStreamV1, IncidentMethodArtifactV1, IncidentVerificationV1, IncidentVerifierCapsV1,
     IncidentVerifierExecutionV1, evaluate_governed_incident_v1, execute_incident_agent_v1,
     execute_incident_verifier_v1, freeze_executable_incident_v1, prepare_incident_method_arms_v1,
+};
+pub use legacy_drain::{
+    LEGACY_DRAIN_FULL_MEMBERSHIP_STDOUT_CAP_V1, LEGACY_DRAIN_PINNED_COMMIT_V1,
+    LegacyDrainAdapterModeV1, LegacyDrainAdapterV1, LegacyDrainFullMembershipSupportV1,
+    LegacyDrainInputAssessmentV1, LegacyDrainInputNormalizationV1, LegacyDrainUnsupportedInputV1,
+    MAX_LEGACY_DRAIN_FULL_MEMBERSHIP_INPUT_BYTES_V1, MAX_LEGACY_DRAIN_FULL_MEMBERSHIP_RECORDS_V1,
+    legacy_drain_full_membership_adapter_artifact_digest_v1,
+};
+pub use legacy_drain_normalizer::{
+    LEGACY_DRAIN_FULL_MEMBERSHIP_NORMALIZER_CONTRACT_VERSION_V1,
+    LEGACY_DRAIN_JSON_NORMALIZER_CONTRACT_VERSION_V1, LegacyDrainFullMembershipArtifactV1,
+    LegacyDrainJsonLimitsV1, LegacyDrainMembershipUnprovableV1, LegacyDrainNormalizationErrorV1,
+    LegacyDrainNormalizerLimitDimensionV1, LegacyDrainOpaqueNormalizationReceiptV1,
+    LegacyDrainPatternRepresentedV1, LegacyDrainQualityBridgeV1, LegacyDrainTransformedSampleV1,
+    MAX_LEGACY_DRAIN_JSON_BYTES_V1, MAX_LEGACY_DRAIN_JSON_COLLECTION_ITEMS_V1,
+    MAX_LEGACY_DRAIN_JSON_GROUPS_V1, MAX_LEGACY_DRAIN_JSON_STRING_BYTES_V1,
+    legacy_drain_full_membership_normalizer_artifact_digest_v1,
+    legacy_drain_json_normalizer_artifact_digest_v1,
+    strict_normalize_pinned_legacy_drain_full_membership_v1,
+    strict_normalize_pinned_legacy_drain_output_v1,
 };
 pub use matched_representation::{
     MatchedRepresentationArmReceiptV1, MatchedRepresentationArmV1, MatchedRepresentationArmsV1,
@@ -190,10 +191,11 @@ pub use pinned_matched_case::{
     BoundPeakRssObservationV1, FinalizedPinnedDrainMatchedCaseV1, FirstPartyInProcessBuildV1,
     MatchedCostComparisonEligibilityV1, MatchedExecutionScopeV1,
     PINNED_LEGACY_DRAIN_MATCHED_INPUT_V1, PINNED_LEGACY_DRAIN_MATCHED_QUESTION_V1,
-    PeakRssMeasurementUnitV1, PeakRssObservationBindingV1, PinnedLegacyDrainExecutionTargetV1,
-    PinnedLegacyDrainTargetClassV1, PinnedDrainMatchedArmV1, PreparedPinnedDrainMatchedCaseErrorV1,
-    PreparedPinnedDrainMatchedCaseV1, pinned_legacy_drain_matched_ledger_v1,
-    pinned_legacy_drain_matched_plan_digest_v1, prepare_pinned_drain_matched_case_v1,
+    PeakRssMeasurementUnitV1, PeakRssObservationBindingV1, PinnedDrainMatchedArmV1,
+    PinnedLegacyDrainExecutionTargetV1, PinnedLegacyDrainTargetClassV1,
+    PreparedPinnedDrainMatchedCaseErrorV1, PreparedPinnedDrainMatchedCaseV1,
+    pinned_legacy_drain_matched_ledger_v1, pinned_legacy_drain_matched_plan_digest_v1,
+    prepare_pinned_drain_matched_case_v1,
 };
 pub use process::{
     CapturedStreamV1, ExitCategoryV1, HarnessTerminationCauseV1, StdinDeliveryV1,
@@ -203,9 +205,9 @@ pub use public_case_input::{
     CANONICAL_PUBLIC_CASE_ARTIFACT_CONTRACT_VERSION_V1,
     CANONICAL_PUBLIC_RUN_MANIFEST_ARTIFACT_CONTRACT_VERSION_V1, CanonicalPublicCaseArtifactV1,
     CanonicalPublicRunManifestArtifactV1, CanonicalPublicSourceRecordMapV1,
-    CanonicalPublicSourceRecordV1, LegacyDrainRetainedRecordMapV1, LegacyDrainRetainedSourceRecordV1,
-    MAX_CANONICAL_PUBLIC_SOURCE_RECORDS_V1, canonical_public_case_artifact_v1,
-    canonical_public_run_manifest_artifact_v1,
+    CanonicalPublicSourceRecordV1, LegacyDrainRetainedRecordMapV1,
+    LegacyDrainRetainedSourceRecordV1, MAX_CANONICAL_PUBLIC_SOURCE_RECORDS_V1,
+    canonical_public_case_artifact_v1, canonical_public_run_manifest_artifact_v1,
 };
 pub use qualification::{
     AuthorityQualificationV2, BcaOneSidedBoundV2, CacheQualificationV2, ExpansionScalingReportV2,

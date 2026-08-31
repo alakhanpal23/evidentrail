@@ -4,23 +4,23 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use evidentrail_bench_harness::{
-    LEGACY_DRAIN_PINNED_COMMIT_V1, CONSTRAINED_MATCHED_GENERATOR_SEED_V1,
-    CONSTRAINED_MATCHED_GENERATOR_VERSION_V1, CONSTRAINED_MATCHED_IDENTIFIER_V1,
-    CONSTRAINED_MATCHED_INPUT_ARTIFACT_DIGEST_V1, CONSTRAINED_MATCHED_QUESTION_V1,
-    ClosedEnvironmentV1, ConstrainedMatchedCaseErrorV1, ExecutableBuildV1,
-    ExternalOutputContractV1, FirstPartyConstrainedSubprocessErrorV1,
+    CONSTRAINED_MATCHED_GENERATOR_SEED_V1, CONSTRAINED_MATCHED_GENERATOR_VERSION_V1,
+    CONSTRAINED_MATCHED_IDENTIFIER_V1, CONSTRAINED_MATCHED_INPUT_ARTIFACT_DIGEST_V1,
+    CONSTRAINED_MATCHED_QUESTION_V1, ClosedEnvironmentV1, ConstrainedMatchedCaseErrorV1,
+    ExecutableBuildV1, ExternalOutputContractV1, FirstPartyConstrainedSubprocessErrorV1,
     FirstPartyConstrainedSubprocessTargetV1, FirstPartyOracleTrustV1,
     FirstPartySubprocessPeakRssStateV1, HarnessError, HarnessLimitsV1, HarnessTerminationCauseV1,
-    InvocationInputContractV1, MatchedExecutionScopeV1, PinnedLegacyDrainExecutionTargetV1,
-    PinnedLegacyDrainTargetClassV1, PreparedConstrainedPinnedDrainMatchedCaseV1,
-    PublicSubprocessInvocationV1, artifact_digest_for_bytes_v1, artifact_digest_for_file_v1,
+    InvocationInputContractV1, LEGACY_DRAIN_PINNED_COMMIT_V1, MatchedExecutionScopeV1,
+    PinnedLegacyDrainExecutionTargetV1, PinnedLegacyDrainTargetClassV1,
+    PreparedConstrainedPinnedDrainMatchedCaseV1, PublicSubprocessInvocationV1,
+    artifact_digest_for_bytes_v1, artifact_digest_for_file_v1,
     constrained_pinned_drain_public_input_v1, execute_constrained_first_party_fixture_v1,
     execute_public_subprocess_v1, log_brief_compiled_method_descriptor_v1,
     prepare_constrained_pinned_drain_matched_case_v1,
 };
 use evidentrail_core::derive_question_digest_v1;
 
-const EXPECTED_INPUT_BYTES_V1: usize = 151_072;
+const EXPECTED_INPUT_BYTES_V1: usize = 152_248;
 const EXPECTED_RECORDS_V1: usize = 200;
 const EXPECTED_PRIMARY_BLOCKS_V1: u64 = 197;
 const EXPECTED_PROPOSAL_PACKETS_V1: u64 = 14;

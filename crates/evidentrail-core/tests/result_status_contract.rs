@@ -85,7 +85,9 @@ fn complete_ledger(seed: u8) -> evidentrail_core::EventLedger {
     )
 }
 
-fn passthrough_selection(ledger: &evidentrail_core::EventLedger) -> evidentrail_core::PassthroughSelection {
+fn passthrough_selection(
+    ledger: &evidentrail_core::EventLedger,
+) -> evidentrail_core::PassthroughSelection {
     let decision =
         select_whole_render_passthrough(ledger, WholeRenderAssessmentV1::new(42, 42)).unwrap();
     let PassthroughDecision::Selected(selection) = decision else {

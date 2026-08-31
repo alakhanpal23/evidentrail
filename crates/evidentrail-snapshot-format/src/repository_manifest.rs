@@ -397,7 +397,9 @@ impl RepositoryManifestErrorV2 {
             Self::InvalidEncodedLength => "EVIDENTRAIL_REPOSITORY_MANIFEST_INVALID_ENCODED_LENGTH",
             Self::InvalidMagic => "EVIDENTRAIL_REPOSITORY_MANIFEST_INVALID_MAGIC",
             Self::UnsupportedVersion => "EVIDENTRAIL_REPOSITORY_MANIFEST_UNSUPPORTED_VERSION",
-            Self::UnsupportedObjectKind => "EVIDENTRAIL_REPOSITORY_MANIFEST_UNSUPPORTED_OBJECT_KIND",
+            Self::UnsupportedObjectKind => {
+                "EVIDENTRAIL_REPOSITORY_MANIFEST_UNSUPPORTED_OBJECT_KIND"
+            }
             Self::NonzeroReserved => "EVIDENTRAIL_REPOSITORY_MANIFEST_NONZERO_RESERVED",
             Self::NoncanonicalManifest => "EVIDENTRAIL_REPOSITORY_MANIFEST_NONCANONICAL",
         }

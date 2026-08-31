@@ -87,7 +87,10 @@ fn ledger(seed: u8, records: &[RecordBytes]) -> evidentrail_core::EventLedger {
 }
 
 fn unique_root(suffix: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("evidentrail-product-v2-{}-{suffix}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "evidentrail-product-v2-{}-{suffix}",
+        std::process::id()
+    ))
 }
 
 #[test]

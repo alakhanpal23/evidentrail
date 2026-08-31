@@ -244,14 +244,20 @@ impl ApprovedLocalFileBindingConstructionError {
     pub const fn code(self) -> &'static str {
         match self {
             Self::ZeroBindingVersion => "EVIDENTRAIL_LOCAL_FILE_BINDING_ZERO_BINDING_VERSION",
-            Self::UnsupportedAdapterKind => "EVIDENTRAIL_LOCAL_FILE_BINDING_UNSUPPORTED_ADAPTER_KIND",
+            Self::UnsupportedAdapterKind => {
+                "EVIDENTRAIL_LOCAL_FILE_BINDING_UNSUPPORTED_ADAPTER_KIND"
+            }
             Self::UnsupportedAdapterVersion => {
                 "EVIDENTRAIL_LOCAL_FILE_BINDING_UNSUPPORTED_ADAPTER_VERSION"
             }
             Self::ZeroPolicyVersion => "EVIDENTRAIL_LOCAL_FILE_BINDING_ZERO_POLICY_VERSION",
-            Self::UnsupportedSnapshotMode => "EVIDENTRAIL_LOCAL_FILE_BINDING_UNSUPPORTED_SNAPSHOT_MODE",
+            Self::UnsupportedSnapshotMode => {
+                "EVIDENTRAIL_LOCAL_FILE_BINDING_UNSUPPORTED_SNAPSHOT_MODE"
+            }
             Self::UnsupportedOrdering => "EVIDENTRAIL_LOCAL_FILE_BINDING_UNSUPPORTED_ORDERING",
-            Self::ExpiryNotAfterValidFrom => "EVIDENTRAIL_LOCAL_FILE_BINDING_EXPIRY_NOT_AFTER_VALID_FROM",
+            Self::ExpiryNotAfterValidFrom => {
+                "EVIDENTRAIL_LOCAL_FILE_BINDING_EXPIRY_NOT_AFTER_VALID_FROM"
+            }
         }
     }
 }

@@ -2189,10 +2189,13 @@ fn read_segment(path: &Path) -> Result<DecodedSegmentV2, DurableRepositoryErrorV
         let encoded_length = evidentrail_snapshot_format::FRAME_HEADER_BYTES_V2
             .checked_add(frame_header.plaintext_length() as usize)
             .and_then(|value| value.checked_add(evidentrail_snapshot_format::FRAME_TAG_BYTES_V1))
-            .and_then(|value| value.checked_add(evidentrail_snapshot_format::FRAME_COMMITMENT_BYTES_V1))
+            .and_then(|value| {
+                value.checked_add(evidentrail_snapshot_format::FRAME_COMMITMENT_BYTES_V1)
+            })
             .ok_or(DurableRepositoryErrorV2::CapacityExceeded)?;
         let mut encoded = vec![0u8; encoded_length];
-        encoded[..evidentrail_snapshot_format::FRAME_HEADER_BYTES_V2].copy_from_slice(&header_bytes);
+        encoded[..evidentrail_snapshot_format::FRAME_HEADER_BYTES_V2]
+            .copy_from_slice(&header_bytes);
         file.read_exact(&mut encoded[evidentrail_snapshot_format::FRAME_HEADER_BYTES_V2..])
             .map_err(|_| DurableRepositoryErrorV2::ReadFailed)?;
         let frame =
@@ -2281,7 +2284,9 @@ fn scan_segment_frames(
         let encoded_length = evidentrail_snapshot_format::FRAME_HEADER_BYTES_V2
             .checked_add(header.plaintext_length() as usize)
             .and_then(|value| value.checked_add(evidentrail_snapshot_format::FRAME_TAG_BYTES_V1))
-            .and_then(|value| value.checked_add(evidentrail_snapshot_format::FRAME_COMMITMENT_BYTES_V1))
+            .and_then(|value| {
+                value.checked_add(evidentrail_snapshot_format::FRAME_COMMITMENT_BYTES_V1)
+            })
             .ok_or(DurableRepositoryErrorV2::CapacityExceeded)?;
         let next = offset
             .checked_add(encoded_length as u64)

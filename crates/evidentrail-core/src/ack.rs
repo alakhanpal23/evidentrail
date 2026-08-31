@@ -2,7 +2,9 @@ use std::error::Error as StdError;
 use std::fmt;
 
 use evidentrail_schema::bounds::MAX_AUTHORIZED_RECORD_BYTES;
-use evidentrail_schema::{AcquisitionOutcome, ExactnessBasis, RawEnvelopeV1, SinkAck, SourceRecordId};
+use evidentrail_schema::{
+    AcquisitionOutcome, ExactnessBasis, RawEnvelopeV1, SinkAck, SourceRecordId,
+};
 
 use crate::hash::source_record_id;
 
@@ -118,9 +120,13 @@ impl SinkAckVerificationError {
     pub const fn code(self) -> &'static str {
         match self {
             Self::RetrievalMismatch => "EVIDENTRAIL_SINK_ACK_RETRIEVAL_MISMATCH",
-            Self::AcquisitionSequenceMismatch => "EVIDENTRAIL_SINK_ACK_ACQUISITION_SEQUENCE_MISMATCH",
+            Self::AcquisitionSequenceMismatch => {
+                "EVIDENTRAIL_SINK_ACK_ACQUISITION_SEQUENCE_MISMATCH"
+            }
             Self::SourceRecordIdMismatch => "EVIDENTRAIL_SINK_ACK_SOURCE_RECORD_ID_MISMATCH",
-            Self::AuthorizedByteCountMismatch => "EVIDENTRAIL_SINK_ACK_AUTHORIZED_BYTE_COUNT_MISMATCH",
+            Self::AuthorizedByteCountMismatch => {
+                "EVIDENTRAIL_SINK_ACK_AUTHORIZED_BYTE_COUNT_MISMATCH"
+            }
         }
     }
 }

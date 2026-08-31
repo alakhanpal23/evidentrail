@@ -386,7 +386,13 @@ impl LegacyDrainAdapterV1 {
         cwd: PathBuf,
         environment: ClosedEnvironmentV1,
         limits: HarnessLimitsV1,
-    ) -> Result<(PublicSubprocessInvocationV1, LegacyDrainInputNormalizationV1), HarnessError> {
+    ) -> Result<
+        (
+            PublicSubprocessInvocationV1,
+            LegacyDrainInputNormalizationV1,
+        ),
+        HarnessError,
+    > {
         self.build_public_invocation_with_revision(
             run_manifest,
             case_input,
@@ -407,7 +413,13 @@ impl LegacyDrainAdapterV1 {
         cwd: PathBuf,
         environment: ClosedEnvironmentV1,
         limits: HarnessLimitsV1,
-    ) -> Result<(PublicSubprocessInvocationV1, LegacyDrainInputNormalizationV1), HarnessError> {
+    ) -> Result<
+        (
+            PublicSubprocessInvocationV1,
+            LegacyDrainInputNormalizationV1,
+        ),
+        HarnessError,
+    > {
         self.build_public_invocation_with_revision(
             run_manifest,
             case_input,
@@ -429,7 +441,13 @@ impl LegacyDrainAdapterV1 {
         environment: ClosedEnvironmentV1,
         limits: HarnessLimitsV1,
         adapter_revision: &str,
-    ) -> Result<(PublicSubprocessInvocationV1, LegacyDrainInputNormalizationV1), HarnessError> {
+    ) -> Result<
+        (
+            PublicSubprocessInvocationV1,
+            LegacyDrainInputNormalizationV1,
+        ),
+        HarnessError,
+    > {
         if self.mode == LegacyDrainAdapterModeV1::FullMembershipAudit
             && validate_full_membership_envelope(run_manifest, &case_input, limits)?
                 != self.sample_cap

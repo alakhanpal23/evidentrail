@@ -9,8 +9,9 @@ use evidentrail_core::{
 use evidentrail_schema::ArtifactDigest;
 
 use crate::{
-    EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1, EvidenceTargetV1, ExpectedAcquisitionClassV1,
-    GovernedCaseArtifactBindingV1, GovernedCaseArtifactJoinV1, MethodDescriptor, MethodResult,
+    EvidenceTargetV1, EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1,
+    ExpectedAcquisitionClassV1, GovernedCaseArtifactBindingV1, GovernedCaseArtifactJoinV1,
+    MethodDescriptor, MethodResult,
 };
 
 /// Exact, label-free method and presentation accounting safe for a public run
@@ -326,15 +327,21 @@ impl CaseEvaluationError {
             Self::PlanDigestMismatch => "EVIDENTRAIL_BENCH_EVAL_PLAN_DIGEST_MISMATCH",
             Self::AcquisitionClassMismatch => "EVIDENTRAIL_BENCH_EVAL_ACQUISITION_CLASS_MISMATCH",
             Self::RetrievalMismatch => "EVIDENTRAIL_BENCH_EVAL_RETRIEVAL_MISMATCH",
-            Self::BlockIndexRetrievalMismatch => "EVIDENTRAIL_BENCH_EVAL_BLOCK_INDEX_RETRIEVAL_MISMATCH",
+            Self::BlockIndexRetrievalMismatch => {
+                "EVIDENTRAIL_BENCH_EVAL_BLOCK_INDEX_RETRIEVAL_MISMATCH"
+            }
             Self::BlockIndexRequired => "EVIDENTRAIL_BENCH_EVAL_BLOCK_INDEX_REQUIRED",
             Self::UnknownEvidenceEvent { .. } => "EVIDENTRAIL_BENCH_EVAL_UNKNOWN_EVIDENCE_EVENT",
             Self::UnknownEvidenceBlock { .. } => "EVIDENTRAIL_BENCH_EVAL_UNKNOWN_EVIDENCE_BLOCK",
-            Self::MethodAccountingMismatch { .. } => "EVIDENTRAIL_BENCH_EVAL_METHOD_ACCOUNTING_MISMATCH",
+            Self::MethodAccountingMismatch { .. } => {
+                "EVIDENTRAIL_BENCH_EVAL_METHOD_ACCOUNTING_MISMATCH"
+            }
             Self::PresentationReconciliationFailed => {
                 "EVIDENTRAIL_BENCH_EVAL_PRESENTATION_RECONCILIATION_FAILED"
             }
-            Self::PresentationReceiptMismatch => "EVIDENTRAIL_BENCH_EVAL_PRESENTATION_RECEIPT_MISMATCH",
+            Self::PresentationReceiptMismatch => {
+                "EVIDENTRAIL_BENCH_EVAL_PRESENTATION_RECEIPT_MISMATCH"
+            }
             Self::AccountingValueOverflow => "EVIDENTRAIL_BENCH_EVAL_ACCOUNTING_VALUE_OVERFLOW",
             Self::RequirementWeightOverflow => "EVIDENTRAIL_BENCH_EVAL_REQUIREMENT_WEIGHT_OVERFLOW",
         }

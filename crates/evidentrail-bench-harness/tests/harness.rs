@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
 use evidentrail_bench::{
-    BenchmarkBudgetV1, BenchmarkRunIdentityV1, CandidateRendererIdentityV1,
-    EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1, EvidentrailBenchHiddenEvaluationManifestV1,
-    EvidentrailBenchRunManifestV1, EvidenceTargetV1, ExpectedAcquisitionClassV1,
-    ExternalSystemResultEnvelopeV1, FrozenCandidateSelectionDigestV1,
+    BenchmarkBudgetV1, BenchmarkRunIdentityV1, CandidateRendererIdentityV1, EvidenceTargetV1,
+    EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1,
+    EvidentrailBenchHiddenEvaluationManifestV1, EvidentrailBenchRunManifestV1,
+    ExpectedAcquisitionClassV1, ExternalSystemResultEnvelopeV1, FrozenCandidateSelectionDigestV1,
     GovernedCaseArtifactBindingV1, GovernedRepresentationFidelityPolicyV1,
     MeasuredCandidateResources, MeasurementEnvironmentV1, MeasurementHarnessIdentityV1,
     MeasurementTrustBoundaryV1, MethodDescriptor, NonExactFidelityDispositionV1,
@@ -13,19 +13,20 @@ use evidentrail_bench::{
     evaluate_governed_representation_fidelity_v1,
 };
 use evidentrail_bench_harness::{
+    CanonicalTokenCountProvenanceV1, ClosedEnvironmentV1, ExecutableBuildV1, ExitCategoryV1,
+    ExternalOutputContractV1, HarnessError, HarnessLimitDimensionV1, HarnessLimitsV1,
+    HarnessTerminationCauseV1, InvocationInputContractV1,
     LEGACY_DRAIN_FULL_MEMBERSHIP_STDOUT_CAP_V1, LEGACY_DRAIN_PINNED_COMMIT_V1,
-    CanonicalTokenCountProvenanceV1, ClosedEnvironmentV1, LegacyDrainAdapterModeV1,
-    LegacyDrainAdapterV1, LegacyDrainFidelityBridgeErrorV1, LegacyDrainFullMembershipSupportV1,
-    LegacyDrainInputAssessmentV1, LegacyDrainNormalizationErrorV1, LegacyDrainUnsupportedInputV1,
-    ExecutableBuildV1, ExitCategoryV1, ExternalOutputContractV1, HarnessError,
-    HarnessLimitDimensionV1, HarnessLimitsV1, HarnessTerminationCauseV1, InvocationInputContractV1,
-    PeakRssProvenanceV1, PublicCaseInputBindingV1, PublicCaseResolutionTrustV1,
-    PublicCaseStdinBindingV1, PublicExternalResultSubmissionV1, PublicSubprocessInvocationV1,
+    LegacyDrainAdapterModeV1, LegacyDrainAdapterV1, LegacyDrainFidelityBridgeErrorV1,
+    LegacyDrainFullMembershipSupportV1, LegacyDrainInputAssessmentV1,
+    LegacyDrainNormalizationErrorV1, LegacyDrainUnsupportedInputV1, PeakRssProvenanceV1,
+    PublicCaseInputBindingV1, PublicCaseResolutionTrustV1, PublicCaseStdinBindingV1,
+    PublicExternalResultSubmissionV1, PublicSubprocessInvocationV1,
     SelfAssertedExternalMeasurementReceiptV1, StdinArtifactClassV1, StdinArtifactV1,
     StreamCaptureStateV1, artifact_digest_for_bytes_v1, artifact_digest_for_file_v1,
     canonical_public_case_artifact_v1, canonical_public_run_manifest_artifact_v1,
-    legacy_drain_compact_method_descriptor_v1, legacy_drain_full_membership_method_descriptor_v1,
     execute_public_subprocess_v1, freeze_legacy_drain_full_membership_representation_v1,
+    legacy_drain_compact_method_descriptor_v1, legacy_drain_full_membership_method_descriptor_v1,
     strict_identity_normalize_v1, strict_normalize_pinned_legacy_drain_full_membership_v1,
     strict_normalize_pinned_legacy_drain_output_v1,
 };
@@ -122,7 +123,9 @@ fn run_manifest_with_build_and_cases(
     EvidentrailBenchRunManifestV1::new(identity, cases).unwrap()
 }
 
-fn pinned_drain_helper_manifest(case: &EvidentrailBenchCaseSpecV1) -> EvidentrailBenchRunManifestV1 {
+fn pinned_drain_helper_manifest(
+    case: &EvidentrailBenchCaseSpecV1,
+) -> EvidentrailBenchRunManifestV1 {
     let identity = BenchmarkRunIdentityV1::try_new(
         Some(artifact_digest_for_bytes_v1(
             LEGACY_DRAIN_PINNED_COMMIT_V1.as_bytes(),
@@ -810,7 +813,8 @@ fn canonical_public_run_manifest_is_derived_and_rejects_loose_manifest_pairing()
         Some(identity.budget()),
     )
     .unwrap();
-    let changed_seed = EvidentrailBenchRunManifestV1::new(changed_seed_identity, [case_digest]).unwrap();
+    let changed_seed =
+        EvidentrailBenchRunManifestV1::new(changed_seed_identity, [case_digest]).unwrap();
     let changed_build = run_manifest_with_build_and_cases(artifact(211), [case_digest]);
     let changed_cohort =
         EvidentrailBenchRunManifestV1::new(identity, [case_digest, artifact(212)]).unwrap();
@@ -983,7 +987,10 @@ fn full_membership_arm_derives_cap_and_enforces_its_frozen_resource_envelope() {
     let case_input = bind_case_input(&manifest, &case, synthetic_stdin(input));
     let adapter =
         LegacyDrainAdapterV1::try_new_full_membership(&manifest, &case_input, full_limits).unwrap();
-    assert_eq!(adapter.mode(), LegacyDrainAdapterModeV1::FullMembershipAudit);
+    assert_eq!(
+        adapter.mode(),
+        LegacyDrainAdapterModeV1::FullMembershipAudit
+    );
     assert_eq!(adapter.sample_cap(), 3);
     assert_eq!(
         adapter.fixed_argv(),
@@ -1075,7 +1082,8 @@ fn full_membership_arm_derives_cap_and_enforces_its_frozen_resource_envelope() {
     )
     .unwrap();
     let constrained_manifest =
-        EvidentrailBenchRunManifestV1::new(constrained_identity, [public_case_artifact(&case)]).unwrap();
+        EvidentrailBenchRunManifestV1::new(constrained_identity, [public_case_artifact(&case)])
+            .unwrap();
     let constrained_input = bind_case_input(&constrained_manifest, &case, synthetic_stdin(input));
     assert_eq!(
         LegacyDrainAdapterV1::try_new_full_membership(

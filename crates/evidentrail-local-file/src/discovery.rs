@@ -11,7 +11,8 @@ use evidentrail_schema::{InternalPathPolicyDigest, UnixFileSnapshotV1};
 pub const LOCAL_FILE_METADATA_CAPABILITY_CODE_V1: &str =
     "EVIDENTRAIL_LOCAL_DISCOVERY_EXPLICIT_SINGLE_REGULAR_FILE_METADATA_ONLY_V1";
 /// Stable statement that discovery performed no content acquisition.
-pub const LOCAL_FILE_CONTENT_NOT_READ_CODE_V1: &str = "EVIDENTRAIL_LOCAL_DISCOVERY_CONTENT_NOT_READ";
+pub const LOCAL_FILE_CONTENT_NOT_READ_CODE_V1: &str =
+    "EVIDENTRAIL_LOCAL_DISCOVERY_CONTENT_NOT_READ";
 /// Stable statement that discovery conferred no source authority.
 pub const LOCAL_FILE_AUTHORIZATION_NOT_GRANTED_CODE_V1: &str =
     "EVIDENTRAIL_LOCAL_DISCOVERY_AUTHORIZATION_NOT_GRANTED";
@@ -286,7 +287,9 @@ impl LocalFileDiscoveryError {
             Self::RootOpenFailed => "EVIDENTRAIL_LOCAL_DISCOVERY_ROOT_OPEN_FAILED",
             Self::MetadataUnavailable => "EVIDENTRAIL_LOCAL_DISCOVERY_METADATA_UNAVAILABLE",
             Self::ComponentOpenFailed => "EVIDENTRAIL_LOCAL_DISCOVERY_COMPONENT_OPEN_FAILED",
-            Self::IntermediateNotDirectory => "EVIDENTRAIL_LOCAL_DISCOVERY_INTERMEDIATE_NOT_DIRECTORY",
+            Self::IntermediateNotDirectory => {
+                "EVIDENTRAIL_LOCAL_DISCOVERY_INTERMEDIATE_NOT_DIRECTORY"
+            }
             Self::SymlinkRejected => "EVIDENTRAIL_LOCAL_DISCOVERY_SYMLINK_REJECTED",
             Self::FinalObjectNotRegular => "EVIDENTRAIL_LOCAL_DISCOVERY_FINAL_NOT_REGULAR",
             Self::FilesystemUnavailable => "EVIDENTRAIL_LOCAL_DISCOVERY_FILESYSTEM_UNAVAILABLE",

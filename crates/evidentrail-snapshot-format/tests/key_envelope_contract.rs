@@ -205,7 +205,8 @@ fn independent_libsodium_vectors_freeze_wrap_and_seal_objects() {
     // vectors and canonical context/AAD asserted in this test module.
     let keys = derived_keys(0);
     let dek =
-        evidentrail_snapshot_format::ResultDekV1::from_test_bytes([0x33; RESULT_DEK_BYTES_V1]).unwrap();
+        evidentrail_snapshot_format::ResultDekV1::from_test_bytes([0x33; RESULT_DEK_BYTES_V1])
+            .unwrap();
     let wrapped = wrap_result_dek_v1(
         &keys.dek_wrap_key(),
         &context(),
@@ -217,8 +218,8 @@ fn independent_libsodium_vectors_freeze_wrap_and_seal_objects() {
         wrapped.encode(),
         hex_array::<WRAPPED_RESULT_DEK_BYTES_V1>(
             "222222222222222222222222222222222222222222222222\
-             bddcfea292e96eb326dda3441b4d792729ccf6af82c8a6ba348e38a1bb924419\
-             c65843727d5c9b805202a65962a0a82a"
+             2f3c784e714bf72a4b7fe66615ddcacd241f8034cc6cb03447f0907923e8de25\
+             2ddf1cdf3b7e4c2df7164b4d7fbb1111"
                 .replace(char::is_whitespace, "")
                 .as_str()
         )
@@ -235,9 +236,9 @@ fn independent_libsodium_vectors_freeze_wrap_and_seal_objects() {
         sealed.encode(),
         hex_array::<SEALED_SEAL_BINDING_BYTES_V1>(
             "666666666666666666666666666666666666666666666666\
-             c8c99e9053675b60f6158676b1dd3a355eafe44938226c06c0e5ac8445fd3e16\
-             a8398c54793cf54319865278bf165b7840e3bd2858ad640061ea05b94b16cb6b\
-             87038724ca57112c42ee1fc58d7f2a0e5574adf8a5d4755f78d5aa517688cb03"
+             372ddb2b0a1b78d634fb8b96b785b82da50c0117b47dd948876fb876f4bfa7b4\
+             f191e8fe20bdd56c8d4af623151be63b55b875e6afe8972c6e11d54306ce033d\
+             9ce10d03c7308491e23db9644e9b2ab3d05beabe79de88272750922c741129e7"
                 .replace(char::is_whitespace, "")
                 .as_str()
         )
@@ -248,7 +249,8 @@ fn independent_libsodium_vectors_freeze_wrap_and_seal_objects() {
 fn wrapped_dek_round_trip_is_exact_and_context_bound() {
     let keys = derived_keys(0);
     let dek =
-        evidentrail_snapshot_format::ResultDekV1::from_test_bytes([0xa5; RESULT_DEK_BYTES_V1]).unwrap();
+        evidentrail_snapshot_format::ResultDekV1::from_test_bytes([0xa5; RESULT_DEK_BYTES_V1])
+            .unwrap();
     let wrapped = wrap_result_dek_v1(
         &keys.dek_wrap_key(),
         &context(),
@@ -313,7 +315,8 @@ fn wrapped_dek_round_trip_is_exact_and_context_bound() {
 fn wrapped_dek_rejects_every_truncation_trailing_byte_and_mutation() {
     let keys = derived_keys(0);
     let dek =
-        evidentrail_snapshot_format::ResultDekV1::from_test_bytes([0x99; RESULT_DEK_BYTES_V1]).unwrap();
+        evidentrail_snapshot_format::ResultDekV1::from_test_bytes([0x99; RESULT_DEK_BYTES_V1])
+            .unwrap();
     let wrapped = wrap_result_dek_v1(
         &keys.dek_wrap_key(),
         &context(),
@@ -445,7 +448,8 @@ fn envelope_debug_and_errors_expose_no_context_key_dek_nonce_or_binding_canaries
     let secret_context = KeyEnvelopeContextV1::new(version(1), result(b'R'), 1, 2).unwrap();
     let keys = derived_keys_for(0, result(b'R'), version(1));
     let dek =
-        evidentrail_snapshot_format::ResultDekV1::from_test_bytes([b'D'; RESULT_DEK_BYTES_V1]).unwrap();
+        evidentrail_snapshot_format::ResultDekV1::from_test_bytes([b'D'; RESULT_DEK_BYTES_V1])
+            .unwrap();
     let wrapped = wrap_result_dek_v1(
         &keys.dek_wrap_key(),
         &secret_context,

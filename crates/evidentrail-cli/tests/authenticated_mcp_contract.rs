@@ -397,7 +397,10 @@ fn authenticated_restart_supports_legacy_exact_expansion_without_compile_tool() 
             .contains("exact-only")
     );
     assert_eq!(responses[1]["result"]["tools"].as_array().unwrap().len(), 1);
-    assert_eq!(responses[1]["result"]["tools"][0]["name"], "evidentrail_expand");
+    assert_eq!(
+        responses[1]["result"]["tools"][0]["name"],
+        "evidentrail_expand"
+    );
     assert_eq!(
         responses[2]["result"]["structuredContent"]["events"][0]["bytes_base64"],
         expected_base64

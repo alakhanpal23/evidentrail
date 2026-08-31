@@ -2,12 +2,12 @@ use std::ops::RangeInclusive;
 
 use evidentrail_bench::{
     BenchmarkBudgetV1, BenchmarkMethod, BenchmarkRunIdentityV1, ByteBudget, CandidateResourceCap,
-    CaseEvaluationError, EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1,
-    EvidentrailBenchHiddenEvaluationManifestV1, EvidentrailBenchRunManifestV1, EvidenceTargetV1,
-    ExactPairedRunComparisonInputV1, ExpectedAcquisitionClassV1, GovernedCaseArtifactBindingV1,
-    GovernedCaseEvaluationV1, GovernedRunAggregateV1, GovernedRunCaseInputV1, GrepHeadTail,
-    GrepHeadTailConfig, MethodResult, RawChronological, RunAggregationError,
-    WeightedDiagnosticRequirementV1, aggregate_governed_run_v1,
+    CaseEvaluationError, EvidenceTargetV1, EvidentrailBenchAnnotationSpecV1,
+    EvidentrailBenchCaseSpecV1, EvidentrailBenchHiddenEvaluationManifestV1,
+    EvidentrailBenchRunManifestV1, ExactPairedRunComparisonInputV1, ExpectedAcquisitionClassV1,
+    GovernedCaseArtifactBindingV1, GovernedCaseEvaluationV1, GovernedRunAggregateV1,
+    GovernedRunCaseInputV1, GrepHeadTail, GrepHeadTailConfig, MethodResult, RawChronological,
+    RunAggregationError, WeightedDiagnosticRequirementV1, aggregate_governed_run_v1,
     evaluate_governed_case_v1 as evaluate_governed_case_with_manifest_v1,
 };
 use evidentrail_core::{

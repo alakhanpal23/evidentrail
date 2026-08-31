@@ -700,18 +700,26 @@ impl LocalFilePreflightError {
             Self::PlanAuthorizationMismatch => "EVIDENTRAIL_LOCAL_PREFLIGHT_PLAN_AUTH_MISMATCH",
             Self::WallClockUnavailable => "EVIDENTRAIL_LOCAL_PREFLIGHT_WALL_CLOCK_UNAVAILABLE",
             Self::WallClockRegressed => "EVIDENTRAIL_LOCAL_PREFLIGHT_WALL_CLOCK_REGRESSED",
-            Self::AuthorityOutsideValidity => "EVIDENTRAIL_LOCAL_PREFLIGHT_AUTHORITY_OUTSIDE_VALIDITY",
-            Self::AuthorityStateUnavailable => "EVIDENTRAIL_LOCAL_PREFLIGHT_AUTHORITY_STATE_UNAVAILABLE",
+            Self::AuthorityOutsideValidity => {
+                "EVIDENTRAIL_LOCAL_PREFLIGHT_AUTHORITY_OUTSIDE_VALIDITY"
+            }
+            Self::AuthorityStateUnavailable => {
+                "EVIDENTRAIL_LOCAL_PREFLIGHT_AUTHORITY_STATE_UNAVAILABLE"
+            }
             Self::LiveAuthorityMismatch => "EVIDENTRAIL_LOCAL_PREFLIGHT_LIVE_AUTHORITY_MISMATCH",
             Self::UnsupportedOperatingSystem => "EVIDENTRAIL_LOCAL_PREFLIGHT_UNSUPPORTED_OS",
             Self::RuntimeProfileMismatch => "EVIDENTRAIL_LOCAL_PREFLIGHT_RUNTIME_PROFILE_MISMATCH",
             Self::ArchitectureMismatch => "EVIDENTRAIL_LOCAL_PREFLIGHT_ARCHITECTURE_MISMATCH",
             Self::RootOpenFailed => "EVIDENTRAIL_LOCAL_PREFLIGHT_ROOT_OPEN_FAILED",
-            Self::RootMetadataUnavailable => "EVIDENTRAIL_LOCAL_PREFLIGHT_ROOT_METADATA_UNAVAILABLE",
+            Self::RootMetadataUnavailable => {
+                "EVIDENTRAIL_LOCAL_PREFLIGHT_ROOT_METADATA_UNAVAILABLE"
+            }
             Self::RootNotDirectory => "EVIDENTRAIL_LOCAL_PREFLIGHT_ROOT_NOT_DIRECTORY",
             Self::RootIdentityMismatch => "EVIDENTRAIL_LOCAL_PREFLIGHT_ROOT_IDENTITY_MISMATCH",
             Self::MemberOpenFailed => "EVIDENTRAIL_LOCAL_PREFLIGHT_MEMBER_OPEN_FAILED",
-            Self::FileMetadataUnavailable => "EVIDENTRAIL_LOCAL_PREFLIGHT_FILE_METADATA_UNAVAILABLE",
+            Self::FileMetadataUnavailable => {
+                "EVIDENTRAIL_LOCAL_PREFLIGHT_FILE_METADATA_UNAVAILABLE"
+            }
             Self::FileOffsetUnavailable => "EVIDENTRAIL_LOCAL_PREFLIGHT_FILE_OFFSET_UNAVAILABLE",
             Self::FileOffsetMismatch => "EVIDENTRAIL_LOCAL_PREFLIGHT_FILE_OFFSET_MISMATCH",
             Self::FinalObjectNotRegular => "EVIDENTRAIL_LOCAL_PREFLIGHT_FINAL_NOT_REGULAR",
@@ -725,8 +733,12 @@ impl LocalFilePreflightError {
                 "EVIDENTRAIL_LOCAL_PREFLIGHT_INTERNAL_PATH_POLICY_MISMATCH"
             }
             Self::CanonicalPathReserved => "EVIDENTRAIL_LOCAL_PREFLIGHT_CANONICAL_PATH_RESERVED",
-            Self::InternalIdentityReserved => "EVIDENTRAIL_LOCAL_PREFLIGHT_INTERNAL_IDENTITY_RESERVED",
-            Self::PathRevalidationMismatch => "EVIDENTRAIL_LOCAL_PREFLIGHT_PATH_REVALIDATION_MISMATCH",
+            Self::InternalIdentityReserved => {
+                "EVIDENTRAIL_LOCAL_PREFLIGHT_INTERNAL_IDENTITY_RESERVED"
+            }
+            Self::PathRevalidationMismatch => {
+                "EVIDENTRAIL_LOCAL_PREFLIGHT_PATH_REVALIDATION_MISMATCH"
+            }
             Self::RetainedHandleChanged => "EVIDENTRAIL_LOCAL_PREFLIGHT_RETAINED_HANDLE_CHANGED",
             Self::CertificationProfileNotAdmitted => {
                 "EVIDENTRAIL_LOCAL_PREFLIGHT_CERTIFICATION_PROFILE_NOT_ADMITTED"

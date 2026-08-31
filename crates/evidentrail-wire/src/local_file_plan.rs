@@ -995,7 +995,7 @@ mod tests {
         let member = derive_local_file_source_member_v1(&locator).unwrap();
         assert_eq!(
             URL_SAFE_NO_PAD.encode(member.as_bytes()),
-            "2p9hUuSP0rwnCLoSr3yFfqBe5CXThCquR2AJA1kvNyk"
+            "hBFVWcuaWAZgWu2XBHvEHLCDc75m6v565KLIkF6nlOk"
         );
 
         let source_material = LocalFileSourceIdentityMaterialWireV1 {
@@ -1020,7 +1020,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             source_digest.to_string(),
-            "source_sha256_2df73541d15fdfc0aca3770d5bb2d5fc1a2118134be8665b4f1f45240cc07ff8"
+            "source_sha256_ae4e66a4c71c6a3ba35ef6a1dd8f0ca962f9a6e30ea48f8691d73a2bb8280250"
         );
         assert_ne!(member.as_bytes(), source_digest.as_bytes());
     }

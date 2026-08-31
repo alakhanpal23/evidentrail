@@ -93,8 +93,8 @@ fn hex_array<const N: usize>(encoded: &str) -> [u8; N] {
 fn golden_wrapped() -> WrappedResultDekV1 {
     WrappedResultDekV1::decode(&hex_array::<WRAPPED_RESULT_DEK_BYTES_V1>(
         &"222222222222222222222222222222222222222222222222\
-         bddcfea292e96eb326dda3441b4d792729ccf6af82c8a6ba348e38a1bb924419\
-         c65843727d5c9b805202a65962a0a82a"
+         2f3c784e714bf72a4b7fe66615ddcacd241f8034cc6cb03447f0907923e8de25\
+         2ddf1cdf3b7e4c2df7164b4d7fbb1111"
             .replace(char::is_whitespace, ""),
     ))
     .unwrap()
@@ -103,9 +103,9 @@ fn golden_wrapped() -> WrappedResultDekV1 {
 fn golden_sealed() -> SealedSealBindingV1 {
     SealedSealBindingV1::decode(&hex_array::<SEALED_SEAL_BINDING_BYTES_V1>(
         &"666666666666666666666666666666666666666666666666\
-         c8c99e9053675b60f6158676b1dd3a355eafe44938226c06c0e5ac8445fd3e16\
-         a8398c54793cf54319865278bf165b7840e3bd2858ad640061ea05b94b16cb6b\
-         87038724ca57112c42ee1fc58d7f2a0e5574adf8a5d4755f78d5aa517688cb03"
+         372ddb2b0a1b78d634fb8b96b785b82da50c0117b47dd948876fb876f4bfa7b4\
+         f191e8fe20bdd56c8d4af623151be63b55b875e6afe8972c6e11d54306ce033d\
+         9ce10d03c7308491e23db9644e9b2ab3d05beabe79de88272750922c741129e7"
             .replace(char::is_whitespace, ""),
     ))
     .unwrap()
@@ -185,7 +185,7 @@ fn sealed_record_has_an_independently_reconstructed_golden_encoding_and_digest()
     let digest: [u8; 32] = Sha256::digest(expected).into();
     assert_eq!(
         digest,
-        hex_array("7ac080a20f6930562bcb0afb60bdf29b547ae936f1f70467dc6c722a1bb76a36")
+        hex_array("80efec26ede394d57b9b6dfc13ad40788e6864269b762ca213f956648ecedc88")
     );
 
     let decoded = ResultKeyRecordV1::decode(&context(), &expected).unwrap();

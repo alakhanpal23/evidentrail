@@ -216,22 +216,30 @@ impl CoreManifestComponentsErrorV1 {
             Self::NonzeroFlags => "EVIDENTRAIL_CORE_COMPONENTS_NONZERO_FLAGS",
             Self::NonzeroReserved => "EVIDENTRAIL_CORE_COMPONENTS_NONZERO_RESERVED",
             Self::InvalidChildCount => "EVIDENTRAIL_CORE_COMPONENTS_INVALID_CHILD_COUNT",
-            Self::InvalidDescriptorOrdinal => "EVIDENTRAIL_CORE_COMPONENTS_INVALID_DESCRIPTOR_ORDINAL",
+            Self::InvalidDescriptorOrdinal => {
+                "EVIDENTRAIL_CORE_COMPONENTS_INVALID_DESCRIPTOR_ORDINAL"
+            }
             Self::UnsupportedChildKind => "EVIDENTRAIL_CORE_COMPONENTS_UNSUPPORTED_CHILD_KIND",
             Self::DuplicateChildKind => "EVIDENTRAIL_CORE_COMPONENTS_DUPLICATE_CHILD_KIND",
             Self::NoncanonicalChildOrder => "EVIDENTRAIL_CORE_COMPONENTS_NONCANONICAL_CHILD_ORDER",
             Self::ChildVersionMismatch => "EVIDENTRAIL_CORE_COMPONENTS_CHILD_VERSION_MISMATCH",
             Self::ChildSchemaMismatch => "EVIDENTRAIL_CORE_COMPONENTS_CHILD_SCHEMA_MISMATCH",
             Self::ChildLengthCap => "EVIDENTRAIL_CORE_COMPONENTS_CHILD_LENGTH_CAP",
-            Self::NoncontiguousChildRange => "EVIDENTRAIL_CORE_COMPONENTS_NONCONTIGUOUS_CHILD_RANGE",
+            Self::NoncontiguousChildRange => {
+                "EVIDENTRAIL_CORE_COMPONENTS_NONCONTIGUOUS_CHILD_RANGE"
+            }
             Self::ChildDigestMismatch => "EVIDENTRAIL_CORE_COMPONENTS_CHILD_DIGEST_MISMATCH",
             Self::TotalLengthCap => "EVIDENTRAIL_CORE_COMPONENTS_TOTAL_LENGTH_CAP",
             Self::CatalogDecodeFailed => "EVIDENTRAIL_CORE_COMPONENTS_CATALOG_DECODE_FAILED",
             Self::CatalogIndexMismatch => "EVIDENTRAIL_CORE_COMPONENTS_CATALOG_INDEX_MISMATCH",
             Self::OutcomeIndexMismatch => "EVIDENTRAIL_CORE_COMPONENTS_OUTCOME_INDEX_MISMATCH",
             Self::CompletionDecodeFailed => "EVIDENTRAIL_CORE_COMPONENTS_COMPLETION_DECODE_FAILED",
-            Self::CompletionOutcomeMismatch => "EVIDENTRAIL_CORE_COMPONENTS_COMPLETION_OUTCOME_MISMATCH",
-            Self::NoncanonicalChildEncoding => "EVIDENTRAIL_CORE_COMPONENTS_NONCANONICAL_CHILD_ENCODING",
+            Self::CompletionOutcomeMismatch => {
+                "EVIDENTRAIL_CORE_COMPONENTS_COMPLETION_OUTCOME_MISMATCH"
+            }
+            Self::NoncanonicalChildEncoding => {
+                "EVIDENTRAIL_CORE_COMPONENTS_NONCANONICAL_CHILD_ENCODING"
+            }
             Self::ArithmeticOverflow => "EVIDENTRAIL_CORE_COMPONENTS_ARITHMETIC_OVERFLOW",
         }
     }

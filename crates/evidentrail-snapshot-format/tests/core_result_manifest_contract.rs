@@ -42,13 +42,13 @@ fn receipt_id() -> AcquisitionReceiptId {
     // domain-as-field, u64 little-endian field lengths, ordered entries, and
     // exact conditional post-policy/omission fields.
     AcquisitionReceiptId::from_bytes(hex_array(
-        "c01738db2b713af94737a71566ba9963b0cefe4cd612192a78d1bfdba21f058d",
+        "bfb662cc7bf266518524aeaa6bce9d919eb1b75cc7de78eea3688124d8e01dce",
     ))
 }
 
 fn foreign_receipt_id() -> AcquisitionReceiptId {
     AcquisitionReceiptId::from_bytes(hex_array(
-        "fdd374fa2e782425ab2e82077ac5267af83563a33f94945f4938addc5ba2ea57",
+        "55dcb7afd8bf844f4e3001bef857c3fa3ac3ddf97f36f7b32f31555c5caf002f",
     ))
 }
 
@@ -239,9 +239,9 @@ fn frozen_nontrivial_receipt_and_manifest_golden_are_exact() {
         "0000064b00000000000000000000000000000000000000000000000000000000",
         "8181818181818181818181818181818181818181818181818181818181818181",
         "9191919191919191919191919191919191919191919191919191919191919191",
-        "c01738db2b713af94737a71566ba9963b0cefe4cd612192a78d1bfdba21f058d",
-        "e2f6b35bf4258305a280d3ab99a64c8758e90537293e6ac272802b3154c137db",
-        "18e6ce304a39a80b3ec4337f49c8a0543e9cb6cc14c2261f00e5bbfa316c1c75",
+        "bfb662cc7bf266518524aeaa6bce9d919eb1b75cc7de78eea3688124d8e01dce",
+        "10c61150c3bb3c0524140ed1280f4e3b3f94de199e66f724d93a4f2ff16c028f",
+        "585fb7c5d0d28b6e5cafb3eea9c109594bafb1499c0b3fd7dabe8bb5b3397285",
         "0000000000000000000000000000000000000000000000000000000000000000"
     ));
     assert_eq!(expected_header.len(), CORE_RESULT_MANIFEST_HEADER_BYTES_V1);
@@ -253,11 +253,11 @@ fn frozen_nontrivial_receipt_and_manifest_golden_are_exact() {
     assert_eq!(manifest.encoded_len(), encoded.len());
     assert_eq!(
         manifest.components_digest().as_bytes(),
-        &hex_array::<32>("e2f6b35bf4258305a280d3ab99a64c8758e90537293e6ac272802b3154c137db")
+        &hex_array::<32>("10c61150c3bb3c0524140ed1280f4e3b3f94de199e66f724d93a4f2ff16c028f")
     );
     assert_eq!(
         manifest.manifest_digest().as_bytes(),
-        &hex_array::<32>("18e6ce304a39a80b3ec4337f49c8a0543e9cb6cc14c2261f00e5bbfa316c1c75")
+        &hex_array::<32>("585fb7c5d0d28b6e5cafb3eea9c109594bafb1499c0b3fd7dabe8bb5b3397285")
     );
     assert_eq!(manifest.acquisition_receipt_id(), receipt_id());
     assert_eq!(manifest.version(), CORE_RESULT_MANIFEST_VERSION_V1);

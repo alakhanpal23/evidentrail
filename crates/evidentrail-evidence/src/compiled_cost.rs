@@ -554,15 +554,25 @@ impl CompiledCostCertificationError {
             Self::UnknownPacketId => "EVIDENTRAIL_COMPILED_COST_UNKNOWN_PACKET_ID",
             Self::UnknownEvent => "EVIDENTRAIL_COMPILED_COST_UNKNOWN_EVENT",
             Self::OverlappingEvent => "EVIDENTRAIL_COMPILED_COST_OVERLAPPING_EVENT",
-            Self::PacketMembershipMismatch => "EVIDENTRAIL_COMPILED_COST_PACKET_MEMBERSHIP_MISMATCH",
+            Self::PacketMembershipMismatch => {
+                "EVIDENTRAIL_COMPILED_COST_PACKET_MEMBERSHIP_MISMATCH"
+            }
             Self::PacketCostMismatch => "EVIDENTRAIL_COMPILED_COST_PACKET_COST_MISMATCH",
             Self::FixedOverheadMismatch => "EVIDENTRAIL_COMPILED_COST_FIXED_OVERHEAD_MISMATCH",
             Self::LedgerBindingMismatch => "EVIDENTRAIL_COMPILED_COST_LEDGER_BINDING_MISMATCH",
             Self::ResultBindingMismatch => "EVIDENTRAIL_COMPILED_COST_RESULT_BINDING_MISMATCH",
-            Self::UnsupportedTokenizerBound => "EVIDENTRAIL_COMPILED_COST_UNSUPPORTED_TOKENIZER_BOUND",
-            Self::FixedRenderLimitExceeded => "EVIDENTRAIL_COMPILED_COST_FIXED_RENDER_LIMIT_EXCEEDED",
-            Self::PacketRenderLimitExceeded => "EVIDENTRAIL_COMPILED_COST_PACKET_RENDER_LIMIT_EXCEEDED",
-            Self::NonAsciiRendererInvariant => "EVIDENTRAIL_COMPILED_COST_NON_ASCII_RENDERER_INVARIANT",
+            Self::UnsupportedTokenizerBound => {
+                "EVIDENTRAIL_COMPILED_COST_UNSUPPORTED_TOKENIZER_BOUND"
+            }
+            Self::FixedRenderLimitExceeded => {
+                "EVIDENTRAIL_COMPILED_COST_FIXED_RENDER_LIMIT_EXCEEDED"
+            }
+            Self::PacketRenderLimitExceeded => {
+                "EVIDENTRAIL_COMPILED_COST_PACKET_RENDER_LIMIT_EXCEEDED"
+            }
+            Self::NonAsciiRendererInvariant => {
+                "EVIDENTRAIL_COMPILED_COST_NON_ASCII_RENDERER_INVARIANT"
+            }
             Self::ArithmeticOverflow => "EVIDENTRAIL_COMPILED_COST_ARITHMETIC_OVERFLOW",
             Self::CostOutOfRange => "EVIDENTRAIL_COMPILED_COST_OUT_OF_RANGE",
         }

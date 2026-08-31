@@ -5,10 +5,10 @@ use std::process::Command;
 use std::time::Instant;
 
 use evidentrail_bench::{
-    BenchmarkBudgetV1, BenchmarkRunIdentityV1, CandidateRendererIdentityV1, EvidentrailBenchCaseSpecV1,
-    EvidentrailBenchRunManifestV1, ExpectedAcquisitionClassV1, MeasuredCandidateResources,
-    MeasurementEnvironmentV1, MeasurementHarnessIdentityV1, MethodDescriptor,
-    RenderedCandidateArtifactV1, TokenizerIdentityV1,
+    BenchmarkBudgetV1, BenchmarkRunIdentityV1, CandidateRendererIdentityV1,
+    EvidentrailBenchCaseSpecV1, EvidentrailBenchRunManifestV1, ExpectedAcquisitionClassV1,
+    MeasuredCandidateResources, MeasurementEnvironmentV1, MeasurementHarnessIdentityV1,
+    MethodDescriptor, RenderedCandidateArtifactV1, TokenizerIdentityV1,
 };
 use evidentrail_core::{
     AcknowledgedCounts, AcquisitionSequence, AdapterIdentity, AdapterOutcome, AttemptCounts,
@@ -28,16 +28,16 @@ use evidentrail_schema::{ArtifactDigest, PlanDigest, ResultId};
 use crate::fidelity_bridge::freeze_legacy_drain_full_membership_representation_with_method_v1;
 use crate::peak_rss_observer::execute_with_macos_time_peak_rss_v1;
 use crate::{
+    CanonicalTokenCountProvenanceV1, ClosedEnvironmentV1, FirstPartyLogBriefBridgeErrorV1,
+    FirstPartyLogBriefRepresentationReceiptV1, HarnessError, HarnessLimitsV1,
     LEGACY_DRAIN_FULL_MEMBERSHIP_STDOUT_CAP_V1, LEGACY_DRAIN_PINNED_COMMIT_V1,
-    CanonicalTokenCountProvenanceV1, ClosedEnvironmentV1, LegacyDrainFidelityBridgeErrorV1,
-    LegacyDrainFullMembershipArtifactV1, LegacyDrainJsonLimitsV1, LegacyDrainNormalizationErrorV1,
-    FirstPartyLogBriefBridgeErrorV1, FirstPartyLogBriefRepresentationReceiptV1, HarnessError,
-    HarnessLimitsV1, MacOsTimePeakRssObserverV1, MacOsTimePeakRssReceiptV1, PeakRssObserverErrorV1,
-    PeakRssProvenanceV1, PublicCaseInputBindingV1, PublicSubprocessInvocationV1,
-    StdinArtifactClassV1, StdinArtifactV1, SubprocessExecutionReceiptV1,
-    artifact_digest_for_bytes_v1, artifact_digest_for_file_v1, canonical_public_case_artifact_v1,
-    canonical_public_run_manifest_artifact_v1, execute_public_subprocess_v1,
-    freeze_bound_owned_compiled_log_brief_representation_v1,
+    LegacyDrainFidelityBridgeErrorV1, LegacyDrainFullMembershipArtifactV1, LegacyDrainJsonLimitsV1,
+    LegacyDrainNormalizationErrorV1, MacOsTimePeakRssObserverV1, MacOsTimePeakRssReceiptV1,
+    PeakRssObserverErrorV1, PeakRssProvenanceV1, PublicCaseInputBindingV1,
+    PublicSubprocessInvocationV1, StdinArtifactClassV1, StdinArtifactV1,
+    SubprocessExecutionReceiptV1, artifact_digest_for_bytes_v1, artifact_digest_for_file_v1,
+    canonical_public_case_artifact_v1, canonical_public_run_manifest_artifact_v1,
+    execute_public_subprocess_v1, freeze_bound_owned_compiled_log_brief_representation_v1,
     freeze_bound_owned_passthrough_log_brief_representation_v1,
     measure_canonical_utf8_byte_tokens_v1, strict_normalize_pinned_legacy_drain_full_membership_v1,
 };
@@ -58,7 +58,8 @@ pub const PINNED_LEGACY_DRAIN_MATCHED_QUESTION_V1: &[u8] = b"what caused the dat
 const PINNED_MATCHED_CASE_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/pinned-drain-matched-case/v1\0public-fixture=true\0hidden-labels=none\0separate-executions=true\0peak-rss=required-bound-observation\0proposal-union=not-claimed";
 const FIRST_PARTY_SYSTEM_MANIFEST_V1: &[u8] =
     b"evidentrail/bench-harness/first-party-memory-product-arm/v1";
-const PEAK_RSS_OBSERVATION_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/bound-peak-rss-observation/v1";
+const PEAK_RSS_OBSERVATION_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/bound-peak-rss-observation/v1";
 const FIRST_PARTY_EXECUTION_MEASUREMENT_V1: &[u8] = b"evidentrail/bench-harness/first-party-memory-product-execution/v1\0clock=std-instant\0scope=create-deterministic-result-v1\0peak-rss=not-measured";
 const DRAIN_EXECUTION_MEASUREMENT_V1: &[u8] = b"evidentrail/bench-harness/pinned-drain-full-membership-execution/v1\0clock=subprocess-harness\0scope=raw-public-stdin-through-captured-output\0peak-rss=not-measured";
 const FINALIZED_MATCHED_CASE_DOMAIN_V1: &[u8] =
@@ -1736,19 +1737,27 @@ impl PreparedPinnedDrainMatchedCaseErrorV1 {
             Self::RevisionMismatch => "EVIDENTRAIL_BENCH_MATCHED_PINNED_REVISION_MISMATCH",
             Self::WorktreeDirty => "EVIDENTRAIL_BENCH_MATCHED_PINNED_WORKTREE_DIRTY",
             Self::ExecutableChanged => "EVIDENTRAIL_BENCH_MATCHED_EXECUTABLE_CHANGED",
-            Self::DomainConstructionFailed => "EVIDENTRAIL_BENCH_MATCHED_DOMAIN_CONSTRUCTION_FAILED",
+            Self::DomainConstructionFailed => {
+                "EVIDENTRAIL_BENCH_MATCHED_DOMAIN_CONSTRUCTION_FAILED"
+            }
             Self::RunManifestsNotPairComparable => {
                 "EVIDENTRAIL_BENCH_MATCHED_RUN_MANIFESTS_NOT_PAIR_COMPARABLE"
             }
-            Self::FirstPartyExecutionFailed => "EVIDENTRAIL_BENCH_MATCHED_FIRST_PARTY_EXECUTION_FAILED",
+            Self::FirstPartyExecutionFailed => {
+                "EVIDENTRAIL_BENCH_MATCHED_FIRST_PARTY_EXECUTION_FAILED"
+            }
             Self::FirstPartyNeedsMore => "EVIDENTRAIL_BENCH_MATCHED_FIRST_PARTY_NEEDS_MORE",
             Self::WallTimeOverflow => "EVIDENTRAIL_BENCH_MATCHED_WALL_TIME_OVERFLOW",
             Self::WallTimeUnavailable => "EVIDENTRAIL_BENCH_MATCHED_WALL_TIME_UNAVAILABLE",
             Self::CanonicalTokenBindingMismatch => {
                 "EVIDENTRAIL_BENCH_MATCHED_CANONICAL_TOKEN_BINDING_MISMATCH"
             }
-            Self::MeasurementBindingMismatch => "EVIDENTRAIL_BENCH_MATCHED_MEASUREMENT_BINDING_MISMATCH",
-            Self::InvalidPeakRssObservation => "EVIDENTRAIL_BENCH_MATCHED_INVALID_PEAK_RSS_OBSERVATION",
+            Self::MeasurementBindingMismatch => {
+                "EVIDENTRAIL_BENCH_MATCHED_MEASUREMENT_BINDING_MISMATCH"
+            }
+            Self::InvalidPeakRssObservation => {
+                "EVIDENTRAIL_BENCH_MATCHED_INVALID_PEAK_RSS_OBSERVATION"
+            }
             Self::MissingPeakRssObservation { .. } => {
                 "EVIDENTRAIL_BENCH_MATCHED_PEAK_RSS_OBSERVATION_MISSING"
             }
@@ -1758,7 +1767,9 @@ impl PreparedPinnedDrainMatchedCaseErrorV1 {
             Self::UnexpectedPeakRssObservation => {
                 "EVIDENTRAIL_BENCH_MATCHED_PEAK_RSS_OBSERVATION_UNEXPECTED"
             }
-            Self::PeakRssBindingMismatch { .. } => "EVIDENTRAIL_BENCH_MATCHED_PEAK_RSS_BINDING_MISMATCH",
+            Self::PeakRssBindingMismatch { .. } => {
+                "EVIDENTRAIL_BENCH_MATCHED_PEAK_RSS_BINDING_MISMATCH"
+            }
             Self::PeakRssObserver(error) => error.code(),
             Self::Harness(error) => error.code(),
             Self::Normalizer(error) => error.code(),

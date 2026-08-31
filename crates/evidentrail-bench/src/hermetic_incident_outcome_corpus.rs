@@ -34,9 +34,9 @@ use evidentrail_select::{ObjectiveGainV1, TotalTokenBudgetV1};
 use sha2::{Digest as _, Sha256};
 
 use crate::{
-    BenchmarkMethod, Bm25fConfigV1, Bm25fWholeEventV1, ByteBudget, EvidentrailBenchAnnotationSpecV1,
-    EvidenceTargetV1, ExpectedAcquisitionClassV1, GrepHeadTail, GrepHeadTailConfig, MethodInput,
-    QuotaHybrid, QuotaHybridConfig, RawChronological, WeightedDiagnosticRequirementV1,
+    BenchmarkMethod, Bm25fConfigV1, Bm25fWholeEventV1, ByteBudget, EvidenceTargetV1,
+    EvidentrailBenchAnnotationSpecV1, ExpectedAcquisitionClassV1, GrepHeadTail, GrepHeadTailConfig,
+    MethodInput, QuotaHybrid, QuotaHybridConfig, RawChronological, WeightedDiagnosticRequirementV1,
     evaluate_exact_small_selection_oracle_v1,
 };
 use crate::{ExactSelectionOracleErrorV1, ExactSmallSelectionOracleDecisionV1};
@@ -47,7 +47,8 @@ const PUBLIC_CASE_DOMAIN_V1: &[u8] = b"evidentrail/bench/hermetic-incident-publi
 const PUBLIC_CORPUS_DOMAIN_V1: &[u8] = b"evidentrail/bench/hermetic-incident-public-corpus/v1\0";
 const GOVERNED_ANNOTATION_DOMAIN_V1: &[u8] =
     b"evidentrail/bench/hermetic-incident-governed-annotation/v1\0";
-const GOVERNED_CORPUS_DOMAIN_V1: &[u8] = b"evidentrail/bench/hermetic-incident-governed-corpus/v1\0";
+const GOVERNED_CORPUS_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench/hermetic-incident-governed-corpus/v1\0";
 
 pub const HERMETIC_INCIDENT_CASE_COUNT_V1: usize = 8;
 pub const HERMETIC_INCIDENT_RECORD_COUNT_V1: usize = 10;

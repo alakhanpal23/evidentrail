@@ -103,7 +103,9 @@ impl ThreeLaneCompileErrorV1 {
     pub const fn code(self) -> &'static str {
         match self {
             Self::CandidateBuild { .. } => "EVIDENTRAIL_COMPILE_CANDIDATE_BUILD",
-            Self::LedgerBlockRetrievalMismatch => "EVIDENTRAIL_COMPILE_LEDGER_BLOCK_RETRIEVAL_MISMATCH",
+            Self::LedgerBlockRetrievalMismatch => {
+                "EVIDENTRAIL_COMPILE_LEDGER_BLOCK_RETRIEVAL_MISMATCH"
+            }
             Self::LedgerBlockEventUniverseMismatch => {
                 "EVIDENTRAIL_COMPILE_LEDGER_BLOCK_EVENT_UNIVERSE_MISMATCH"
             }

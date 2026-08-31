@@ -443,7 +443,9 @@ impl SelectorChallengerComparisonErrorV1 {
             Self::UnsupportedSourceDecision => {
                 "EVIDENTRAIL_BENCH_SELECTOR_CHALLENGER_COMPARISON_SOURCE_DECISION"
             }
-            Self::ArithmeticOverflow => "EVIDENTRAIL_BENCH_SELECTOR_CHALLENGER_COMPARISON_ARITHMETIC",
+            Self::ArithmeticOverflow => {
+                "EVIDENTRAIL_BENCH_SELECTOR_CHALLENGER_COMPARISON_ARITHMETIC"
+            }
             Self::DigestLengthOverflow => {
                 "EVIDENTRAIL_BENCH_SELECTOR_CHALLENGER_COMPARISON_DIGEST_LENGTH"
             }

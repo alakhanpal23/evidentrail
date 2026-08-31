@@ -106,7 +106,10 @@ fn ready(
     }
 }
 
-fn needs_more(question: &[u8], blocks: &evidentrail_core::BlockIndex<'_>) -> CandidateNeedsMoreReasonV1 {
+fn needs_more(
+    question: &[u8],
+    blocks: &evidentrail_core::BlockIndex<'_>,
+) -> CandidateNeedsMoreReasonV1 {
     match generate_lexical_candidates_v1(question, blocks).unwrap() {
         CandidateGenerationDecisionV1::Ready(_) => panic!("unexpected ready decision"),
         CandidateGenerationDecisionV1::NeedsMore(reason) => reason.reason(),

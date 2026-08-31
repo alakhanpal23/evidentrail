@@ -33,11 +33,14 @@ use crate::{
     BoundedSelectorSearchObservationV1,
 };
 
-const PUBLIC_CORPUS_DOMAIN_V1: &[u8] = b"evidentrail/bench/cost-matched-selector-stress-corpus/v1\0";
+const PUBLIC_CORPUS_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench/cost-matched-selector-stress-corpus/v1\0";
 const PUBLIC_CASE_DOMAIN_V1: &[u8] = b"evidentrail/bench/cost-matched-selector-stress-case/v1\0";
 const PUBLIC_PLAN_DOMAIN_V1: &[u8] = b"evidentrail/bench/cost-matched-selector-stress-plan/v1\0";
-const GOVERNED_CORPUS_DOMAIN_V1: &[u8] = b"evidentrail/bench/governed-cost-matched-selector-stress/v1\0";
-pub const STRUCTURED_DP_POLICY_NAME_V1: &[u8] = b"evidentrail/bench/additive-dual-resource-exact-dp";
+const GOVERNED_CORPUS_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench/governed-cost-matched-selector-stress/v1\0";
+pub const STRUCTURED_DP_POLICY_NAME_V1: &[u8] =
+    b"evidentrail/bench/additive-dual-resource-exact-dp";
 pub const STRUCTURED_DP_POLICY_VERSION_V1: &[u8] = b"1";
 
 pub const COST_MATCHED_CHALLENGER_POLICY_NAME_V1: &[u8] =

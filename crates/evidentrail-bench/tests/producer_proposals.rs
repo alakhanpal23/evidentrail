@@ -1,9 +1,10 @@
 use evidentrail_bench::{
     BenchmarkBudgetV1, BenchmarkRunIdentityV1, CandidateResourceCap,
-    CanonicalProducerProposalArtifactV1, EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1,
-    EvidentrailBenchHiddenEvaluationManifestV1, EvidentrailBenchRunManifestV1, EvidenceTargetV1,
-    ExpectedAcquisitionClassV1, FrozenProducerProposalFrontierPlanV1,
-    FrozenProducerProposalUniverseV1, GovernedCaseArtifactBindingV1, GovernedCaseArtifactJoinV1,
+    CanonicalProducerProposalArtifactV1, EvidenceTargetV1, EvidentrailBenchAnnotationSpecV1,
+    EvidentrailBenchCaseSpecV1, EvidentrailBenchHiddenEvaluationManifestV1,
+    EvidentrailBenchRunManifestV1, ExpectedAcquisitionClassV1,
+    FrozenProducerProposalFrontierPlanV1, FrozenProducerProposalUniverseV1,
+    GovernedCaseArtifactBindingV1, GovernedCaseArtifactJoinV1,
     GovernedProducerProposalComparisonV1, GovernedProducerProposalEvaluationV1,
     MAX_PRODUCER_PROPOSAL_FRONTIER_POINTS_V1, MAX_PRODUCER_PROPOSAL_RENDERED_BYTES_V1,
     MeasuredProducerProposalResourcesV1, MeasurementTrustBoundaryV1,
@@ -484,7 +485,10 @@ fn independently_decode_proposal_members_v1(
         assert_eq!(lines[cursor], "END_PROPOSAL");
         cursor += 1;
     }
-    assert_eq!(lines[cursor], "END_EVIDENTRAIL_PRODUCER_PROPOSAL_UNIVERSE_V1");
+    assert_eq!(
+        lines[cursor],
+        "END_EVIDENTRAIL_PRODUCER_PROPOSAL_UNIVERSE_V1"
+    );
     assert_eq!(cursor + 1, lines.len());
     decoded
 }

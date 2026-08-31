@@ -50,12 +50,16 @@ impl ResultKeyRecordErrorV1 {
         match self {
             Self::InvalidEncodedLength => "EVIDENTRAIL_RESULT_KEY_RECORD_INVALID_ENCODED_LENGTH",
             Self::InvalidMagic => "EVIDENTRAIL_RESULT_KEY_RECORD_INVALID_MAGIC",
-            Self::UnsupportedRecordVersion => "EVIDENTRAIL_RESULT_KEY_RECORD_UNSUPPORTED_RECORD_VERSION",
+            Self::UnsupportedRecordVersion => {
+                "EVIDENTRAIL_RESULT_KEY_RECORD_UNSUPPORTED_RECORD_VERSION"
+            }
             Self::UnsupportedSuite => "EVIDENTRAIL_RESULT_KEY_RECORD_UNSUPPORTED_SUITE",
             Self::InvalidRootKeyVersion => "EVIDENTRAIL_RESULT_KEY_RECORD_INVALID_ROOT_KEY_VERSION",
             Self::InvalidTimeRange => "EVIDENTRAIL_RESULT_KEY_RECORD_INVALID_TIME_RANGE",
             Self::ContextMismatch => "EVIDENTRAIL_RESULT_KEY_RECORD_CONTEXT_MISMATCH",
-            Self::InvalidWrappedDekLength => "EVIDENTRAIL_RESULT_KEY_RECORD_INVALID_WRAPPED_DEK_LENGTH",
+            Self::InvalidWrappedDekLength => {
+                "EVIDENTRAIL_RESULT_KEY_RECORD_INVALID_WRAPPED_DEK_LENGTH"
+            }
             Self::UnknownState => "EVIDENTRAIL_RESULT_KEY_RECORD_UNKNOWN_STATE",
             Self::InvalidSealedBindingLength => {
                 "EVIDENTRAIL_RESULT_KEY_RECORD_INVALID_SEALED_BINDING_LENGTH"
@@ -64,7 +68,9 @@ impl ResultKeyRecordErrorV1 {
             Self::NoncanonicalCreatingLayout => {
                 "EVIDENTRAIL_RESULT_KEY_RECORD_NONCANONICAL_CREATING_LAYOUT"
             }
-            Self::NoncanonicalSealedLayout => "EVIDENTRAIL_RESULT_KEY_RECORD_NONCANONICAL_SEALED_LAYOUT",
+            Self::NoncanonicalSealedLayout => {
+                "EVIDENTRAIL_RESULT_KEY_RECORD_NONCANONICAL_SEALED_LAYOUT"
+            }
             Self::WrappedDekAuthenticationFailed => {
                 "EVIDENTRAIL_RESULT_KEY_RECORD_WRAPPED_DEK_AUTHENTICATION_FAILED"
             }

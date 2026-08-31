@@ -101,7 +101,9 @@ impl EventExpansionIndexErrorV1 {
             Self::InvalidMagic => "EVIDENTRAIL_EVENT_INDEX_INVALID_MAGIC",
             Self::UnsupportedVersion => "EVIDENTRAIL_EVENT_INDEX_UNSUPPORTED_VERSION",
             Self::UnsupportedSchema => "EVIDENTRAIL_EVENT_INDEX_UNSUPPORTED_SCHEMA",
-            Self::UnsupportedIndexObjectKind => "EVIDENTRAIL_EVENT_INDEX_UNSUPPORTED_INDEX_OBJECT_KIND",
+            Self::UnsupportedIndexObjectKind => {
+                "EVIDENTRAIL_EVENT_INDEX_UNSUPPORTED_INDEX_OBJECT_KIND"
+            }
             Self::InvalidEntryWidth => "EVIDENTRAIL_EVENT_INDEX_INVALID_ENTRY_WIDTH",
             Self::NonzeroFlags => "EVIDENTRAIL_EVENT_INDEX_NONZERO_FLAGS",
             Self::NonzeroReserved => "EVIDENTRAIL_EVENT_INDEX_NONZERO_RESERVED",
@@ -117,20 +119,32 @@ impl EventExpansionIndexErrorV1 {
                 "EVIDENTRAIL_EVENT_INDEX_SEGMENT_FRAME_SEQUENCE_OUT_OF_RANGE"
             }
             Self::FrameSequenceMismatch => "EVIDENTRAIL_EVENT_INDEX_FRAME_SEQUENCE_MISMATCH",
-            Self::InvalidFrameEncodedLength => "EVIDENTRAIL_EVENT_INDEX_INVALID_FRAME_ENCODED_LENGTH",
+            Self::InvalidFrameEncodedLength => {
+                "EVIDENTRAIL_EVENT_INDEX_INVALID_FRAME_ENCODED_LENGTH"
+            }
             Self::FrameEncodedLengthCap => "EVIDENTRAIL_EVENT_INDEX_FRAME_ENCODED_LENGTH_CAP",
             Self::FrameRangeOverflow => "EVIDENTRAIL_EVENT_INDEX_FRAME_RANGE_OVERFLOW",
             Self::FrameOutsideSegment => "EVIDENTRAIL_EVENT_INDEX_FRAME_OUTSIDE_SEGMENT",
             Self::FrameLocatorOverlap => "EVIDENTRAIL_EVENT_INDEX_FRAME_LOCATOR_OVERLAP",
-            Self::AuthorizedByteRangeOverflow => "EVIDENTRAIL_EVENT_INDEX_AUTHORIZED_BYTE_RANGE_OVERFLOW",
-            Self::AuthorizedBytesOutsideFrame => "EVIDENTRAIL_EVENT_INDEX_AUTHORIZED_BYTES_OUTSIDE_FRAME",
-            Self::UnsupportedFrameObjectKind => "EVIDENTRAIL_EVENT_INDEX_UNSUPPORTED_FRAME_OBJECT_KIND",
+            Self::AuthorizedByteRangeOverflow => {
+                "EVIDENTRAIL_EVENT_INDEX_AUTHORIZED_BYTE_RANGE_OVERFLOW"
+            }
+            Self::AuthorizedBytesOutsideFrame => {
+                "EVIDENTRAIL_EVENT_INDEX_AUTHORIZED_BYTES_OUTSIDE_FRAME"
+            }
+            Self::UnsupportedFrameObjectKind => {
+                "EVIDENTRAIL_EVENT_INDEX_UNSUPPORTED_FRAME_OBJECT_KIND"
+            }
             Self::UnsupportedExactnessKind => "EVIDENTRAIL_EVENT_INDEX_UNSUPPORTED_EXACTNESS_KIND",
             Self::NoncanonicalSourceExactFields => {
                 "EVIDENTRAIL_EVENT_INDEX_NONCANONICAL_SOURCE_EXACT_FIELDS"
             }
-            Self::CatalogSegmentCountMismatch => "EVIDENTRAIL_EVENT_INDEX_CATALOG_SEGMENT_COUNT_MISMATCH",
-            Self::CatalogFrameCountMismatch => "EVIDENTRAIL_EVENT_INDEX_CATALOG_FRAME_COUNT_MISMATCH",
+            Self::CatalogSegmentCountMismatch => {
+                "EVIDENTRAIL_EVENT_INDEX_CATALOG_SEGMENT_COUNT_MISMATCH"
+            }
+            Self::CatalogFrameCountMismatch => {
+                "EVIDENTRAIL_EVENT_INDEX_CATALOG_FRAME_COUNT_MISMATCH"
+            }
             Self::CatalogChainRootMismatch => "EVIDENTRAIL_EVENT_INDEX_CATALOG_CHAIN_ROOT_MISMATCH",
             Self::CatalogDigestMismatch => "EVIDENTRAIL_EVENT_INDEX_CATALOG_DIGEST_MISMATCH",
             Self::TotalFrameBytesMismatch => "EVIDENTRAIL_EVENT_INDEX_TOTAL_FRAME_BYTES_MISMATCH",

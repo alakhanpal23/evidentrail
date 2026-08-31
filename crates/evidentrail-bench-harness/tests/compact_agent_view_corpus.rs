@@ -102,14 +102,14 @@ fn frozen_six_case_corpus_has_strict_per_case_and_aggregate_reduction() {
             .iter()
             .all(|case| case.saved_byte_count() > 0)
     );
-    assert_eq!(receipt.canonical_byte_count(), 11_524);
-    assert_eq!(receipt.compact_byte_count(), 4_757);
-    assert_eq!(receipt.saved_byte_count(), 6_767);
-    assert_eq!(receipt.reduction_micros(), 587_209);
-    assert_eq!(receipt.minimum_case_saved_bytes(), 803);
+    assert_eq!(receipt.canonical_byte_count(), 11_530);
+    assert_eq!(receipt.compact_byte_count(), 4_793);
+    assert_eq!(receipt.saved_byte_count(), 6_737);
+    assert_eq!(receipt.reduction_micros(), 584_301);
+    assert_eq!(receipt.minimum_case_saved_bytes(), 797);
     assert_eq!(
         hex(receipt.artifact_digest().as_bytes()),
-        "71524fbeb48e7bf5b2a933875b883a3c03031edc16f5ca6e93d87a454542f440"
+        "7019aa49bd165c57874e035a6811894b161a3b3493271e540863dbfd7fa1ec18"
     );
     assert!(!receipt.contains_hidden_labels());
     assert_eq!(parities.len(), 5);
@@ -326,20 +326,20 @@ fn bounded_admission_challenges_cover_bytes_citations_parity_and_needs_more() {
     assert_eq!(receipt.cases().len(), 4);
     assert!(!receipt.needs_more().compact_view_emitted());
     assert_eq!(parities.len(), 4);
-    assert_eq!(receipt.canonical_byte_count(), 16_737);
-    assert_eq!(receipt.compact_byte_count(), 12_077);
-    assert_eq!(receipt.saved_byte_count(), 4_660);
+    assert_eq!(receipt.canonical_byte_count(), 16_815);
+    assert_eq!(receipt.compact_byte_count(), 12_179);
+    assert_eq!(receipt.saved_byte_count(), 4_636);
     assert_eq!(
         receipt.compact_byte_count() + receipt.saved_byte_count(),
         receipt.canonical_byte_count()
     );
     assert_eq!(receipt.citation_count(), 16);
     assert_eq!(receipt.event_count(), 23);
-    assert_eq!(receipt.decoded_event_byte_count(), 8_947);
-    assert_eq!(receipt.reduction_micros(), 278_425);
+    assert_eq!(receipt.decoded_event_byte_count(), 9_025);
+    assert_eq!(receipt.reduction_micros(), 275_706);
     assert_eq!(
         hex(receipt.artifact_digest().as_bytes()),
-        "2abd37d4ce7e285ae126e656c93ec4bafbb4778b3a58f24dc1907724cbdba5dd"
+        "ac2ee0013b65d0b862f5b270a512912fbdde9cdd93577abd530e754e3f2976d0"
     );
     assert!(!receipt.contains_hidden_labels());
     assert!(
@@ -348,7 +348,12 @@ fn bounded_admission_challenges_cover_bytes_citations_parity_and_needs_more() {
             .all(|parity| parity.exact_text_alias_range_and_count_parity())
     );
     let debug = format!("{receipt:?}");
-    for forbidden in ["EVIDENTRAIL_AGENT_VIEW_V1", "Traceback", "[E999]", "repeat-me"] {
+    for forbidden in [
+        "EVIDENTRAIL_AGENT_VIEW_V1",
+        "Traceback",
+        "[E999]",
+        "repeat-me",
+    ] {
         assert!(!debug.contains(forbidden));
     }
 

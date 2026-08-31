@@ -875,7 +875,9 @@ impl LocalFileExecutionError {
     pub const fn code(self) -> &'static str {
         match self {
             Self::WallClockUnavailable => "EVIDENTRAIL_LOCAL_EXECUTION_WALL_CLOCK_UNAVAILABLE",
-            Self::AuthorityOutsideValidity => "EVIDENTRAIL_LOCAL_EXECUTION_AUTHORITY_OUTSIDE_VALIDITY",
+            Self::AuthorityOutsideValidity => {
+                "EVIDENTRAIL_LOCAL_EXECUTION_AUTHORITY_OUTSIDE_VALIDITY"
+            }
             Self::DescriptorValidationFailed => {
                 "EVIDENTRAIL_LOCAL_EXECUTION_DESCRIPTOR_VALIDATION_FAILED"
             }

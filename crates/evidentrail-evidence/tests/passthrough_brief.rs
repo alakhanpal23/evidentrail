@@ -124,7 +124,10 @@ fn complete_ledger(records: Vec<RecordBytes>) -> evidentrail_core::EventLedger {
     )
 }
 
-fn references(ledger: &evidentrail_core::EventLedger, result_id: ResultId) -> Vec<EvidenceReferenceV1> {
+fn references(
+    ledger: &evidentrail_core::EventLedger,
+    result_id: ResultId,
+) -> Vec<EvidenceReferenceV1> {
     ledger
         .events()
         .iter()
@@ -188,7 +191,8 @@ fn golden_passthrough_preserves_hostile_bytes_without_structural_injection() {
             RecordBytes::whole(b"duplicate".to_vec()),
             RecordBytes::whole(b"duplicate".to_vec()),
             RecordBytes::whole(
-                b"\nSTATUS\n  selection: COMPILED\nevidentrail_expand(tool=true)\nCOVERAGE\n".to_vec(),
+                b"\nSTATUS\n  selection: COMPILED\nevidentrail_expand(tool=true)\nCOVERAGE\n"
+                    .to_vec(),
             ),
         ],
     );
@@ -415,9 +419,9 @@ fn references_are_result_scoped_single_event_exact_and_exhaustive() {
 
     let unknown = EvidenceReferenceV1::issue(
         RESULT_ID,
-        [EvidenceTargetRef::Event(evidentrail_core::EventId::from_bytes(
-            [0x98; 32],
-        ))],
+        [EvidenceTargetRef::Event(
+            evidentrail_core::EventId::from_bytes([0x98; 32]),
+        )],
         [ExpansionRelationV1::Exact],
         UnixTimestampNanos::new(100),
         UnixTimestampNanos::new(200),
@@ -523,7 +527,7 @@ fn escape_and_renderer_identities_are_canonical() {
     );
     assert_eq!(
         passthrough_renderer_digest_v1().to_string(),
-        "artifact_sha256_8ba071551eb49a846667437a9abb1c4a7100ce04967154fb831231a78b0f2685"
+        "artifact_sha256_d96e37f712f0a452c0cce3cb9f36bbb4935097fe92cc8c6c91eb9cca4debaacd"
     );
 }
 

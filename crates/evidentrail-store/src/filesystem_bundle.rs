@@ -66,7 +66,9 @@ impl FilesystemSealedBundleErrorV1 {
             Self::RootUnavailable => "EVIDENTRAIL_FILESYSTEM_BUNDLE_ROOT_UNAVAILABLE",
             Self::RootNotDirectory => "EVIDENTRAIL_FILESYSTEM_BUNDLE_ROOT_NOT_DIRECTORY",
             Self::RootOwnerMismatch => "EVIDENTRAIL_FILESYSTEM_BUNDLE_ROOT_OWNER_MISMATCH",
-            Self::RootPermissionMismatch => "EVIDENTRAIL_FILESYSTEM_BUNDLE_ROOT_PERMISSION_MISMATCH",
+            Self::RootPermissionMismatch => {
+                "EVIDENTRAIL_FILESYSTEM_BUNDLE_ROOT_PERMISSION_MISMATCH"
+            }
             Self::RepositoryUnavailable => "EVIDENTRAIL_FILESYSTEM_BUNDLE_REPOSITORY_UNAVAILABLE",
             Self::DuplicateResult => "EVIDENTRAIL_FILESYSTEM_BUNDLE_DUPLICATE_RESULT",
             Self::TemporaryExists => "EVIDENTRAIL_FILESYSTEM_BUNDLE_TEMPORARY_EXISTS",
@@ -82,7 +84,9 @@ impl FilesystemSealedBundleErrorV1 {
             Self::ReadBackFailed => "EVIDENTRAIL_FILESYSTEM_BUNDLE_READ_BACK_FAILED",
             Self::ResultUnavailable => "EVIDENTRAIL_FILESYSTEM_BUNDLE_RESULT_UNAVAILABLE",
             Self::ReadFailed => "EVIDENTRAIL_FILESYSTEM_BUNDLE_READ_FAILED",
-            Self::ObjectChangedDuringRead => "EVIDENTRAIL_FILESYSTEM_BUNDLE_OBJECT_CHANGED_DURING_READ",
+            Self::ObjectChangedDuringRead => {
+                "EVIDENTRAIL_FILESYSTEM_BUNDLE_OBJECT_CHANGED_DURING_READ"
+            }
             Self::BundleDecodeFailed => "EVIDENTRAIL_FILESYSTEM_BUNDLE_DECODE_FAILED",
             Self::AuthorityMismatch => "EVIDENTRAIL_FILESYSTEM_BUNDLE_AUTHORITY_MISMATCH",
             Self::DirectoryEntryCap => "EVIDENTRAIL_FILESYSTEM_BUNDLE_DIRECTORY_ENTRY_CAP",
@@ -165,7 +169,9 @@ impl FilesystemBundleRecoveryClassificationV1 {
             Self::AuthorityMismatchQuarantined => {
                 "EVIDENTRAIL_BUNDLE_RECOVERY_AUTHORITY_MISMATCH_QUARANTINED"
             }
-            Self::UnsafeMetadataQuarantined => "EVIDENTRAIL_BUNDLE_RECOVERY_UNSAFE_METADATA_QUARANTINED",
+            Self::UnsafeMetadataQuarantined => {
+                "EVIDENTRAIL_BUNDLE_RECOVERY_UNSAFE_METADATA_QUARANTINED"
+            }
             Self::NoncanonicalAliasQuarantined => {
                 "EVIDENTRAIL_BUNDLE_RECOVERY_NONCANONICAL_ALIAS_QUARANTINED"
             }
@@ -253,8 +259,12 @@ impl FilesystemBundleFaultPointV1 {
         match self {
             Self::PartialWrite { .. } => "EVIDENTRAIL_FILESYSTEM_BUNDLE_FAULT_PARTIAL_WRITE",
             Self::BeforeFileSync => "EVIDENTRAIL_FILESYSTEM_BUNDLE_FAULT_BEFORE_FILE_SYNC",
-            Self::BeforeAtomicPublish => "EVIDENTRAIL_FILESYSTEM_BUNDLE_FAULT_BEFORE_ATOMIC_PUBLISH",
-            Self::BeforeDirectorySync => "EVIDENTRAIL_FILESYSTEM_BUNDLE_FAULT_BEFORE_DIRECTORY_SYNC",
+            Self::BeforeAtomicPublish => {
+                "EVIDENTRAIL_FILESYSTEM_BUNDLE_FAULT_BEFORE_ATOMIC_PUBLISH"
+            }
+            Self::BeforeDirectorySync => {
+                "EVIDENTRAIL_FILESYSTEM_BUNDLE_FAULT_BEFORE_DIRECTORY_SYNC"
+            }
             Self::BeforeReadBack => "EVIDENTRAIL_FILESYSTEM_BUNDLE_FAULT_BEFORE_READ_BACK",
         }
     }

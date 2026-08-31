@@ -156,7 +156,10 @@ fn doctor_observes_an_unreadable_file_without_leaking_or_granting_authority() {
         fields[1],
         "capability=EVIDENTRAIL_LOCAL_DISCOVERY_EXPLICIT_SINGLE_REGULAR_FILE_METADATA_ONLY_V1"
     );
-    assert_eq!(fields[2], "content=EVIDENTRAIL_LOCAL_DISCOVERY_CONTENT_NOT_READ");
+    assert_eq!(
+        fields[2],
+        "content=EVIDENTRAIL_LOCAL_DISCOVERY_CONTENT_NOT_READ"
+    );
     assert_eq!(
         fields[3],
         "authorization=EVIDENTRAIL_LOCAL_DISCOVERY_AUTHORIZATION_NOT_GRANTED"
@@ -210,7 +213,10 @@ fn doctor_matrix_failure_precedes_target_discovery_and_remains_contentless() {
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert_eq!(stderr, "EVIDENTRAIL_LOCAL_HOST_MATRIX_FIXTURE_UNAVAILABLE\n");
+    assert_eq!(
+        stderr,
+        "EVIDENTRAIL_LOCAL_HOST_MATRIX_FIXTURE_UNAVAILABLE\n"
+    );
     for canary in [
         "MATRIX_FAILURE_PATH_CANARY",
         "MATRIX_FAILURE_CONTENT_CANARY",

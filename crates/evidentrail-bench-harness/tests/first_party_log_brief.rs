@@ -1,11 +1,12 @@
 use std::cell::Cell;
 
 use evidentrail_bench::{
-    BenchmarkBudgetV1, BenchmarkRunIdentityV1, EvidentrailBenchAnnotationSpecV1,
-    EvidentrailBenchHiddenEvaluationManifestV1, EvidentrailBenchRunManifestV1, EvidenceRepresentationClassV1,
-    EvidenceTargetV1, GovernedCaseArtifactBindingV1, GovernedRepresentationFidelityPolicyV1,
-    MeasuredCandidateResources, MeasurementHarnessIdentityV1, TokenizerIdentityV1,
-    WeightedDiagnosticRequirementV1, evaluate_governed_representation_fidelity_v1,
+    BenchmarkBudgetV1, BenchmarkRunIdentityV1, EvidenceRepresentationClassV1, EvidenceTargetV1,
+    EvidentrailBenchAnnotationSpecV1, EvidentrailBenchHiddenEvaluationManifestV1,
+    EvidentrailBenchRunManifestV1, GovernedCaseArtifactBindingV1,
+    GovernedRepresentationFidelityPolicyV1, MeasuredCandidateResources,
+    MeasurementHarnessIdentityV1, TokenizerIdentityV1, WeightedDiagnosticRequirementV1,
+    evaluate_governed_representation_fidelity_v1,
 };
 use evidentrail_bench_harness::{
     FirstPartyLogBriefBridgeErrorV1, artifact_digest_for_bytes_v1,

@@ -1029,9 +1029,15 @@ impl SyntheticThreeLaneCorpusErrorV1 {
     pub const fn code(self) -> &'static str {
         match self {
             Self::DuplicateCase => "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_DUPLICATE_CASE",
-            Self::MissingCases { .. } => "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_MISSING_CASES",
-            Self::CaseIdentityMismatch => "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_CASE_IDENTITY",
-            Self::MethodFamilyMismatch => "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_METHOD_FAMILY",
+            Self::MissingCases { .. } => {
+                "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_MISSING_CASES"
+            }
+            Self::CaseIdentityMismatch => {
+                "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_CASE_IDENTITY"
+            }
+            Self::MethodFamilyMismatch => {
+                "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_METHOD_FAMILY"
+            }
             Self::MeasurementEnvironmentMismatch => {
                 "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_MEASUREMENT_ENVIRONMENT"
             }
@@ -1049,18 +1055,24 @@ impl SyntheticThreeLaneCorpusErrorV1 {
                 "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_FOREIGN_PUBLIC_BATCH"
             }
             Self::FamilyMismatch => "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_FAMILY_MISMATCH",
-            Self::ForeignCaseJoin => "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_FOREIGN_CASE_JOIN",
+            Self::ForeignCaseJoin => {
+                "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_FOREIGN_CASE_JOIN"
+            }
             Self::ForeignRunManifest => {
                 "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_FOREIGN_RUN_MANIFEST"
             }
             Self::DuplicateAnnotationArtifact => {
                 "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_DUPLICATE_ANNOTATION_ARTIFACT"
             }
-            Self::RecallUniverseMismatch => "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_RECALL_UNIVERSE",
+            Self::RecallUniverseMismatch => {
+                "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_RECALL_UNIVERSE"
+            }
             Self::DigestLengthOverflow => {
                 "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_DIGEST_LENGTH_OVERFLOW"
             }
-            Self::CaseEvaluation(_) => "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_CASE_EVALUATION",
+            Self::CaseEvaluation(_) => {
+                "EVIDENTRAIL_BENCH_SYNTHETIC_ABLATION_CORPUS_CASE_EVALUATION"
+            }
         }
     }
 }

@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 
 use evidentrail_bench::{
-    CandidateResourceCap, EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1, EvidenceTargetV1,
-    ExpectedAcquisitionClassV1, ManifestError, WeightedDiagnosticRequirementV1,
+    CandidateResourceCap, EvidenceTargetV1, EvidentrailBenchAnnotationSpecV1,
+    EvidentrailBenchCaseSpecV1, ExpectedAcquisitionClassV1, ManifestError,
+    WeightedDiagnosticRequirementV1,
 };
 use evidentrail_schema::bounds::JSON_SAFE_INTEGER_MAX;
 use evidentrail_schema::{ArtifactDigest, BlockId, EventId, PlanDigest, QuestionDigest};

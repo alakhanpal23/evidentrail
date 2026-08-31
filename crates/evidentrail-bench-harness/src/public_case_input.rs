@@ -12,7 +12,8 @@ use crate::{
 const PUBLIC_CASE_ARTIFACT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/public-case-artifact/v1";
 const PUBLIC_RUN_MANIFEST_ARTIFACT_DOMAIN_V1: &[u8] =
     b"evidentrail/bench-harness/public-run-manifest-artifact/v1";
-const SOURCE_RECORD_MAP_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/public-source-record-event-map/v1";
+const SOURCE_RECORD_MAP_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/public-source-record-event-map/v1";
 const LEGACY_DRAIN_RETAINED_MAP_DOMAIN_V1: &[u8] =
     b"evidentrail/bench-harness/legacy-drain-retained-record-map/v1";
 

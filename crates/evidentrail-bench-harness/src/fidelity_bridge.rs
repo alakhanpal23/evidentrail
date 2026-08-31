@@ -2,7 +2,7 @@ use std::error::Error as StdError;
 use std::fmt;
 
 use evidentrail_bench::{
-    EvidentrailBenchRunManifestV1, EvidenceRepresentationClaimV1,
+    EvidenceRepresentationClaimV1, EvidentrailBenchRunManifestV1,
     FrozenExternalRepresentationSubmissionV1, MeasuredCandidateResources, MeasurementEnvironmentV1,
     MethodDescriptor, RenderedCandidateArtifactV1,
 };
@@ -11,7 +11,7 @@ use evidentrail_evidence::{PinnedTokenizer, Utf8ByteTokenizerV1, utf8_byte_token
 use evidentrail_schema::ArtifactDigest;
 
 use crate::{
-    LEGACY_DRAIN_PINNED_COMMIT_V1, LegacyDrainFullMembershipArtifactV1, InvocationDigestV1,
+    InvocationDigestV1, LEGACY_DRAIN_PINNED_COMMIT_V1, LegacyDrainFullMembershipArtifactV1,
     PeakRssProvenanceV1, SubprocessExecutionReceiptV1, artifact_digest_for_bytes_v1,
     canonical_public_run_manifest_artifact_v1,
 };
@@ -21,7 +21,10 @@ const CANONICAL_UTF8_BYTE_TOKEN_MEASUREMENT_CONTRACT_V1: &[u8] = b"evidentrail/b
 /// Fixed identity for the ordinary compact, opaque pinned CLI arm.
 #[must_use]
 pub const fn legacy_drain_compact_method_descriptor_v1() -> MethodDescriptor {
-    MethodDescriptor::new("legacy-drain-compact-adapter", LEGACY_DRAIN_PINNED_COMMIT_V1)
+    MethodDescriptor::new(
+        "legacy-drain-compact-adapter",
+        LEGACY_DRAIN_PINNED_COMMIT_V1,
+    )
 }
 
 /// Fixed identity for the separately executed and charged full-membership arm.

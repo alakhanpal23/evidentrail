@@ -259,7 +259,9 @@ impl ResultStatusConstructionError {
             Self::PresentationEventOrderMismatch => {
                 "EVIDENTRAIL_RESULT_STATUS_PRESENTATION_EVENT_ORDER_MISMATCH"
             }
-            Self::PresentationCountMismatch => "EVIDENTRAIL_RESULT_STATUS_PRESENTATION_COUNT_MISMATCH",
+            Self::PresentationCountMismatch => {
+                "EVIDENTRAIL_RESULT_STATUS_PRESENTATION_COUNT_MISMATCH"
+            }
             Self::InvalidPassthroughAccounting => {
                 "EVIDENTRAIL_RESULT_STATUS_INVALID_PASSTHROUGH_ACCOUNTING"
             }

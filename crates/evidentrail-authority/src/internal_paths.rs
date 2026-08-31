@@ -482,7 +482,9 @@ impl InternalPathRegistryError {
             Self::IdentityRegistrationOverflow => {
                 "EVIDENTRAIL_INTERNAL_PATH_REGISTRY_IDENTITY_REGISTRATION_OVERFLOW"
             }
-            Self::IdentityNotRegistered => "EVIDENTRAIL_INTERNAL_PATH_REGISTRY_IDENTITY_NOT_REGISTERED",
+            Self::IdentityNotRegistered => {
+                "EVIDENTRAIL_INTERNAL_PATH_REGISTRY_IDENTITY_NOT_REGISTERED"
+            }
         }
     }
 }

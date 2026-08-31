@@ -8,13 +8,14 @@ use evidentrail_schema::ArtifactDigest;
 use crate::{
     BenchmarkMethod, BenchmarkRunIdentityV1, ByteBudget, CandidateCapViolations,
     CandidateResourceEnvelope, CandidateResourceError, CaseEvaluationError,
-    EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1, EvidentrailBenchHiddenEvaluationManifestV1,
-    EvidentrailBenchRunManifestV1, FrozenCandidateRenderingV1, FrozenCandidateSelectionDigestV1,
-    GovernedCaseArtifactBindingV1, GovernedRunAggregateV1, GovernedRunCaseInputV1,
-    MeasurementEnvironmentV1, MeasurementProvenanceError, MeasurementProvenanceReceiptV1,
-    MethodDescriptor, MethodError, MethodInput, MethodResult, RunAggregationError,
-    aggregate_governed_run_v1, candidate_resource_envelope,
-    derive_frozen_candidate_selection_digest_v1, evaluate_governed_case_with_presentation_v1,
+    EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1,
+    EvidentrailBenchHiddenEvaluationManifestV1, EvidentrailBenchRunManifestV1,
+    FrozenCandidateRenderingV1, FrozenCandidateSelectionDigestV1, GovernedCaseArtifactBindingV1,
+    GovernedRunAggregateV1, GovernedRunCaseInputV1, MeasurementEnvironmentV1,
+    MeasurementProvenanceError, MeasurementProvenanceReceiptV1, MethodDescriptor, MethodError,
+    MethodInput, MethodResult, RunAggregationError, aggregate_governed_run_v1,
+    candidate_resource_envelope, derive_frozen_candidate_selection_digest_v1,
+    evaluate_governed_case_with_presentation_v1,
 };
 
 /// Public-only input for one hermetic method invocation.
@@ -332,16 +333,24 @@ impl HermeticRunnerError {
     #[must_use]
     pub const fn code(&self) -> &'static str {
         match self {
-            Self::MissingPublicCaseInputs { .. } => "EVIDENTRAIL_BENCH_RUNNER_MISSING_PUBLIC_CASE_INPUTS",
-            Self::DuplicatePublicCaseInput => "EVIDENTRAIL_BENCH_RUNNER_DUPLICATE_PUBLIC_CASE_INPUT",
-            Self::ExtraPublicCaseInputs { .. } => "EVIDENTRAIL_BENCH_RUNNER_EXTRA_PUBLIC_CASE_INPUTS",
+            Self::MissingPublicCaseInputs { .. } => {
+                "EVIDENTRAIL_BENCH_RUNNER_MISSING_PUBLIC_CASE_INPUTS"
+            }
+            Self::DuplicatePublicCaseInput => {
+                "EVIDENTRAIL_BENCH_RUNNER_DUPLICATE_PUBLIC_CASE_INPUT"
+            }
+            Self::ExtraPublicCaseInputs { .. } => {
+                "EVIDENTRAIL_BENCH_RUNNER_EXTRA_PUBLIC_CASE_INPUTS"
+            }
             Self::QuestionDigestMismatch => "EVIDENTRAIL_BENCH_RUNNER_QUESTION_DIGEST_MISMATCH",
             Self::PlanDigestMismatch => "EVIDENTRAIL_BENCH_RUNNER_PLAN_DIGEST_MISMATCH",
             Self::BudgetPointNotDeclared => "EVIDENTRAIL_BENCH_RUNNER_BUDGET_POINT_NOT_DECLARED",
             Self::MethodByteBudgetNotRepresentable => {
                 "EVIDENTRAIL_BENCH_RUNNER_METHOD_BYTE_BUDGET_NOT_REPRESENTABLE"
             }
-            Self::MethodExecutionFailed { .. } => "EVIDENTRAIL_BENCH_RUNNER_METHOD_EXECUTION_FAILED",
+            Self::MethodExecutionFailed { .. } => {
+                "EVIDENTRAIL_BENCH_RUNNER_METHOD_EXECUTION_FAILED"
+            }
             Self::MethodIdentityMismatch => "EVIDENTRAIL_BENCH_RUNNER_METHOD_IDENTITY_MISMATCH",
             Self::CandidateSelectionBindingFailed { .. } => {
                 "EVIDENTRAIL_BENCH_RUNNER_CANDIDATE_SELECTION_BINDING_FAILED"
@@ -349,7 +358,9 @@ impl HermeticRunnerError {
             Self::MissingCandidateRenderings { .. } => {
                 "EVIDENTRAIL_BENCH_RUNNER_MISSING_CANDIDATE_RENDERINGS"
             }
-            Self::DuplicateCandidateRendering => "EVIDENTRAIL_BENCH_RUNNER_DUPLICATE_CANDIDATE_RENDERING",
+            Self::DuplicateCandidateRendering => {
+                "EVIDENTRAIL_BENCH_RUNNER_DUPLICATE_CANDIDATE_RENDERING"
+            }
             Self::ExtraCandidateRenderings { .. } => {
                 "EVIDENTRAIL_BENCH_RUNNER_EXTRA_CANDIDATE_RENDERINGS"
             }
@@ -368,7 +379,9 @@ impl HermeticRunnerError {
             Self::MissingMeasurementReceipts { .. } => {
                 "EVIDENTRAIL_BENCH_RUNNER_MISSING_MEASUREMENT_RECEIPTS"
             }
-            Self::DuplicateMeasurementReceipt => "EVIDENTRAIL_BENCH_RUNNER_DUPLICATE_MEASUREMENT_RECEIPT",
+            Self::DuplicateMeasurementReceipt => {
+                "EVIDENTRAIL_BENCH_RUNNER_DUPLICATE_MEASUREMENT_RECEIPT"
+            }
             Self::ExtraMeasurementReceipts { .. } => {
                 "EVIDENTRAIL_BENCH_RUNNER_EXTRA_MEASUREMENT_RECEIPTS"
             }
@@ -378,7 +391,9 @@ impl HermeticRunnerError {
             Self::MeasurementRunIdentityMismatch => {
                 "EVIDENTRAIL_BENCH_RUNNER_MEASUREMENT_RUN_IDENTITY_MISMATCH"
             }
-            Self::MeasurementMethodMismatch => "EVIDENTRAIL_BENCH_RUNNER_MEASUREMENT_METHOD_MISMATCH",
+            Self::MeasurementMethodMismatch => {
+                "EVIDENTRAIL_BENCH_RUNNER_MEASUREMENT_METHOD_MISMATCH"
+            }
             Self::MeasurementCandidateSelectionMismatch => {
                 "EVIDENTRAIL_BENCH_RUNNER_MEASUREMENT_CANDIDATE_SELECTION_MISMATCH"
             }
@@ -430,8 +445,12 @@ impl HermeticRunnerError {
             Self::MissingGovernedCaseInputs { .. } => {
                 "EVIDENTRAIL_BENCH_RUNNER_MISSING_GOVERNED_CASE_INPUTS"
             }
-            Self::DuplicateGovernedCaseInput => "EVIDENTRAIL_BENCH_RUNNER_DUPLICATE_GOVERNED_CASE_INPUT",
-            Self::ExtraGovernedCaseInputs { .. } => "EVIDENTRAIL_BENCH_RUNNER_EXTRA_GOVERNED_CASE_INPUTS",
+            Self::DuplicateGovernedCaseInput => {
+                "EVIDENTRAIL_BENCH_RUNNER_DUPLICATE_GOVERNED_CASE_INPUT"
+            }
+            Self::ExtraGovernedCaseInputs { .. } => {
+                "EVIDENTRAIL_BENCH_RUNNER_EXTRA_GOVERNED_CASE_INPUTS"
+            }
             Self::CaseEvaluationFailed { .. } => "EVIDENTRAIL_BENCH_RUNNER_CASE_EVALUATION_FAILED",
             Self::RunAggregationFailed { .. } => "EVIDENTRAIL_BENCH_RUNNER_RUN_AGGREGATION_FAILED",
         }

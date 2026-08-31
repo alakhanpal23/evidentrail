@@ -194,7 +194,9 @@ impl UnixLocalFileLocatorConstructionError {
             Self::TooManyComponents => "EVIDENTRAIL_UNIX_LOCAL_FILE_LOCATOR_TOO_MANY_COMPONENTS",
             Self::EmptyComponent => "EVIDENTRAIL_UNIX_LOCAL_FILE_LOCATOR_EMPTY_COMPONENT",
             Self::AbsoluteMember => "EVIDENTRAIL_UNIX_LOCAL_FILE_LOCATOR_ABSOLUTE_MEMBER",
-            Self::ComponentContainsNul => "EVIDENTRAIL_UNIX_LOCAL_FILE_LOCATOR_COMPONENT_CONTAINS_NUL",
+            Self::ComponentContainsNul => {
+                "EVIDENTRAIL_UNIX_LOCAL_FILE_LOCATOR_COMPONENT_CONTAINS_NUL"
+            }
             Self::SlashInComponent => "EVIDENTRAIL_UNIX_LOCAL_FILE_LOCATOR_SLASH_IN_COMPONENT",
             Self::DotComponent => "EVIDENTRAIL_UNIX_LOCAL_FILE_LOCATOR_DOT_COMPONENT",
             Self::DotDotComponent => "EVIDENTRAIL_UNIX_LOCAL_FILE_LOCATOR_DOT_DOT_COMPONENT",
@@ -875,7 +877,9 @@ impl LocalFilePlanCapsConstructionError {
             Self::ZeroRecords => "EVIDENTRAIL_LOCAL_FILE_CAPS_ZERO_RECORDS",
             Self::ZeroPerRecordBytes => "EVIDENTRAIL_LOCAL_FILE_CAPS_ZERO_PER_RECORD_BYTES",
             Self::ZeroWallTimeMillis => "EVIDENTRAIL_LOCAL_FILE_CAPS_ZERO_WALL_TIME_MILLIS",
-            Self::SourceBytesNotJsonSafe => "EVIDENTRAIL_LOCAL_FILE_CAPS_SOURCE_BYTES_NOT_JSON_SAFE",
+            Self::SourceBytesNotJsonSafe => {
+                "EVIDENTRAIL_LOCAL_FILE_CAPS_SOURCE_BYTES_NOT_JSON_SAFE"
+            }
             Self::RecordsNotJsonSafe => "EVIDENTRAIL_LOCAL_FILE_CAPS_RECORDS_NOT_JSON_SAFE",
             Self::PerRecordBytesNotJsonSafe => {
                 "EVIDENTRAIL_LOCAL_FILE_CAPS_PER_RECORD_BYTES_NOT_JSON_SAFE"
@@ -1166,10 +1170,16 @@ impl LocalFileQueryPlanConstructionError {
     pub const fn code(self) -> &'static str {
         match self {
             Self::UnsupportedAdapterKind => "EVIDENTRAIL_LOCAL_FILE_PLAN_UNSUPPORTED_ADAPTER_KIND",
-            Self::UnsupportedAdapterVersion => "EVIDENTRAIL_LOCAL_FILE_PLAN_UNSUPPORTED_ADAPTER_VERSION",
+            Self::UnsupportedAdapterVersion => {
+                "EVIDENTRAIL_LOCAL_FILE_PLAN_UNSUPPORTED_ADAPTER_VERSION"
+            }
             Self::UnsupportedSourceProof => "EVIDENTRAIL_LOCAL_FILE_PLAN_UNSUPPORTED_SOURCE_PROOF",
-            Self::InvalidSourceMemberLength => "EVIDENTRAIL_LOCAL_FILE_PLAN_INVALID_SOURCE_MEMBER_LENGTH",
-            Self::UnsupportedSnapshotMode => "EVIDENTRAIL_LOCAL_FILE_PLAN_UNSUPPORTED_SNAPSHOT_MODE",
+            Self::InvalidSourceMemberLength => {
+                "EVIDENTRAIL_LOCAL_FILE_PLAN_INVALID_SOURCE_MEMBER_LENGTH"
+            }
+            Self::UnsupportedSnapshotMode => {
+                "EVIDENTRAIL_LOCAL_FILE_PLAN_UNSUPPORTED_SNAPSHOT_MODE"
+            }
             Self::UnsupportedRequestedOrdering => {
                 "EVIDENTRAIL_LOCAL_FILE_PLAN_UNSUPPORTED_REQUESTED_ORDERING"
             }
@@ -2036,7 +2046,10 @@ mod tests {
             error,
             LocalFileQueryPlanConstructionError::ZeroPolicyVersion
         );
-        assert_eq!(error.code(), "EVIDENTRAIL_LOCAL_FILE_PLAN_ZERO_POLICY_VERSION");
+        assert_eq!(
+            error.code(),
+            "EVIDENTRAIL_LOCAL_FILE_PLAN_ZERO_POLICY_VERSION"
+        );
     }
 
     #[test]

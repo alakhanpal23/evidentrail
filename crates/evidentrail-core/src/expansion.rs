@@ -343,7 +343,9 @@ impl ResultStoreError {
             Self::InvalidReferenceMaterial => "EVIDENTRAIL_STORE_INVALID_REFERENCE_MATERIAL",
             Self::InvalidExpansionLimit => "EVIDENTRAIL_STORE_INVALID_EXPANSION_LIMIT",
             Self::InvalidEvidenceAlias => "EVIDENTRAIL_STORE_INVALID_EVIDENCE_ALIAS",
-            Self::AliasManifestAlreadyPublished => "EVIDENTRAIL_STORE_ALIAS_MANIFEST_ALREADY_PUBLISHED",
+            Self::AliasManifestAlreadyPublished => {
+                "EVIDENTRAIL_STORE_ALIAS_MANIFEST_ALREADY_PUBLISHED"
+            }
             Self::InsufficientExpansionBudget => "EVIDENTRAIL_STORE_INSUFFICIENT_EXPANSION_BUDGET",
             Self::ReferenceUnavailable => "EVIDENTRAIL_STORE_REFERENCE_UNAVAILABLE",
         }

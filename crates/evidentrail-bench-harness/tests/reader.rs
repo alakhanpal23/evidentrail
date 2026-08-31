@@ -3,8 +3,9 @@
 use std::path::PathBuf;
 
 use evidentrail_bench::{
-    CandidateResourceCap, EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1, EvidenceTargetV1,
-    ExpectedAcquisitionClassV1, MethodDescriptor, WeightedDiagnosticRequirementV1,
+    CandidateResourceCap, EvidenceTargetV1, EvidentrailBenchAnnotationSpecV1,
+    EvidentrailBenchCaseSpecV1, ExpectedAcquisitionClassV1, MethodDescriptor,
+    WeightedDiagnosticRequirementV1,
 };
 use evidentrail_bench_harness::{
     DeterministicFixtureReaderModeV1, DeterministicFixtureReaderV1, GovernedReaderTruthV1,

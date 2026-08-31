@@ -61,7 +61,10 @@ fn hash_persisted_provider_attestations(
     if attestations.is_empty() {
         return;
     }
-    update_field(hasher, b"evidentrail/authorized-event/provider-attestations/v1");
+    update_field(
+        hasher,
+        b"evidentrail/authorized-event/provider-attestations/v1",
+    );
     let count = u64::try_from(attestations.len())
         .expect("provider attestation representation bounds fit u64");
     update_field(hasher, &count.to_le_bytes());
@@ -237,7 +240,7 @@ mod tests {
 
         assert_eq!(
             identity.to_string(),
-            "evt_3ac1ef349bcb88692404c03f46b9b4ae27fec2d6cdb196dc8f90a7d150e0ea41"
+            "evt_53f9f1d4fec95a89d3ee5d3a3d861472a92705cb0db326439b8d72b0eca7b44c"
         );
     }
 
@@ -250,7 +253,7 @@ mod tests {
         assert_ne!(digest, derive_question_digest_v1(&question[..3]));
         assert_eq!(
             digest.to_string(),
-            "question_sha256_bb22fcabdef1ff0a55a6eb463678691b63bcc9e2bc1253f6072d4b8187d5c160"
+            "question_sha256_3bf950c7ed48f5aa5389b21b647355b7c7974e7d19cb723511aaae105d129533"
         );
 
         let mut other_domain = domain_hasher(b"evidentrail/question/v2");

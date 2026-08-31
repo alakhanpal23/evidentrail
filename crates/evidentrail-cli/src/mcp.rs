@@ -840,7 +840,12 @@ pub fn run_mcp_stdio_with_backend_v1(
             MessageReadV1::Oversize => {
                 write_response_v1(
                     &mut writer,
-                    &rpc_error_v1(None, -32_700, "Parse error", "EVIDENTRAIL_MCP_REQUEST_TOO_LARGE"),
+                    &rpc_error_v1(
+                        None,
+                        -32_700,
+                        "Parse error",
+                        "EVIDENTRAIL_MCP_REQUEST_TOO_LARGE",
+                    ),
                 )?;
             }
             MessageReadV1::Message(message) => {
@@ -1215,11 +1220,15 @@ impl McpStdioServerV1 {
         if !self.backend.mode().accepts_new_results() {
             return ToolExecutionV1::error(McpRetentionBackendErrorV1::ReadOnly.code());
         }
-        let arguments = match serde_json::from_str::<EvidentrailLogsArgumentsV1>(encoded_arguments.get())
-        {
-            Ok(arguments) => arguments,
-            Err(_) => return ToolExecutionV1::error("EVIDENTRAIL_MCP_EVIDENTRAIL_LOGS_ARGUMENTS_INVALID"),
-        };
+        let arguments =
+            match serde_json::from_str::<EvidentrailLogsArgumentsV1>(encoded_arguments.get()) {
+                Ok(arguments) => arguments,
+                Err(_) => {
+                    return ToolExecutionV1::error(
+                        "EVIDENTRAIL_MCP_EVIDENTRAIL_LOGS_ARGUMENTS_INVALID",
+                    );
+                }
+            };
         if arguments.question.is_empty() || arguments.question.len() > MAX_QUESTION_BYTES_V1 {
             return ToolExecutionV1::error("EVIDENTRAIL_MCP_QUESTION_INVALID");
         }
@@ -1233,7 +1242,9 @@ impl McpStdioServerV1 {
         }
         let logs = match STANDARD.decode(arguments.logs_base64.as_bytes()) {
             Ok(logs) if STANDARD.encode(&logs) == arguments.logs_base64 => logs,
-            Ok(_) | Err(_) => return ToolExecutionV1::error("EVIDENTRAIL_MCP_LOG_BASE64_NONCANONICAL"),
+            Ok(_) | Err(_) => {
+                return ToolExecutionV1::error("EVIDENTRAIL_MCP_LOG_BASE64_NONCANONICAL");
+            }
         };
         let now = match runtime.now_v1() {
             Ok(now) => now,
@@ -1293,7 +1304,9 @@ impl McpStdioServerV1 {
             match serde_json::from_str::<EvidentrailExpandArgumentsV1>(encoded_arguments.get()) {
                 Ok(arguments) => arguments,
                 Err(_) => {
-                    return ToolExecutionV1::error("EVIDENTRAIL_MCP_EVIDENTRAIL_EXPAND_ARGUMENTS_INVALID");
+                    return ToolExecutionV1::error(
+                        "EVIDENTRAIL_MCP_EVIDENTRAIL_EXPAND_ARGUMENTS_INVALID",
+                    );
                 }
             };
         let result_id = match decode_result_id_v1(&arguments.result_id) {

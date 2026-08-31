@@ -3,26 +3,27 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use evidentrail_bench::{
-    BenchmarkBudgetV1, BenchmarkRunIdentityV1, EvidentrailBenchCaseSpecV1, EvidentrailBenchRunManifestV1,
-    ExpectedAcquisitionClassV1,
+    BenchmarkBudgetV1, BenchmarkRunIdentityV1, EvidentrailBenchCaseSpecV1,
+    EvidentrailBenchRunManifestV1, ExpectedAcquisitionClassV1,
 };
 use evidentrail_bench_harness::{
-    LEGACY_DRAIN_FULL_MEMBERSHIP_STDOUT_CAP_V1, LEGACY_DRAIN_PINNED_COMMIT_V1,
-    CONSTRAINED_MATCHED_INPUT_ARTIFACT_DIGEST_V1, ClosedEnvironmentV1, LegacyDrainAdapterModeV1,
-    LegacyDrainAdapterV1, LegacyDrainInputAssessmentV1, LegacyDrainJsonLimitsV1,
-    LegacyDrainNormalizationErrorV1, LegacyDrainUnsupportedInputV1, ConstrainedMatchedCaseErrorV1,
-    ConstrainedPairedTrialErrorV1, ConstrainedProducerUniverseBridgeErrorV1, ExitCategoryV1,
+    CONSTRAINED_MATCHED_INPUT_ARTIFACT_DIGEST_V1, ClosedEnvironmentV1,
+    ConstrainedMatchedCaseErrorV1, ConstrainedPairedTrialErrorV1,
+    ConstrainedProducerUniverseBridgeErrorV1, ExitCategoryV1,
     FirstPartyConstrainedSubprocessErrorV1, FirstPartyConstrainedSubprocessTargetV1,
     FirstPartyInProcessBuildV1, HarnessError, HarnessLimitsV1,
-    PINNED_LEGACY_DRAIN_MATCHED_INPUT_V1 as SYNTHETIC_INPUT, PinnedLegacyDrainExecutionTargetV1,
-    PinnedLegacyDrainTargetClassV1, PinnedDrainMatchedArmV1, PreparedPinnedDrainMatchedCaseErrorV1,
-    PublicCaseInputBindingV1, StdinArtifactClassV1, StdinArtifactV1, StdinDeliveryV1,
-    StreamCaptureStateV1, artifact_digest_for_bytes_v1, artifact_digest_for_file_v1,
-    canonical_public_case_artifact_v1, canonical_public_run_manifest_artifact_v1,
-    current_constrained_first_party_policy_identity_v1, execute_public_subprocess_v1,
-    freeze_constrained_producer_universes_v1, prepare_pinned_drain_matched_case_v1,
-    run_constrained_paired_trials_for_expected_policy_v1, strict_identity_normalize_v1,
-    strict_normalize_pinned_legacy_drain_full_membership_v1,
+    LEGACY_DRAIN_FULL_MEMBERSHIP_STDOUT_CAP_V1, LEGACY_DRAIN_PINNED_COMMIT_V1,
+    LegacyDrainAdapterModeV1, LegacyDrainAdapterV1, LegacyDrainInputAssessmentV1,
+    LegacyDrainJsonLimitsV1, LegacyDrainNormalizationErrorV1, LegacyDrainUnsupportedInputV1,
+    PINNED_LEGACY_DRAIN_MATCHED_INPUT_V1 as SYNTHETIC_INPUT, PinnedDrainMatchedArmV1,
+    PinnedLegacyDrainExecutionTargetV1, PinnedLegacyDrainTargetClassV1,
+    PreparedPinnedDrainMatchedCaseErrorV1, PublicCaseInputBindingV1, StdinArtifactClassV1,
+    StdinArtifactV1, StdinDeliveryV1, StreamCaptureStateV1, artifact_digest_for_bytes_v1,
+    artifact_digest_for_file_v1, canonical_public_case_artifact_v1,
+    canonical_public_run_manifest_artifact_v1, current_constrained_first_party_policy_identity_v1,
+    execute_public_subprocess_v1, freeze_constrained_producer_universes_v1,
+    prepare_pinned_drain_matched_case_v1, run_constrained_paired_trials_for_expected_policy_v1,
+    strict_identity_normalize_v1, strict_normalize_pinned_legacy_drain_full_membership_v1,
     strict_normalize_pinned_legacy_drain_output_v1,
 };
 use evidentrail_core::{
@@ -297,8 +298,9 @@ fn pinned_local_legacy_drain_is_deterministic_and_non_scoring() -> Result<(), Sm
     .map_err(|_| SmokeBlocker::DomainConstructionFailed)?;
     let public_case_artifact = canonical_public_case_artifact_v1(&public_case)?;
     let public_case_artifact_digest = public_case_artifact.artifact_digest();
-    let run_manifest = EvidentrailBenchRunManifestV1::new(run_identity, [public_case_artifact_digest])
-        .map_err(|_| SmokeBlocker::DomainConstructionFailed)?;
+    let run_manifest =
+        EvidentrailBenchRunManifestV1::new(run_identity, [public_case_artifact_digest])
+            .map_err(|_| SmokeBlocker::DomainConstructionFailed)?;
     let stdin = StdinArtifactV1::try_new(
         StdinArtifactClassV1::HermeticSyntheticFixture,
         source_digest,
@@ -476,8 +478,11 @@ fn pinned_local_legacy_drain_is_deterministic_and_non_scoring() -> Result<(), Sm
         1024 * 1024,
         10_000_000_000,
     )?;
-    let full_adapter =
-        LegacyDrainAdapterV1::try_new_full_membership(&run_manifest, &full_case_input, full_limits)?;
+    let full_adapter = LegacyDrainAdapterV1::try_new_full_membership(
+        &run_manifest,
+        &full_case_input,
+        full_limits,
+    )?;
     let (full_invocation, _) = full_adapter.build_public_invocation(
         &run_manifest,
         full_case_input,

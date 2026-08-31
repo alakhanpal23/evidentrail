@@ -19,8 +19,10 @@ const INCIDENT_CASE_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/executable-in
 const INCIDENT_RUN_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/executable-incident-run/v1";
 const INCIDENT_FREEZE_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/executable-incident-freeze/v1";
 const INCIDENT_ARM_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/executable-incident-arm/v1";
-const INCIDENT_AGENT_PROMPT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/incident-agent-prompt/v1";
-const INCIDENT_AGENT_RECEIPT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/incident-agent-receipt/v1";
+const INCIDENT_AGENT_PROMPT_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/incident-agent-prompt/v1";
+const INCIDENT_AGENT_RECEIPT_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/incident-agent-receipt/v1";
 const INCIDENT_VERIFIER_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/incident-verifier/v1";
 const INCIDENT_TRUTH_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/incident-truth/v1";
 

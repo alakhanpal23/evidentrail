@@ -332,7 +332,9 @@ impl CandidateResourceError {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
-            Self::UnknownCandidateEvent { .. } => "EVIDENTRAIL_BENCH_RESOURCE_UNKNOWN_CANDIDATE_EVENT",
+            Self::UnknownCandidateEvent { .. } => {
+                "EVIDENTRAIL_BENCH_RESOURCE_UNKNOWN_CANDIDATE_EVENT"
+            }
             Self::CandidateEventCountOverflow => {
                 "EVIDENTRAIL_BENCH_RESOURCE_CANDIDATE_EVENT_COUNT_OVERFLOW"
             }
@@ -343,7 +345,9 @@ impl CandidateResourceError {
                 "EVIDENTRAIL_BENCH_RESOURCE_CANONICAL_TOKEN_COUNT_OVERFLOW"
             }
             Self::WallTimeNanosOverflow => "EVIDENTRAIL_BENCH_RESOURCE_WALL_TIME_NANOS_OVERFLOW",
-            Self::PeakMemoryBytesOverflow => "EVIDENTRAIL_BENCH_RESOURCE_PEAK_MEMORY_BYTES_OVERFLOW",
+            Self::PeakMemoryBytesOverflow => {
+                "EVIDENTRAIL_BENCH_RESOURCE_PEAK_MEMORY_BYTES_OVERFLOW"
+            }
             Self::CandidateCostInvariantViolation => {
                 "EVIDENTRAIL_BENCH_RESOURCE_CANDIDATE_COST_INVARIANT_VIOLATION"
             }

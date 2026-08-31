@@ -10,11 +10,11 @@ use evidentrail_schema::ArtifactDigest;
 use crate::constrained_matched_case::prepare_constrained_pinned_drain_matched_case_with_observer_v1;
 use crate::peak_rss_observer::execute_with_macos_time_peak_rss_v1;
 use crate::{
-    LegacyDrainJsonLimitsV1, LegacyDrainNormalizationErrorV1, ConstrainedMatchedCaseErrorV1,
-    ExitCategoryV1, FinalizedConstrainedPinnedDrainMatchedCaseV1,
-    FirstPartyConstrainedSubprocessTargetV1, MacOsTimePeakRssObserverV1, MacOsTimePeakRssReceiptV1,
-    PeakRssMeasurementUnitV1, PeakRssObserverErrorV1, PinnedLegacyDrainExecutionTargetV1,
-    PinnedDrainMatchedArmV1, PreparedConstrainedPinnedDrainMatchedCaseV1,
+    ConstrainedMatchedCaseErrorV1, ExitCategoryV1, FinalizedConstrainedPinnedDrainMatchedCaseV1,
+    FirstPartyConstrainedSubprocessTargetV1, LegacyDrainJsonLimitsV1,
+    LegacyDrainNormalizationErrorV1, MacOsTimePeakRssObserverV1, MacOsTimePeakRssReceiptV1,
+    PeakRssMeasurementUnitV1, PeakRssObserverErrorV1, PinnedDrainMatchedArmV1,
+    PinnedLegacyDrainExecutionTargetV1, PreparedConstrainedPinnedDrainMatchedCaseV1,
     PublicSubprocessInvocationV1, StdinDeliveryV1, StreamCaptureStateV1,
     SubprocessExecutionReceiptV1, artifact_digest_for_bytes_v1, strict_identity_normalize_v1,
     strict_normalize_pinned_legacy_drain_full_membership_v1,
@@ -26,7 +26,8 @@ pub const CONSTRAINED_FIRST_PARTY_POLICY_IDENTITY_CONTRACT_VERSION_V1: u16 = 1;
 
 const RECEIPT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/constrained-paired-trials/v1";
 const TRIAL_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/constrained-paired-trial/v1";
-const ARM_OBSERVATION_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/constrained-paired-trial-arm/v1";
+const ARM_OBSERVATION_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/constrained-paired-trial-arm/v1";
 const SUMMARY_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/integer-spread/v1";
 const FIRST_PARTY_POLICY_IDENTITY_DOMAIN_V1: &[u8] =
     b"evidentrail/bench-harness/first-party-selector-compiler-policy/v1";
@@ -1347,14 +1348,20 @@ impl ConstrainedPairedTrialErrorV1 {
             Self::TrialCountMismatch => "EVIDENTRAIL_BENCH_PAIRED_TRIAL_COUNT_MISMATCH",
             Self::MissingTrial => "EVIDENTRAIL_BENCH_PAIRED_TRIAL_MISSING_TRIAL",
             Self::TrialScheduleMismatch => "EVIDENTRAIL_BENCH_PAIRED_TRIAL_SCHEDULE_MISMATCH",
-            Self::ArmObservationBindingMismatch => "EVIDENTRAIL_BENCH_PAIRED_TRIAL_ARM_BINDING_MISMATCH",
+            Self::ArmObservationBindingMismatch => {
+                "EVIDENTRAIL_BENCH_PAIRED_TRIAL_ARM_BINDING_MISMATCH"
+            }
             Self::CrossTrialBindingMismatch => {
                 "EVIDENTRAIL_BENCH_PAIRED_TRIAL_CROSS_TRIAL_BINDING_MISMATCH"
             }
             Self::OutputMismatch => "EVIDENTRAIL_BENCH_PAIRED_TRIAL_OUTPUT_MISMATCH",
             Self::InvalidPolicyIdentity => "EVIDENTRAIL_BENCH_PAIRED_TRIAL_INVALID_POLICY_IDENTITY",
-            Self::ExpectedPolicyMismatch => "EVIDENTRAIL_BENCH_PAIRED_TRIAL_EXPECTED_POLICY_MISMATCH",
-            Self::ProductionPolicyMismatch => "EVIDENTRAIL_BENCH_PAIRED_TRIAL_PRODUCTION_POLICY_MISMATCH",
+            Self::ExpectedPolicyMismatch => {
+                "EVIDENTRAIL_BENCH_PAIRED_TRIAL_EXPECTED_POLICY_MISMATCH"
+            }
+            Self::ProductionPolicyMismatch => {
+                "EVIDENTRAIL_BENCH_PAIRED_TRIAL_PRODUCTION_POLICY_MISMATCH"
+            }
             Self::InvalidSummaryInput => "EVIDENTRAIL_BENCH_PAIRED_TRIAL_INVALID_SUMMARY_INPUT",
             Self::FinalizedCaseBindingMismatch => {
                 "EVIDENTRAIL_BENCH_PAIRED_TRIAL_FINALIZED_CASE_BINDING_MISMATCH"

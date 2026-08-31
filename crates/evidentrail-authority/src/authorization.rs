@@ -192,7 +192,9 @@ impl RegistryAuthorizationError {
             Self::InternalPathStateUnavailable => {
                 "EVIDENTRAIL_REGISTRY_AUTH_INTERNAL_PATH_STATE_UNAVAILABLE"
             }
-            Self::InternalPathPolicyMismatch => "EVIDENTRAIL_REGISTRY_AUTH_INTERNAL_POLICY_MISMATCH",
+            Self::InternalPathPolicyMismatch => {
+                "EVIDENTRAIL_REGISTRY_AUTH_INTERNAL_POLICY_MISMATCH"
+            }
             Self::CanonicalPathReserved => "EVIDENTRAIL_REGISTRY_AUTH_CANONICAL_PATH_RESERVED",
             Self::OpenedIdentityReserved => "EVIDENTRAIL_REGISTRY_AUTH_OPENED_IDENTITY_RESERVED",
         }

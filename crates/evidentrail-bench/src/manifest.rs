@@ -394,7 +394,9 @@ impl ManifestError {
                 "EVIDENTRAIL_BENCH_MANIFEST_EMPTY_DIAGNOSTIC_REQUIREMENTS"
             }
             Self::EmptyRoleTargetSet => "EVIDENTRAIL_BENCH_MANIFEST_EMPTY_ROLE_TARGET_SET",
-            Self::CollectionLengthOverflow => "EVIDENTRAIL_BENCH_MANIFEST_COLLECTION_LENGTH_OVERFLOW",
+            Self::CollectionLengthOverflow => {
+                "EVIDENTRAIL_BENCH_MANIFEST_COLLECTION_LENGTH_OVERFLOW"
+            }
         }
     }
 }

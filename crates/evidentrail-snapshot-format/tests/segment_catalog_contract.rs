@@ -84,7 +84,7 @@ fn exact_codec_and_independently_reconstructed_golden_hash_are_frozen() {
     let digest: [u8; 32] = Sha256::digest(&expected).into();
     assert_eq!(
         digest,
-        sequential_hex("74fe5ceaf3d33b501106c0636f575a34708e50b3aaf99816e0c48bce0b18340c")
+        sequential_hex("c5d7a448b5fdb9f788524674457062b92c3d28152ceb8bc1eb359f5d91d16307")
     );
 
     let decoded = SegmentCatalogV1::decode(&expected).unwrap();

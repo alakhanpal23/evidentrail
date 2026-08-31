@@ -137,8 +137,12 @@ impl CandidateBuildErrorV1 {
     pub const fn code(self) -> &'static str {
         match self {
             Self::FacetContractViolation => "EVIDENTRAIL_CANDIDATES_FACET_CONTRACT_VIOLATION",
-            Self::FixedPointContractViolation => "EVIDENTRAIL_CANDIDATES_FIXED_POINT_CONTRACT_VIOLATION",
-            Self::BlockIndexContractViolation => "EVIDENTRAIL_CANDIDATES_BLOCK_INDEX_CONTRACT_VIOLATION",
+            Self::FixedPointContractViolation => {
+                "EVIDENTRAIL_CANDIDATES_FIXED_POINT_CONTRACT_VIOLATION"
+            }
+            Self::BlockIndexContractViolation => {
+                "EVIDENTRAIL_CANDIDATES_BLOCK_INDEX_CONTRACT_VIOLATION"
+            }
         }
     }
 }

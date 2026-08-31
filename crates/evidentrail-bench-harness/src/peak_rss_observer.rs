@@ -789,7 +789,9 @@ impl PeakRssObserverErrorV1 {
                 "EVIDENTRAIL_BENCH_RSS_OBSERVER_TEMP_REPORT_PERMISSIONS_INVALID"
             }
             Self::TemporaryReportTooLarge => "EVIDENTRAIL_BENCH_RSS_OBSERVER_TEMP_REPORT_TOO_LARGE",
-            Self::TemporaryReportReadFailed => "EVIDENTRAIL_BENCH_RSS_OBSERVER_TEMP_REPORT_READ_FAILED",
+            Self::TemporaryReportReadFailed => {
+                "EVIDENTRAIL_BENCH_RSS_OBSERVER_TEMP_REPORT_READ_FAILED"
+            }
             Self::TemporaryReportCleanupFailed => {
                 "EVIDENTRAIL_BENCH_RSS_OBSERVER_TEMP_REPORT_CLEANUP_FAILED"
             }
@@ -802,7 +804,9 @@ impl PeakRssObserverErrorV1 {
             Self::ObservationConstructionFailed => {
                 "EVIDENTRAIL_BENCH_RSS_OBSERVER_OBSERVATION_CONSTRUCTION_FAILED"
             }
-            Self::ArtifactLengthOverflow => "EVIDENTRAIL_BENCH_RSS_OBSERVER_ARTIFACT_LENGTH_OVERFLOW",
+            Self::ArtifactLengthOverflow => {
+                "EVIDENTRAIL_BENCH_RSS_OBSERVER_ARTIFACT_LENGTH_OVERFLOW"
+            }
             Self::Harness(error) => error.code(),
         }
     }

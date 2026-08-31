@@ -847,8 +847,12 @@ impl CompiledBriefError {
             Self::TokenCountOutOfRange => "EVIDENTRAIL_COMPILED_TOKEN_COUNT_OUT_OF_RANGE",
             Self::RenderedByteCountOverflow => "EVIDENTRAIL_COMPILED_RENDERED_BYTE_COUNT_OVERFLOW",
             Self::CostModelViolation(_) => "EVIDENTRAIL_COMPILED_COST_MODEL_VIOLATION",
-            Self::CompiledMasqueradesAsPassthrough => "EVIDENTRAIL_COMPILED_MASQUERADES_AS_PASSTHROUGH",
-            Self::CompiledHasNoPresentedEvidence => "EVIDENTRAIL_COMPILED_HAS_NO_PRESENTED_EVIDENCE",
+            Self::CompiledMasqueradesAsPassthrough => {
+                "EVIDENTRAIL_COMPILED_MASQUERADES_AS_PASSTHROUGH"
+            }
+            Self::CompiledHasNoPresentedEvidence => {
+                "EVIDENTRAIL_COMPILED_HAS_NO_PRESENTED_EVIDENCE"
+            }
             Self::PresentationInvariantViolation => {
                 "EVIDENTRAIL_COMPILED_PRESENTATION_INVARIANT_VIOLATION"
             }

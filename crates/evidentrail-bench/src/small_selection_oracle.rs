@@ -38,7 +38,9 @@ impl ExactSelectionOracleErrorV1 {
     pub const fn code(self) -> &'static str {
         match self {
             Self::TooManyOptionalPackets => "EVIDENTRAIL_BENCH_EXACT_ORACLE_OPTIONAL_PACKET_CAP",
-            Self::ObjectiveEvaluationFailure => "EVIDENTRAIL_BENCH_EXACT_ORACLE_OBJECTIVE_EVALUATION",
+            Self::ObjectiveEvaluationFailure => {
+                "EVIDENTRAIL_BENCH_EXACT_ORACLE_OBJECTIVE_EVALUATION"
+            }
             Self::ObjectiveContractMismatch => "EVIDENTRAIL_BENCH_EXACT_ORACLE_OBJECTIVE_MISMATCH",
             Self::ArithmeticOverflow => "EVIDENTRAIL_BENCH_EXACT_ORACLE_ARITHMETIC_OVERFLOW",
             Self::ProductionSelectionFailure => "EVIDENTRAIL_BENCH_EXACT_ORACLE_PRODUCTION_FAILURE",

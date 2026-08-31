@@ -180,14 +180,14 @@ fn fixed_directory_and_independently_reconstructed_golden_digests_are_frozen() {
     let expected_header = hex_vec(concat!(
         "455652434d433031000100010001014000000004000005a20000000000000000",
         "0000000000000000000000000000000000000000000000000000000000000000",
-        "000000010001000100000140000000d004c92c48edba57ec291fbae41b1c47f7",
-        "8be8c46d272e210af8b341656915102c00000000000000000000000000000000",
-        "00010002000100010000021000000130486ad26075a171840309ed3d1e543ee4",
-        "38bd944c42df6b4dc58528366d0b28e200000000000000000000000000000000",
-        "000200030001000100000340000001400f2d15fc3cbca78eae64126ddfd376bb",
-        "beb1978b2294c03b29765080c8fef5b300000000000000000000000000000000",
-        "000300040001000100000480000001227b9e9765cd65b48c9a13d28bea70fec1",
-        "d6a2cfce46faa10059dcad3075377e6800000000000000000000000000000000"
+        "000000010001000100000140000000d09603527e9c4c1e3c7b5c9942b8adabfa",
+        "43334a4a79de319bcf3b4bc5d1cecdd400000000000000000000000000000000",
+        "00010002000100010000021000000130d245b596fde0a976885e3a80d30af1ec",
+        "fce433aa7cdb0b1c10f076eba4d3362e00000000000000000000000000000000",
+        "00020003000100010000034000000140ebcabd21c8a29c312354134cc274fae9",
+        "ffe47d498d413d1350fba25941ab623900000000000000000000000000000000",
+        "0003000400010001000004800000012250a14df50cecabb9de2543ac9f8499d5",
+        "663c76c1a918c82b274fd55a84d15fbd00000000000000000000000000000000"
     ));
     assert_eq!(
         expected_header.len(),
@@ -204,31 +204,31 @@ fn fixed_directory_and_independently_reconstructed_golden_digests_are_frozen() {
     // hashlib.sha256 from the frozen child and directory layouts.
     assert_eq!(
         bundle.bundle_digest().as_bytes(),
-        &hex_array::<32>("8f99ecd22337e8ee1a31c4c335ccfcecd432d8b26e389b9ec60d16276f371a2e")
+        &hex_array::<32>("1e0a01b22b6d9c78e6da6c7ae9483da8a88f45b22ab70d07c0c85ab112de7f20")
     );
     assert_eq!(
         bundle
             .child_digest(CoreManifestComponentKindV1::SegmentCatalog)
             .as_bytes(),
-        &hex_array::<32>("04c92c48edba57ec291fbae41b1c47f78be8c46d272e210af8b341656915102c")
+        &hex_array::<32>("9603527e9c4c1e3c7b5c9942b8adabfa43334a4a79de319bcf3b4bc5d1cecdd4")
     );
     assert_eq!(
         bundle
             .child_digest(CoreManifestComponentKindV1::EventExpansionIndex)
             .as_bytes(),
-        &hex_array::<32>("486ad26075a171840309ed3d1e543ee438bd944c42df6b4dc58528366d0b28e2")
+        &hex_array::<32>("d245b596fde0a976885e3a80d30af1ecfce433aa7cdb0b1c10f076eba4d3362e")
     );
     assert_eq!(
         bundle
             .child_digest(CoreManifestComponentKindV1::SourceOutcomeTable)
             .as_bytes(),
-        &hex_array::<32>("0f2d15fc3cbca78eae64126ddfd376bbbeb1978b2294c03b29765080c8fef5b3")
+        &hex_array::<32>("ebcabd21c8a29c312354134cc274fae9ffe47d498d413d1350fba25941ab6239")
     );
     assert_eq!(
         bundle
             .child_digest(CoreManifestComponentKindV1::AcquisitionCompletion)
             .as_bytes(),
-        &hex_array::<32>("7b9e9765cd65b48c9a13d28bea70fec1d6a2cfce46faa10059dcad3075377e68")
+        &hex_array::<32>("50a14df50cecabb9de2543ac9f8499d5663c76c1a918c82b274fd55a84d15fbd")
     );
     assert_eq!(
         bundle.bundle_digest(),

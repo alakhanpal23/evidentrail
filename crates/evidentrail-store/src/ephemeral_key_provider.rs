@@ -25,7 +25,8 @@ use crate::{
 /// during one provider instance, not merely the currently live map size.
 pub const MAX_EPHEMERAL_KEY_RECORDS_V1: usize = 4_096;
 const MAX_EPHEMERAL_ROOT_GENERATIONS_V1: usize = MAX_EPHEMERAL_KEY_RECORDS_V1 + 1;
-const SECRET_EQUALITY_COMMITMENT_DOMAIN_V1: &[u8] = b"evidentrail.store.ephemeral.secret-equality.v1";
+const SECRET_EQUALITY_COMMITMENT_DOMAIN_V1: &[u8] =
+    b"evidentrail.store.ephemeral.secret-equality.v1";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ProviderModeV1 {
@@ -690,7 +691,9 @@ mod tests {
     use std::sync::{Arc, Barrier};
     use std::thread;
 
-    use evidentrail_snapshot_format::{EntropySourceFailureV1, FrameCommitmentV1, ManifestCommitmentV1};
+    use evidentrail_snapshot_format::{
+        EntropySourceFailureV1, FrameCommitmentV1, ManifestCommitmentV1,
+    };
 
     use super::*;
     use crate::KeyContextErrorV1;

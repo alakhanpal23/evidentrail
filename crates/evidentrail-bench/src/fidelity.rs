@@ -7,14 +7,15 @@ use evidentrail_schema::{ArtifactDigest, EventId};
 use sha2::{Digest as _, Sha256};
 
 use crate::{
-    BenchmarkRunIdentityV1, CandidateResourceEnvelope, EvidentrailBenchAnnotationSpecV1,
-    EvidentrailBenchRunManifestV1, EvidenceTargetV1, GovernedCaseArtifactBindingV1,
+    BenchmarkRunIdentityV1, CandidateResourceEnvelope, EvidenceTargetV1,
+    EvidentrailBenchAnnotationSpecV1, EvidentrailBenchRunManifestV1, GovernedCaseArtifactBindingV1,
     GovernedCaseArtifactJoinV1, MeasuredCandidateResources, MeasurementEnvironmentV1,
     MeasurementTrustBoundaryV1, MethodDescriptor, RenderedCandidateArtifactV1,
     WeightedDiagnosticRequirementV1, candidate_resource_envelope,
 };
 
-const SOURCE_EXACT_REPRESENTATION_DOMAIN_V1: &[u8] = b"evidentrail/bench/source-exact-representation/v1";
+const SOURCE_EXACT_REPRESENTATION_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench/source-exact-representation/v1";
 const REVERSIBLE_ENCODED_REPRESENTATION_DOMAIN_V1: &[u8] =
     b"evidentrail/bench/reversible-encoded-representation/v1";
 const ASCII_BYTE_ESCAPE_V1_MANIFEST: &[u8] = b"evidentrail/bench/reversible-encoding/ascii-byte-escape/v1\0printable-ascii=literal-except-backslash\0backslash=double-backslash\0lf=backslash-n\0cr=backslash-r\0tab=backslash-t\0other=backslash-xhh-lowercase\0single-line=true";
@@ -1526,7 +1527,9 @@ impl RepresentationFidelityErrorV1 {
             Self::UnknownPublicCaseArtifact => "EVIDENTRAIL_BENCH_FIDELITY_UNKNOWN_PUBLIC_CASE",
             Self::EmptyMethodIdentity => "EVIDENTRAIL_BENCH_FIDELITY_EMPTY_METHOD_IDENTITY",
             Self::MethodIdentityTooLarge => "EVIDENTRAIL_BENCH_FIDELITY_METHOD_IDENTITY_TOO_LARGE",
-            Self::RenderedCandidateTooLarge => "EVIDENTRAIL_BENCH_FIDELITY_RENDERED_CANDIDATE_TOO_LARGE",
+            Self::RenderedCandidateTooLarge => {
+                "EVIDENTRAIL_BENCH_FIDELITY_RENDERED_CANDIDATE_TOO_LARGE"
+            }
             Self::RenderedCandidateArtifactMismatch => {
                 "EVIDENTRAIL_BENCH_FIDELITY_RENDERED_CANDIDATE_ARTIFACT_MISMATCH"
             }
@@ -1535,11 +1538,15 @@ impl RepresentationFidelityErrorV1 {
             Self::DuplicateEventRepresentationClass => {
                 "EVIDENTRAIL_BENCH_FIDELITY_DUPLICATE_EVENT_REPRESENTATION_CLASS"
             }
-            Self::InvalidRenderedByteRange => "EVIDENTRAIL_BENCH_FIDELITY_INVALID_RENDERED_BYTE_RANGE",
+            Self::InvalidRenderedByteRange => {
+                "EVIDENTRAIL_BENCH_FIDELITY_INVALID_RENDERED_BYTE_RANGE"
+            }
             Self::OverlappingProvenRepresentationRanges => {
                 "EVIDENTRAIL_BENCH_FIDELITY_OVERLAPPING_PROVEN_REPRESENTATION_RANGES"
             }
-            Self::UnknownReversibleEncoding => "EVIDENTRAIL_BENCH_FIDELITY_UNKNOWN_REVERSIBLE_ENCODING",
+            Self::UnknownReversibleEncoding => {
+                "EVIDENTRAIL_BENCH_FIDELITY_UNKNOWN_REVERSIBLE_ENCODING"
+            }
             Self::MalformedReversibleEncodingContext => {
                 "EVIDENTRAIL_BENCH_FIDELITY_MALFORMED_REVERSIBLE_ENCODING_CONTEXT"
             }
@@ -1578,8 +1585,12 @@ impl RepresentationFidelityErrorV1 {
             Self::SourceExactDigestMismatch { .. } => {
                 "EVIDENTRAIL_BENCH_FIDELITY_SOURCE_EXACT_DIGEST_MISMATCH"
             }
-            Self::TooManyPinnedTransforms => "EVIDENTRAIL_BENCH_FIDELITY_TOO_MANY_PINNED_TRANSFORMS",
-            Self::DuplicatePinnedTransform => "EVIDENTRAIL_BENCH_FIDELITY_DUPLICATE_PINNED_TRANSFORM",
+            Self::TooManyPinnedTransforms => {
+                "EVIDENTRAIL_BENCH_FIDELITY_TOO_MANY_PINNED_TRANSFORMS"
+            }
+            Self::DuplicatePinnedTransform => {
+                "EVIDENTRAIL_BENCH_FIDELITY_DUPLICATE_PINNED_TRANSFORM"
+            }
             Self::TooManyFidelityRequirements => "EVIDENTRAIL_BENCH_FIDELITY_TOO_MANY_REQUIREMENTS",
             Self::RequirementPolicyCountMismatch => {
                 "EVIDENTRAIL_BENCH_FIDELITY_REQUIREMENT_POLICY_COUNT_MISMATCH"

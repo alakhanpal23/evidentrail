@@ -292,7 +292,9 @@ impl ProducerProposalComparisonErrorV1 {
             Self::MeasurementEnvironmentMismatch => {
                 "EVIDENTRAIL_BENCH_PROPOSAL_COMPARISON_MEASUREMENT_ENVIRONMENT_MISMATCH"
             }
-            Self::ResourceCapMismatch => "EVIDENTRAIL_BENCH_PROPOSAL_COMPARISON_RESOURCE_CAP_MISMATCH",
+            Self::ResourceCapMismatch => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_COMPARISON_RESOURCE_CAP_MISMATCH"
+            }
             Self::RecallUniverseMismatch => {
                 "EVIDENTRAIL_BENCH_PROPOSAL_COMPARISON_RECALL_UNIVERSE_MISMATCH"
             }

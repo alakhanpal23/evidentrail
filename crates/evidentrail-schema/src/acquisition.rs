@@ -329,8 +329,12 @@ impl AcquisitionReceiptError {
                 "EVIDENTRAIL_ACQUISITION_DUPLICATE_EXPECTED_SOURCE_RECORD"
             }
             Self::UnknownSourceRecord(_) => "EVIDENTRAIL_ACQUISITION_UNKNOWN_SOURCE_RECORD",
-            Self::DuplicateOutcomeAssignment(_) => "EVIDENTRAIL_ACQUISITION_DUPLICATE_OUTCOME_ASSIGNMENT",
-            Self::MissingOutcomeAssignments(_) => "EVIDENTRAIL_ACQUISITION_MISSING_OUTCOME_ASSIGNMENTS",
+            Self::DuplicateOutcomeAssignment(_) => {
+                "EVIDENTRAIL_ACQUISITION_DUPLICATE_OUTCOME_ASSIGNMENT"
+            }
+            Self::MissingOutcomeAssignments(_) => {
+                "EVIDENTRAIL_ACQUISITION_MISSING_OUTCOME_ASSIGNMENTS"
+            }
             Self::DuplicatePersistedEvent(_) => "EVIDENTRAIL_ACQUISITION_DUPLICATE_PERSISTED_EVENT",
         }
     }

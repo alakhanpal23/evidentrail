@@ -22,7 +22,7 @@ const GOLDEN: &str = include_str!("fixtures/approved_local_file_binding_v1/golde
 const DIGEST_MATERIAL: &str =
     include_str!("fixtures/approved_local_file_binding_v1/digest_material.json");
 const EXPECTED_BINDING_DIGEST: &str =
-    "binding_sha256_b6ec2c85f43706f0fb135e084bcf9f8a510e6e64c75656aa76fa3cbe82193d6c";
+    "binding_sha256_10b6736df02f318f05ca946f23342755b096140d1ea659de884177a5ec161ce0";
 
 fn without_final_lf(fixture: &str) -> &[u8] {
     fixture.strip_suffix('\n').unwrap_or(fixture).as_bytes()
@@ -235,7 +235,6 @@ fn verify_mutation(document: &str, expected: ApprovedBindingVerificationError) {
 fn binding_has_stable_canonical_bytes_and_independently_derived_digest() {
     let material = BindingFixture::sample().material();
     let binding = encode_approved_local_file_binding_v1(&material).unwrap();
-
     assert_eq!(binding.canonical_bytes(), without_final_lf(GOLDEN));
     assert_eq!(binding.material(), &material);
     assert_eq!(binding.binding_ref().id(), material.binding_id());
@@ -250,7 +249,7 @@ fn binding_has_stable_canonical_bytes_and_independently_derived_digest() {
             .to_string(),
         EXPECTED_BINDING_DIGEST
     );
-    assert_eq!(DIGEST_MATERIAL.trim_end().len(), 1_484);
+    assert_eq!(DIGEST_MATERIAL.trim_end().len(), 1_490);
     let domain = b"evidentrail/approved-local-file-binding-digest/v1";
     let digest_body = DIGEST_MATERIAL.trim_end().as_bytes();
     let mut hasher = Sha256::new();
@@ -320,7 +319,7 @@ fn binding_wire_fails_closed_on_noncanonical_invalid_and_tampered_documents() {
             ApprovedBindingVerificationError::UnsupportedVersion,
         ),
         (
-            GOLDEN.replacen("binding_sha256_b6", "binding_sha256_b7", 1),
+            GOLDEN.replacen("binding_sha256_10", "binding_sha256_11", 1),
             ApprovedBindingVerificationError::BindingDigestMismatch,
         ),
         (

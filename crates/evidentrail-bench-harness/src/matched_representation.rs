@@ -2,9 +2,10 @@ use std::error::Error as StdError;
 use std::fmt;
 
 use evidentrail_bench::{
-    CandidateResourceEnvelope, EvidentrailBenchRunManifestV1, FrozenExternalRepresentationSubmissionV1,
-    GovernedCaseArtifactBindingV1, GovernedRepresentationFidelityOutcomeV1,
-    GovernedRepresentationScoreSubmissionV1, MethodDescriptor,
+    CandidateResourceEnvelope, EvidentrailBenchRunManifestV1,
+    FrozenExternalRepresentationSubmissionV1, GovernedCaseArtifactBindingV1,
+    GovernedRepresentationFidelityOutcomeV1, GovernedRepresentationScoreSubmissionV1,
+    MethodDescriptor,
 };
 use evidentrail_schema::ArtifactDigest;
 

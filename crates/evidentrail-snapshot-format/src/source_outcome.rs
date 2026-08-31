@@ -95,13 +95,23 @@ impl SourceOutcomeTableErrorV1 {
             Self::NonzeroReserved => "EVIDENTRAIL_SOURCE_OUTCOME_NONZERO_RESERVED",
             Self::EntryCountCap => "EVIDENTRAIL_SOURCE_OUTCOME_ENTRY_COUNT_CAP",
             Self::RetrievalMismatch => "EVIDENTRAIL_SOURCE_OUTCOME_RETRIEVAL_MISMATCH",
-            Self::ReceiptEntryCountMismatch => "EVIDENTRAIL_SOURCE_OUTCOME_RECEIPT_ENTRY_COUNT_MISMATCH",
+            Self::ReceiptEntryCountMismatch => {
+                "EVIDENTRAIL_SOURCE_OUTCOME_RECEIPT_ENTRY_COUNT_MISMATCH"
+            }
             Self::ReceiptCountsMismatch => "EVIDENTRAIL_SOURCE_OUTCOME_RECEIPT_COUNTS_MISMATCH",
-            Self::IndexEntryCountMismatch => "EVIDENTRAIL_SOURCE_OUTCOME_INDEX_ENTRY_COUNT_MISMATCH",
+            Self::IndexEntryCountMismatch => {
+                "EVIDENTRAIL_SOURCE_OUTCOME_INDEX_ENTRY_COUNT_MISMATCH"
+            }
             Self::IndexDigestMismatch => "EVIDENTRAIL_SOURCE_OUTCOME_INDEX_DIGEST_MISMATCH",
-            Self::InvalidAcquisitionOrdinal => "EVIDENTRAIL_SOURCE_OUTCOME_INVALID_ACQUISITION_ORDINAL",
-            Self::DuplicateSourceRecordId => "EVIDENTRAIL_SOURCE_OUTCOME_DUPLICATE_SOURCE_RECORD_ID",
-            Self::DuplicatePersistedEventId => "EVIDENTRAIL_SOURCE_OUTCOME_DUPLICATE_PERSISTED_EVENT_ID",
+            Self::InvalidAcquisitionOrdinal => {
+                "EVIDENTRAIL_SOURCE_OUTCOME_INVALID_ACQUISITION_ORDINAL"
+            }
+            Self::DuplicateSourceRecordId => {
+                "EVIDENTRAIL_SOURCE_OUTCOME_DUPLICATE_SOURCE_RECORD_ID"
+            }
+            Self::DuplicatePersistedEventId => {
+                "EVIDENTRAIL_SOURCE_OUTCOME_DUPLICATE_PERSISTED_EVENT_ID"
+            }
             Self::UnsupportedOutcomeKind => "EVIDENTRAIL_SOURCE_OUTCOME_UNSUPPORTED_OUTCOME_KIND",
             Self::NoncanonicalConditionalFields => {
                 "EVIDENTRAIL_SOURCE_OUTCOME_NONCANONICAL_CONDITIONAL_FIELDS"

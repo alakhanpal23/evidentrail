@@ -924,7 +924,10 @@ fn debug_and_error_formatting_never_expose_content_or_provenance() {
         assert!(!output.contains(&receipt.id().to_string()));
     }
 
-    assert_eq!(format!("{lookup_error}"), "EVIDENTRAIL_LEDGER_UNKNOWN_EVENT");
+    assert_eq!(
+        format!("{lookup_error}"),
+        "EVIDENTRAIL_LEDGER_UNKNOWN_EVENT"
+    );
     assert_eq!(
         format!("{receipt_error}"),
         "EVIDENTRAIL_PRESENTATION_MISSING_ASSIGNMENTS (affected_event_count=1)"

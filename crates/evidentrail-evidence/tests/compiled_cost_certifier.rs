@@ -12,7 +12,9 @@ use evidentrail_evidence::{
     Utf8ByteTokenizerV1, certify_compiled_costs_v1, compiled_cost_model_v1,
     render_cost_certified_compiled_log_brief_v1, utf8_byte_tokenizer_digest_v1,
 };
-use evidentrail_schema::{PlanDigest, PlanId, ResultId, RetrievalId, bounds::JSON_SAFE_INTEGER_MAX};
+use evidentrail_schema::{
+    PlanDigest, PlanId, ResultId, RetrievalId, bounds::JSON_SAFE_INTEGER_MAX,
+};
 use evidentrail_select::{
     AFFINITY_SCALE_V1, AffinityV1, COVERAGE_ONLY_OPTIONAL_BUDGET_DENOMINATOR_V1,
     ComposablePacketCostV1, FacetAffinityV1, FacetWeightV1, IntactPacketV1, PacketIdV1,

@@ -11,18 +11,20 @@ use sha2::{Digest as _, Sha256};
 
 use crate::three_lane_ablation::FrozenThreeLaneAblationSetV1;
 use crate::{
-    CanonicalProducerProposalArtifactV1, EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1,
-    FrozenProducerProposalFrontierPlanV1, FrozenProducerProposalUniverseDigestV1,
-    GovernedCaseArtifactJoinV1, GovernedProducerProposalEvaluationV1,
-    GovernedProducerProposalFrontierV1, ProducerProposalAcquisitionBindingV1,
-    ProducerProposalErrorV1, ProducerProposalFrontierErrorV1, ProducerProposalIdentityV1,
-    ProducerProposalMeasurementEnvironmentV1, ProducerProposalMeasurementReceiptV1,
-    ProducerProposalResourceCapV1, evaluate_governed_producer_proposal_frontier_v1,
-    evaluate_governed_producer_proposals_v1,
+    CanonicalProducerProposalArtifactV1, EvidentrailBenchAnnotationSpecV1,
+    EvidentrailBenchCaseSpecV1, FrozenProducerProposalFrontierPlanV1,
+    FrozenProducerProposalUniverseDigestV1, GovernedCaseArtifactJoinV1,
+    GovernedProducerProposalEvaluationV1, GovernedProducerProposalFrontierV1,
+    ProducerProposalAcquisitionBindingV1, ProducerProposalErrorV1, ProducerProposalFrontierErrorV1,
+    ProducerProposalIdentityV1, ProducerProposalMeasurementEnvironmentV1,
+    ProducerProposalMeasurementReceiptV1, ProducerProposalResourceCapV1,
+    evaluate_governed_producer_proposal_frontier_v1, evaluate_governed_producer_proposals_v1,
 };
 
-const PUBLIC_ABLATION_POINT_DOMAIN_V1: &[u8] = b"evidentrail/bench/public-three-lane-ablation-point/v1\0";
-const PUBLIC_ABLATION_BATCH_DOMAIN_V1: &[u8] = b"evidentrail/bench/public-three-lane-ablation-batch/v1\0";
+const PUBLIC_ABLATION_POINT_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench/public-three-lane-ablation-point/v1\0";
+const PUBLIC_ABLATION_BATCH_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench/public-three-lane-ablation-batch/v1\0";
 const GOVERNED_ABLATION_BATCH_DOMAIN_V1: &[u8] =
     b"evidentrail/bench/governed-three-lane-ablation-batch/v1\0";
 
@@ -585,14 +587,20 @@ impl ThreeLaneAblationEvaluationErrorV1 {
             Self::PublicCaseBindingMismatch => "EVIDENTRAIL_BENCH_ABLATION_PUBLIC_CASE_BINDING",
             Self::AcquisitionBindingMismatch => "EVIDENTRAIL_BENCH_ABLATION_ACQUISITION_BINDING",
             Self::MethodFamilyMismatch => "EVIDENTRAIL_BENCH_ABLATION_METHOD_FAMILY",
-            Self::ConfigurationIdentityMismatch => "EVIDENTRAIL_BENCH_ABLATION_CONFIGURATION_IDENTITY",
+            Self::ConfigurationIdentityMismatch => {
+                "EVIDENTRAIL_BENCH_ABLATION_CONFIGURATION_IDENTITY"
+            }
             Self::DuplicateMask => "EVIDENTRAIL_BENCH_ABLATION_DUPLICATE_MASK",
             Self::MissingMasks { .. } => "EVIDENTRAIL_BENCH_ABLATION_MISSING_MASKS",
             Self::MaskBindingMismatch => "EVIDENTRAIL_BENCH_ABLATION_MASK_BINDING",
             Self::CanonicalRenderBindingMismatch => "EVIDENTRAIL_BENCH_ABLATION_RENDER_BINDING",
             Self::MeasurementBindingMismatch => "EVIDENTRAIL_BENCH_ABLATION_MEASUREMENT_BINDING",
-            Self::MeasurementEnvironmentMismatch => "EVIDENTRAIL_BENCH_ABLATION_ENVIRONMENT_BINDING",
-            Self::SharedBatchCostMismatch => "EVIDENTRAIL_BENCH_ABLATION_SHARED_BATCH_COST_MISMATCH",
+            Self::MeasurementEnvironmentMismatch => {
+                "EVIDENTRAIL_BENCH_ABLATION_ENVIRONMENT_BINDING"
+            }
+            Self::SharedBatchCostMismatch => {
+                "EVIDENTRAIL_BENCH_ABLATION_SHARED_BATCH_COST_MISMATCH"
+            }
             Self::DigestLengthOverflow => "EVIDENTRAIL_BENCH_ABLATION_DIGEST_LENGTH_OVERFLOW",
             Self::Producer(_) => "EVIDENTRAIL_BENCH_ABLATION_GOVERNED_EVALUATION",
             Self::Frontier(_) => "EVIDENTRAIL_BENCH_ABLATION_FRONTIER",

@@ -1,9 +1,10 @@
 use std::collections::BTreeSet;
 
 use evidentrail_bench::{
-    BenchmarkBudgetV1, BenchmarkRunIdentityV1, CandidateResourceCap, EvidentrailBenchAnnotationSpecV1,
-    EvidentrailBenchCaseSpecV1, EvidentrailBenchHiddenEvaluationManifestV1, EvidentrailBenchRunManifestV1,
-    EvidenceTargetV1, ExpectedAcquisitionClassV1, FrozenProducerProposalFrontierPlanV1,
+    BenchmarkBudgetV1, BenchmarkRunIdentityV1, CandidateResourceCap, EvidenceTargetV1,
+    EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1,
+    EvidentrailBenchHiddenEvaluationManifestV1, EvidentrailBenchRunManifestV1,
+    ExpectedAcquisitionClassV1, FrozenProducerProposalFrontierPlanV1,
     FrozenPublicThreeLaneAblationBatchV1, FrozenThreeLaneAblationSetV1,
     GovernedCaseArtifactBindingV1, MeasuredProducerProposalResourcesV1,
     ProducerProposalMeasurementEnvironmentV1, ProducerProposalMeasurementReceiptV1,
@@ -420,7 +421,8 @@ fn prepared_masks_freeze_as_one_method_family_with_exact_distinct_identities() {
     }
 
     let environment = measurement_environment();
-    let cap = evidentrail_bench::ProducerProposalResourceCapV1::try_new(99, 99, 99, 99, 99).unwrap();
+    let cap =
+        evidentrail_bench::ProducerProposalResourceCapV1::try_new(99, 99, 99, 99, 99).unwrap();
     let frontier = FrozenProducerProposalFrontierPlanV1::try_new(
         environment,
         frozen

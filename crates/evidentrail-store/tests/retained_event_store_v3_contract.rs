@@ -1,4 +1,6 @@
-use evidentrail_core::{EvidenceReferenceV1, EvidenceTargetRef, ExpansionRelationV1, UnixTimestampNanos};
+use evidentrail_core::{
+    EvidenceReferenceV1, EvidenceTargetRef, ExpansionRelationV1, UnixTimestampNanos,
+};
 use evidentrail_schema::{EventId, ResultId};
 #[cfg(unix)]
 use evidentrail_snapshot_format::SnapshotObjectKindV2;
@@ -454,8 +456,8 @@ fn durable_v3_rejects_a_page_header_changed_without_touching_ciphertext() {
         })
         .unwrap();
     let mut bytes = std::fs::read(&page).unwrap();
-    let aad_length_offset =
-        evidentrail_snapshot_format::SEGMENT_HEADER_BYTES_V2 + evidentrail_store::DURABLE_PACK_HEADER_BYTES_V3;
+    let aad_length_offset = evidentrail_snapshot_format::SEGMENT_HEADER_BYTES_V2
+        + evidentrail_store::DURABLE_PACK_HEADER_BYTES_V3;
     let aad_length = u32::from_be_bytes(
         bytes[aad_length_offset..aad_length_offset + 4]
             .try_into()
@@ -674,9 +676,12 @@ fn durable_v3_checkpoint_packs_bound_sync_objects_and_lookup_across_packs() {
     assert!(receipt.encrypted_byte_count > record_count * 2);
     assert!(receipt.decrypted_byte_count > 0);
     drop(store);
-    let mut resumed =
-        evidentrail_store::DurablePackedRepositoryV3::resume(&root, Arc::clone(&authority), result_id)
-            .unwrap();
+    let mut resumed = evidentrail_store::DurablePackedRepositoryV3::resume(
+        &root,
+        Arc::clone(&authority),
+        result_id,
+    )
+    .unwrap();
     assert_eq!(
         resumed.read_exact(last_event.unwrap()).unwrap().as_slice(),
         b"x\n"
@@ -769,10 +774,15 @@ fn durable_v3_rejects_experimental_one_object_layout_with_typed_result() {
     std::fs::rename(&descriptor, descriptor.with_extension("v3")).unwrap();
     drop(store);
     assert!(matches!(
-        evidentrail_store::DurablePackedRepositoryV3::resume(&root, Arc::clone(&authority), result_id),
+        evidentrail_store::DurablePackedRepositoryV3::resume(
+            &root,
+            Arc::clone(&authority),
+            result_id
+        ),
         Err(evidentrail_store::RetainedEventStoreErrorV3::ObsoleteFormat)
     ));
-    evidentrail_store::cleanup_obsolete_v3_authority_first(&root, authority.as_ref(), result_id).unwrap();
+    evidentrail_store::cleanup_obsolete_v3_authority_first(&root, authority.as_ref(), result_id)
+        .unwrap();
     assert!(matches!(
         authority.snapshot(result_id),
         Err(evidentrail_store::KeyAuthorityErrorV2::NotFound)
@@ -913,9 +923,12 @@ fn durable_v3_reuses_an_authenticated_partial_index_pack() {
         evidentrail_store::RetainedEventStoreErrorV3::FaultInjected
     );
     drop(store);
-    let mut resumed =
-        evidentrail_store::DurablePackedRepositoryV3::resume(&root, Arc::clone(&authority), result_id)
-            .unwrap();
+    let mut resumed = evidentrail_store::DurablePackedRepositoryV3::resume(
+        &root,
+        Arc::clone(&authority),
+        result_id,
+    )
+    .unwrap();
     resumed.finish_acquisition(finish).unwrap();
     assert_eq!(resumed.state(), RetainedEventStoreStateV3::DataCommitted);
     resumed.destroy_authority_first().unwrap();
@@ -1044,7 +1057,8 @@ fn durable_v3_fault_matrix_recovers_lifecycle_recovery_and_destruction_boundarie
         let result_id = ResultId::from_bytes(digest(&[0xc0, point as u8]));
         let event_id = EventId::from_bytes(digest(&[0xc1, point as u8]));
         let mut store =
-            evidentrail_store::DurablePackedRepositoryV3::open(&root, Arc::clone(&authority)).unwrap();
+            evidentrail_store::DurablePackedRepositoryV3::open(&root, Arc::clone(&authority))
+                .unwrap();
         acquire_one_v3(
             &mut store,
             result_id,
@@ -1154,9 +1168,12 @@ fn durable_v3_reconstructs_data_committed_and_published_results_only_from_disk()
         .unwrap();
     drop(store);
 
-    let mut resumed =
-        evidentrail_store::DurablePackedRepositoryV3::resume(&root, Arc::clone(&authority), result_id)
-            .unwrap();
+    let mut resumed = evidentrail_store::DurablePackedRepositoryV3::resume(
+        &root,
+        Arc::clone(&authority),
+        result_id,
+    )
+    .unwrap();
     assert_eq!(resumed.state(), RetainedEventStoreStateV3::DataCommitted);
     assert_eq!(resumed.manifest(), Some(manifest));
     let mut scanned = Vec::new();
@@ -1170,9 +1187,12 @@ fn durable_v3_reconstructs_data_committed_and_published_results_only_from_disk()
     resumed.seal_and_publish(manifest, &[event_id]).unwrap();
     drop(resumed);
 
-    let mut published =
-        evidentrail_store::DurablePackedRepositoryV3::resume(&root, Arc::clone(&authority), result_id)
-            .unwrap();
+    let mut published = evidentrail_store::DurablePackedRepositoryV3::resume(
+        &root,
+        Arc::clone(&authority),
+        result_id,
+    )
+    .unwrap();
     assert_eq!(published.state(), RetainedEventStoreStateV3::Published);
     assert_eq!(
         published.read_exact(event_id).unwrap().as_slice(),

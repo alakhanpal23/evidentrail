@@ -198,7 +198,9 @@ impl SourceIdentityConstructionError {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
-            Self::ExpiryNotAfterObservation => "EVIDENTRAIL_SOURCE_IDENTITY_EXPIRY_NOT_AFTER_OBSERVATION",
+            Self::ExpiryNotAfterObservation => {
+                "EVIDENTRAIL_SOURCE_IDENTITY_EXPIRY_NOT_AFTER_OBSERVATION"
+            }
         }
     }
 }

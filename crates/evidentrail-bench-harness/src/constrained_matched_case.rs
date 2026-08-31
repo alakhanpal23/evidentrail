@@ -28,7 +28,7 @@ use crate::{
     FirstPartyConstrainedSubprocessErrorV1, FirstPartyConstrainedSubprocessReceiptV1,
     FirstPartyConstrainedSubprocessTargetV1, FirstPartyParentOracleBuildV1,
     MacOsTimePeakRssObserverV1, MacOsTimePeakRssReceiptV1, MatchedCostComparisonEligibilityV1,
-    PeakRssObservationBindingV1, PinnedLegacyDrainExecutionTargetV1, PinnedDrainMatchedArmV1,
+    PeakRssObservationBindingV1, PinnedDrainMatchedArmV1, PinnedLegacyDrainExecutionTargetV1,
     PreparedPinnedDrainMatchedCaseErrorV1, PreparedPinnedDrainMatchedCaseV1,
     PublicCaseInputBindingV1, artifact_digest_for_bytes_v1,
 };
@@ -39,7 +39,8 @@ pub const CONSTRAINED_MATCHED_QUESTION_V1: &[u8] =
     b"why did request 550e8400-e29b-41d4-a716-446655440000 fail with database timeout?";
 pub const CONSTRAINED_MATCHED_IDENTIFIER_V1: &[u8] = b"550e8400-e29b-41d4-a716-446655440000";
 
-const GENERATOR_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/constrained-pinned-drain-generator/v1";
+const GENERATOR_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/constrained-pinned-drain-generator/v1";
 const PREPARATION_CONTRACT_V1: &[u8] = b"evidentrail/bench-harness/constrained-pinned-drain-matched-case/v3\0generator-version=1\0public-only=true\0first-party=compiled-required\0first-party-subprocess=raw-stdin-through-captured-output\0parent-owned-render=byte-exact-oracle\0three-lane-selected-required\0drain=full-membership\0peak-rss=common-pinned-macos-time-l-direct-process\0cost-ordering=eligible-only-after-common-scope-observer-validation";
 const SPLIT_IDENTITY_V1: &[u8] = b"evidentrail/bench-harness/constrained-pinned-drain-split/v1";
 const LEAKAGE_IDENTITY_V1: &[u8] = b"evidentrail/bench-harness/constrained-pinned-drain-leakage/v1";
@@ -63,9 +64,9 @@ const CONSTRAINED_SOURCE_BYTE_CAP_V1: u64 = 4 * 1024 * 1024;
 // either system executes.
 pub const CONSTRAINED_MATCHED_INPUT_ARTIFACT_DIGEST_V1: ArtifactDigest =
     ArtifactDigest::from_bytes([
-        0xbf, 0x32, 0x9d, 0x44, 0xa0, 0x3d, 0x76, 0x54, 0xf6, 0x99, 0x6a, 0x4e, 0xec, 0x96, 0xa6,
-        0xfb, 0x2c, 0xdd, 0x93, 0xd3, 0xdb, 0xdb, 0xfb, 0x25, 0xe1, 0xd6, 0x93, 0x0a, 0xbe, 0x01,
-        0xfe, 0x0f,
+        0x43, 0x80, 0x13, 0x94, 0xc8, 0x15, 0x5a, 0x21, 0x9e, 0x36, 0xa6, 0x5d, 0x13, 0x74, 0x06,
+        0xcc, 0x82, 0x72, 0xb4, 0xb4, 0xac, 0x82, 0xd6, 0xd0, 0x62, 0x1b, 0xb0, 0x46, 0x25, 0x4e,
+        0xb7, 0x71,
     ]);
 
 #[derive(Clone, Copy)]
@@ -1525,7 +1526,8 @@ fn validate_three_lane_audit_v1(
                 .iter()
                 .find(|facet| facet.id() == *facet_id)
                 .is_none_or(|facet| {
-                    facet.kind() != evidentrail_select::ProductionFacetKindV1::ValidatedQueryIdentifier
+                    facet.kind()
+                        != evidentrail_select::ProductionFacetKindV1::ValidatedQueryIdentifier
                 })
                 || prepared
                     .proposal_packets()
@@ -1817,7 +1819,9 @@ impl ConstrainedMatchedCaseErrorV1 {
             Self::FailureBlockInvariant => "EVIDENTRAIL_BENCH_CONSTRAINED_FAILURE_BLOCK_INVARIANT",
             Self::FirstPartyNotCompiled => "EVIDENTRAIL_BENCH_CONSTRAINED_FIRST_PARTY_NOT_COMPILED",
             Self::ProposalAuditMissing => "EVIDENTRAIL_BENCH_CONSTRAINED_PROPOSAL_AUDIT_MISSING",
-            Self::ProposalAuditNotSelected => "EVIDENTRAIL_BENCH_CONSTRAINED_PROPOSAL_AUDIT_NOT_SELECTED",
+            Self::ProposalAuditNotSelected => {
+                "EVIDENTRAIL_BENCH_CONSTRAINED_PROPOSAL_AUDIT_NOT_SELECTED"
+            }
             Self::ProposalAuditBindingMismatch => {
                 "EVIDENTRAIL_BENCH_CONSTRAINED_PROPOSAL_AUDIT_BINDING_MISMATCH"
             }
@@ -1839,8 +1843,12 @@ impl ConstrainedMatchedCaseErrorV1 {
             Self::ProductArtifactBindingMismatch => {
                 "EVIDENTRAIL_BENCH_CONSTRAINED_PRODUCT_ARTIFACT_BINDING_MISMATCH"
             }
-            Self::ProductExecutionFailed => "EVIDENTRAIL_BENCH_CONSTRAINED_PRODUCT_EXECUTION_FAILED",
-            Self::PeakRssObserverMismatch => "EVIDENTRAIL_BENCH_CONSTRAINED_PEAK_RSS_OBSERVER_MISMATCH",
+            Self::ProductExecutionFailed => {
+                "EVIDENTRAIL_BENCH_CONSTRAINED_PRODUCT_EXECUTION_FAILED"
+            }
+            Self::PeakRssObserverMismatch => {
+                "EVIDENTRAIL_BENCH_CONSTRAINED_PEAK_RSS_OBSERVER_MISMATCH"
+            }
             Self::PeakRssBudgetExceeded => "EVIDENTRAIL_BENCH_CONSTRAINED_PEAK_RSS_BUDGET_EXCEEDED",
             Self::CommonExecutionScopeMismatch => {
                 "EVIDENTRAIL_BENCH_CONSTRAINED_COMMON_EXECUTION_SCOPE_MISMATCH"

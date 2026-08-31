@@ -337,7 +337,9 @@ impl LifecycleRecordErrorV1 {
             Self::InvalidStateTransition => "EVIDENTRAIL_LIFECYCLE_INVALID_STATE_TRANSITION",
             Self::OperationConflict => "EVIDENTRAIL_LIFECYCLE_OPERATION_CONFLICT",
             Self::BuildContextMismatch => "EVIDENTRAIL_LIFECYCLE_BUILD_CONTEXT_MISMATCH",
-            Self::PublicationGenerationInvalid => "EVIDENTRAIL_LIFECYCLE_PUBLICATION_GENERATION_INVALID",
+            Self::PublicationGenerationInvalid => {
+                "EVIDENTRAIL_LIFECYCLE_PUBLICATION_GENERATION_INVALID"
+            }
             Self::InvalidEncodedLength => "EVIDENTRAIL_LIFECYCLE_INVALID_ENCODED_LENGTH",
             Self::InvalidMagic => "EVIDENTRAIL_LIFECYCLE_INVALID_MAGIC",
             Self::UnsupportedVersion => "EVIDENTRAIL_LIFECYCLE_UNSUPPORTED_VERSION",

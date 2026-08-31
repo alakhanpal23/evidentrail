@@ -21,7 +21,8 @@ const HOSTED_READER_JSONL_REQUEST_MANIFEST_V1: &[u8] = b"evidentrail/bench-harne
 const HOSTED_READER_JSONL_RESPONSE_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/hosted-reader-jsonl-response/v1\0one-canonical-json-line\0answer=reader-answer-schema-v1\0usage=required-prompt,completion,total-token-counts\0provider-request-id=sha256-digest-only\0unknown-fields=reject\0trailing-data=reject\0tool-actions=reject";
 const HOSTED_READER_FAILURE_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/hosted-reader-failure-policy/v1\0fail-closed=identity-mismatch,config-mismatch,malformed-jsonl,unknown-field,missing-usage,token-cap,byte-cap,wall-deadline,rss-cap,provider-error,rate-limit,timeout,tool-action,nondeterminism\0retries=0\0partial-output=reject\0diagnostics=contentless";
 const HOSTED_READER_REDACTION_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/hosted-reader-redaction/v1\0credentials=out-of-band-not-in-request,receipt,debug,error\0provider-request-id=digest-only\0question-context-artifact-answer=bytes-redacted-in-debug-and-errors\0raw-provider-error=digest-and-bounded-bytes-in-private-receipt-only\0hidden-labels=never-in-public-request";
-const MESSAGE_ARTIFACT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/hosted-reader-model-messages/v1";
+const MESSAGE_ARTIFACT_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/hosted-reader-model-messages/v1";
 const CONFIGURATION_ARTIFACT_DOMAIN_V1: &[u8] =
     b"evidentrail/bench-harness/hosted-reader-jsonl-configuration/v1";
 const REQUEST_ARTIFACT_DOMAIN_V1: &[u8] =
@@ -929,14 +930,18 @@ impl HostedReaderJsonlErrorV1 {
             Self::ModelVisibleInputNotUtf8 => {
                 "EVIDENTRAIL_BENCH_HOSTED_READER_MODEL_VISIBLE_INPUT_NOT_UTF8"
             }
-            Self::InvalidCitationCatalog => "EVIDENTRAIL_BENCH_HOSTED_READER_INVALID_CITATION_CATALOG",
+            Self::InvalidCitationCatalog => {
+                "EVIDENTRAIL_BENCH_HOSTED_READER_INVALID_CITATION_CATALOG"
+            }
             Self::ConfigurationBindingMismatch => {
                 "EVIDENTRAIL_BENCH_HOSTED_READER_CONFIGURATION_BINDING_MISMATCH"
             }
             Self::RequestTransportCapExceeded => {
                 "EVIDENTRAIL_BENCH_HOSTED_READER_REQUEST_TRANSPORT_CAP_EXCEEDED"
             }
-            Self::ArtifactLengthOverflow => "EVIDENTRAIL_BENCH_HOSTED_READER_ARTIFACT_LENGTH_OVERFLOW",
+            Self::ArtifactLengthOverflow => {
+                "EVIDENTRAIL_BENCH_HOSTED_READER_ARTIFACT_LENGTH_OVERFLOW"
+            }
         }
     }
 }

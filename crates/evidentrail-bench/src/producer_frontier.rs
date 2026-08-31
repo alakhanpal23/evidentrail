@@ -548,7 +548,9 @@ impl ProducerProposalFrontierErrorV1 {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
-            Self::EmptyRequestedPoints => "EVIDENTRAIL_BENCH_PROPOSAL_FRONTIER_EMPTY_REQUESTED_POINTS",
+            Self::EmptyRequestedPoints => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_FRONTIER_EMPTY_REQUESTED_POINTS"
+            }
             Self::TooManyRequestedPoints => {
                 "EVIDENTRAIL_BENCH_PROPOSAL_FRONTIER_TOO_MANY_REQUESTED_POINTS"
             }
@@ -576,9 +578,15 @@ impl ProducerProposalFrontierErrorV1 {
             Self::RecallUniverseMismatch => {
                 "EVIDENTRAIL_BENCH_PROPOSAL_FRONTIER_RECALL_UNIVERSE_MISMATCH"
             }
-            Self::CapViolationMismatch => "EVIDENTRAIL_BENCH_PROPOSAL_FRONTIER_CAP_VIOLATION_MISMATCH",
-            Self::DuplicateOutcomePoint => "EVIDENTRAIL_BENCH_PROPOSAL_FRONTIER_DUPLICATE_OUTCOME_POINT",
-            Self::UnplannedOutcomePoint => "EVIDENTRAIL_BENCH_PROPOSAL_FRONTIER_UNPLANNED_OUTCOME_POINT",
+            Self::CapViolationMismatch => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_FRONTIER_CAP_VIOLATION_MISMATCH"
+            }
+            Self::DuplicateOutcomePoint => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_FRONTIER_DUPLICATE_OUTCOME_POINT"
+            }
+            Self::UnplannedOutcomePoint => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_FRONTIER_UNPLANNED_OUTCOME_POINT"
+            }
             Self::MissingOutcomePoints { .. } => {
                 "EVIDENTRAIL_BENCH_PROPOSAL_FRONTIER_MISSING_OUTCOME_POINTS"
             }

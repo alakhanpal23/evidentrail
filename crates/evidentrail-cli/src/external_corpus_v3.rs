@@ -123,7 +123,10 @@ pub fn import_external_adjudicated_corpus_v3(
             continue;
         }
         if line.len() > MAX_MANIFEST_LINE_BYTES_V3 {
-            return Err(error(line_number, "EVIDENTRAIL_CORPUS_V3_MANIFEST_LINE_CAP"));
+            return Err(error(
+                line_number,
+                "EVIDENTRAIL_CORPUS_V3_MANIFEST_LINE_CAP",
+            ));
         }
         let case: CorpusCaseV3 = serde_json::from_slice(&line)
             .map_err(|_| error(line_number, "EVIDENTRAIL_CORPUS_V3_MANIFEST_SCHEMA"))?;
@@ -141,7 +144,10 @@ pub fn import_external_adjudicated_corpus_v3(
             .insert(family, case.split.clone())
             .is_some_and(|split| split != case.split)
         {
-            return Err(error(line_number, "EVIDENTRAIL_CORPUS_V3_FAMILY_SPLIT_LEAKAGE"));
+            return Err(error(
+                line_number,
+                "EVIDENTRAIL_CORPUS_V3_FAMILY_SPLIT_LEAKAGE",
+            ));
         }
         let relative = Path::new(&case.artifact.relative_path);
         if relative.is_absolute()
@@ -149,14 +155,20 @@ pub fn import_external_adjudicated_corpus_v3(
                 .components()
                 .any(|part| !matches!(part, Component::Normal(_)))
         {
-            return Err(error(line_number, "EVIDENTRAIL_CORPUS_V3_UNSAFE_ARTIFACT_PATH"));
+            return Err(error(
+                line_number,
+                "EVIDENTRAIL_CORPUS_V3_UNSAFE_ARTIFACT_PATH",
+            ));
         }
         let artifact = canonical_root
             .join(relative)
             .canonicalize()
             .map_err(|_| error(line_number, "EVIDENTRAIL_CORPUS_V3_ARTIFACT_MISSING"))?;
         if !artifact.starts_with(&canonical_root) || !artifact.is_file() {
-            return Err(error(line_number, "EVIDENTRAIL_CORPUS_V3_UNSAFE_ARTIFACT_PATH"));
+            return Err(error(
+                line_number,
+                "EVIDENTRAIL_CORPUS_V3_UNSAFE_ARTIFACT_PATH",
+            ));
         }
         let artifact_digest = hash_file_v3(&artifact, line_number)?;
         if artifact_digest != parse_digest_v3(&case.artifact.sha256, line_number)? {
@@ -286,7 +298,8 @@ impl std::io::Write for HashWriterV3<'_> {
 }
 
 fn hash_file_v3(path: &Path, line: usize) -> Result<[u8; 32], ExternalCorpusImportErrorV3> {
-    let mut file = File::open(path).map_err(|_| error(line, "EVIDENTRAIL_CORPUS_V3_ARTIFACT_READ"))?;
+    let mut file =
+        File::open(path).map_err(|_| error(line, "EVIDENTRAIL_CORPUS_V3_ARTIFACT_READ"))?;
     let mut hasher = Sha256::new();
     std::io::copy(&mut file, &mut HashWriterV3(&mut hasher))
         .map_err(|_| error(line, "EVIDENTRAIL_CORPUS_V3_ARTIFACT_READ"))?;

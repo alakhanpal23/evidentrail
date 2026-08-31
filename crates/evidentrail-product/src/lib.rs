@@ -52,7 +52,9 @@ use evidentrail_evidence::{
 };
 use evidentrail_framing::frame_source_lanes_v1;
 use evidentrail_schema::QuestionDigest;
-use evidentrail_select::{PacketIdV1, SelectionV1, TokenValueConstructionError, TotalTokenBudgetV1};
+use evidentrail_select::{
+    PacketIdV1, SelectionV1, TokenValueConstructionError, TotalTokenBudgetV1,
+};
 use evidentrail_store::{
     AliasExpansionRequestV1, ExpansionRequestV1, ExpansionResponseV1, MemoryResultStore,
     ResultStoreError,

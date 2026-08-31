@@ -580,10 +580,16 @@ impl RunAggregationError {
             Self::MissingCaseEvaluations { .. } => {
                 "EVIDENTRAIL_BENCH_RUN_AGGREGATE_MISSING_CASE_EVALUATIONS"
             }
-            Self::DuplicateCaseEvaluation => "EVIDENTRAIL_BENCH_RUN_AGGREGATE_DUPLICATE_CASE_EVALUATION",
-            Self::ExtraCaseEvaluations { .. } => "EVIDENTRAIL_BENCH_RUN_AGGREGATE_EXTRA_CASE_EVALUATIONS",
+            Self::DuplicateCaseEvaluation => {
+                "EVIDENTRAIL_BENCH_RUN_AGGREGATE_DUPLICATE_CASE_EVALUATION"
+            }
+            Self::ExtraCaseEvaluations { .. } => {
+                "EVIDENTRAIL_BENCH_RUN_AGGREGATE_EXTRA_CASE_EVALUATIONS"
+            }
             Self::AggregateOverflow { .. } => "EVIDENTRAIL_BENCH_RUN_AGGREGATE_OVERFLOW",
-            Self::DatasetIdentityMismatch => "EVIDENTRAIL_BENCH_RUN_COMPARISON_DATASET_IDENTITY_MISMATCH",
+            Self::DatasetIdentityMismatch => {
+                "EVIDENTRAIL_BENCH_RUN_COMPARISON_DATASET_IDENTITY_MISMATCH"
+            }
             Self::PublicCaseCohortMismatch => {
                 "EVIDENTRAIL_BENCH_RUN_COMPARISON_PUBLIC_CASE_COHORT_MISMATCH"
             }

@@ -92,7 +92,9 @@ impl ObjectiveEvaluationError {
         match self {
             Self::UnknownPacket => "EVIDENTRAIL_SELECT_OBJECTIVE_UNKNOWN_PACKET",
             Self::DuplicatePacket => "EVIDENTRAIL_SELECT_OBJECTIVE_DUPLICATE_PACKET",
-            Self::MandatoryPacketIncluded => "EVIDENTRAIL_SELECT_OBJECTIVE_MANDATORY_PACKET_INCLUDED",
+            Self::MandatoryPacketIncluded => {
+                "EVIDENTRAIL_SELECT_OBJECTIVE_MANDATORY_PACKET_INCLUDED"
+            }
             Self::ArithmeticInvariantViolation => {
                 "EVIDENTRAIL_SELECT_OBJECTIVE_ARITHMETIC_INVARIANT_VIOLATION"
             }

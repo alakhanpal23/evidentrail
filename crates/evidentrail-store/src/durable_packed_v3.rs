@@ -603,7 +603,8 @@ impl<A: KeyAuthorityV2> DurablePackedRepositoryV3<A> {
             }
         }
         repository.manifest = manifest;
-        if authority_record.state() >= evidentrail_snapshot_format::ResultLifecycleStateV1::DataCommitted
+        if authority_record.state()
+            >= evidentrail_snapshot_format::ResultLifecycleStateV1::DataCommitted
         {
             let manifest = repository
                 .manifest
@@ -622,7 +623,9 @@ impl<A: KeyAuthorityV2> DurablePackedRepositoryV3<A> {
         {
             return Err(RetainedEventStoreErrorV3::CorruptIndex);
         }
-        if authority_record.state() == evidentrail_snapshot_format::ResultLifecycleStateV1::Published {
+        if authority_record.state()
+            == evidentrail_snapshot_format::ResultLifecycleStateV1::Published
+        {
             let commitment = repository_commitment_v3(result_id, &repository.objects);
             if commitment != authority_record.repository_commitment() {
                 return Err(RetainedEventStoreErrorV3::CorruptIndex);
@@ -2117,9 +2120,10 @@ impl<A: KeyAuthorityV2> RetainedEventStoreV3 for DurablePackedRepositoryV3<A> {
             if bytes.len() < evidentrail_snapshot_format::SEGMENT_HEADER_BYTES_V2 {
                 return Err(RetainedEventStoreErrorV3::CorruptIndex);
             }
-            let segment =
-                SegmentHeaderV2::decode(&bytes[..evidentrail_snapshot_format::SEGMENT_HEADER_BYTES_V2])
-                    .map_err(|_| RetainedEventStoreErrorV3::CorruptIndex)?;
+            let segment = SegmentHeaderV2::decode(
+                &bytes[..evidentrail_snapshot_format::SEGMENT_HEADER_BYTES_V2],
+            )
+            .map_err(|_| RetainedEventStoreErrorV3::CorruptIndex)?;
             if segment.prior_segment_commitment() != previous {
                 return Err(RetainedEventStoreErrorV3::CorruptIndex);
             }
@@ -2130,7 +2134,9 @@ impl<A: KeyAuthorityV2> RetainedEventStoreV3 for DurablePackedRepositoryV3<A> {
             previous = object.commitment;
         }
         self.state = match authority.state() {
-            evidentrail_snapshot_format::ResultLifecycleStateV1::Open => RetainedEventStoreStateV3::Open,
+            evidentrail_snapshot_format::ResultLifecycleStateV1::Open => {
+                RetainedEventStoreStateV3::Open
+            }
             evidentrail_snapshot_format::ResultLifecycleStateV1::DataCommitted => {
                 RetainedEventStoreStateV3::DataCommitted
             }
@@ -2573,11 +2579,15 @@ fn map_authority_state(
     state: evidentrail_snapshot_format::ResultLifecycleStateV1,
 ) -> RetainedEventStoreStateV3 {
     match state {
-        evidentrail_snapshot_format::ResultLifecycleStateV1::Open => RetainedEventStoreStateV3::Open,
+        evidentrail_snapshot_format::ResultLifecycleStateV1::Open => {
+            RetainedEventStoreStateV3::Open
+        }
         evidentrail_snapshot_format::ResultLifecycleStateV1::DataCommitted => {
             RetainedEventStoreStateV3::DataCommitted
         }
-        evidentrail_snapshot_format::ResultLifecycleStateV1::Sealed => RetainedEventStoreStateV3::Sealed,
+        evidentrail_snapshot_format::ResultLifecycleStateV1::Sealed => {
+            RetainedEventStoreStateV3::Sealed
+        }
         evidentrail_snapshot_format::ResultLifecycleStateV1::Published => {
             RetainedEventStoreStateV3::Published
         }

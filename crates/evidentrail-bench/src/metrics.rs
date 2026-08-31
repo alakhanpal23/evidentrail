@@ -57,15 +57,23 @@ impl MetricError {
     pub const fn code(self) -> &'static str {
         match self {
             Self::RetrievalMismatch => "EVIDENTRAIL_BENCH_METRIC_RETRIEVAL_MISMATCH",
-            Self::UnknownRequiredEvidence { .. } => "EVIDENTRAIL_BENCH_METRIC_UNKNOWN_REQUIRED_EVIDENCE",
-            Self::UnknownCandidateEvent { .. } => "EVIDENTRAIL_BENCH_METRIC_UNKNOWN_CANDIDATE_EVENT",
+            Self::UnknownRequiredEvidence { .. } => {
+                "EVIDENTRAIL_BENCH_METRIC_UNKNOWN_REQUIRED_EVIDENCE"
+            }
+            Self::UnknownCandidateEvent { .. } => {
+                "EVIDENTRAIL_BENCH_METRIC_UNKNOWN_CANDIDATE_EVENT"
+            }
             Self::EmptyRequirement => "EVIDENTRAIL_BENCH_METRIC_EMPTY_REQUIREMENT",
-            Self::EmptyRequirementAlternative => "EVIDENTRAIL_BENCH_METRIC_EMPTY_REQUIREMENT_ALTERNATIVE",
+            Self::EmptyRequirementAlternative => {
+                "EVIDENTRAIL_BENCH_METRIC_EMPTY_REQUIREMENT_ALTERNATIVE"
+            }
             Self::InvalidRequirementWeight => "EVIDENTRAIL_BENCH_METRIC_INVALID_REQUIREMENT_WEIGHT",
             Self::RequirementWeightSumNotFinite => {
                 "EVIDENTRAIL_BENCH_METRIC_REQUIREMENT_WEIGHT_SUM_NOT_FINITE"
             }
-            Self::CandidateByteCostOverflow => "EVIDENTRAIL_BENCH_METRIC_CANDIDATE_BYTE_COST_OVERFLOW",
+            Self::CandidateByteCostOverflow => {
+                "EVIDENTRAIL_BENCH_METRIC_CANDIDATE_BYTE_COST_OVERFLOW"
+            }
         }
     }
 }

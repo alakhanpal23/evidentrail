@@ -177,7 +177,7 @@ fn exact_codec_and_independently_reconstructed_golden_hash_are_frozen() {
         "455652534f54303100010001000100a00000000000000000d0d1d2d3d4d5d6d7",
         "d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef0000000000000003",
         "0000000000000001000000000000000100000000000000010000000000000002",
-        "5235bc2cfeaff89accd46c6ea3565ee64f0dea1ab11612bf1e65fc3d9bf583d3",
+        "c0e975da4ed22fc842c14bd4417c1129bfd3a8b042162121cf177f20d072be9c",
         "0000000000000000000000000000000000000000000000000000000000000000",
         "0000000000000000505152535455565758595a5b5c5d5e5f6061626364656667",
         "68696a6b6c6d6e6f0001000000000000101112131415161718191a1b1c1d1e1f",
@@ -207,12 +207,12 @@ fn exact_codec_and_independently_reconstructed_golden_hash_are_frozen() {
     let digest: [u8; 32] = Sha256::digest(&expected).into();
     assert_eq!(
         digest,
-        hex_array("dde4f16383db0483fa8b9cfd03967c294d64310e751e9f58e1a3e7225118ec9d")
+        hex_array("a3ac32dbf2effeac9f5127517fe133f9cf9b524c5ac753f5b48557dbc45efd36")
     );
     assert_eq!(
         table.event_index_digest().as_bytes(),
         &hex_array::<EVENT_EXPANSION_INDEX_DIGEST_BYTES_V1>(
-            "5235bc2cfeaff89accd46c6ea3565ee64f0dea1ab11612bf1e65fc3d9bf583d3"
+            "c0e975da4ed22fc842c14bd4417c1129bfd3a8b042162121cf177f20d072be9c"
         )
     );
 

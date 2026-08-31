@@ -4,7 +4,9 @@ use std::fmt;
 use evidentrail_schema::bounds::{
     MAX_AUTHORIZED_RECORD_BYTES, MAX_RECORD_TERMINATOR_BYTES, MAX_TRANSFORMATION_OPERATIONS,
 };
-use evidentrail_schema::{ContentHash, EventId, PolicyDigest, RecordBytes, TransformationReceiptId};
+use evidentrail_schema::{
+    ContentHash, EventId, PolicyDigest, RecordBytes, TransformationReceiptId,
+};
 use sha2::{Digest, Sha256};
 
 use crate::hash::authorized_content_hash;

@@ -2,14 +2,15 @@ use std::collections::BTreeSet;
 
 use evidentrail_bench::{
     BenchmarkBudgetV1, BenchmarkRunIdentityV1, CandidateRendererIdentityV1,
-    EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1, EvidentrailBenchHiddenEvaluationManifestV1,
-    EvidentrailBenchRunManifestV1, EvidenceRepresentationClaimV1, EvidenceTargetV1,
-    ExpectedAcquisitionClassV1, FrozenExternalRepresentationSubmissionV1,
-    GovernedCaseArtifactBindingV1, GovernedRepresentationFidelityOutcomeV1,
-    GovernedRepresentationFidelityPolicyV1, MeasuredCandidateResources, MeasurementEnvironmentV1,
-    MeasurementHarnessIdentityV1, MethodDescriptor, NonExactFidelityDispositionV1,
-    RenderedCandidateArtifactV1, RequirementFidelityPolicyV1, TokenizerIdentityV1,
-    WeightedDiagnosticRequirementV1, evaluate_governed_representation_fidelity_v1,
+    EvidenceRepresentationClaimV1, EvidenceTargetV1, EvidentrailBenchAnnotationSpecV1,
+    EvidentrailBenchCaseSpecV1, EvidentrailBenchHiddenEvaluationManifestV1,
+    EvidentrailBenchRunManifestV1, ExpectedAcquisitionClassV1,
+    FrozenExternalRepresentationSubmissionV1, GovernedCaseArtifactBindingV1,
+    GovernedRepresentationFidelityOutcomeV1, GovernedRepresentationFidelityPolicyV1,
+    MeasuredCandidateResources, MeasurementEnvironmentV1, MeasurementHarnessIdentityV1,
+    MethodDescriptor, NonExactFidelityDispositionV1, RenderedCandidateArtifactV1,
+    RequirementFidelityPolicyV1, TokenizerIdentityV1, WeightedDiagnosticRequirementV1,
+    evaluate_governed_representation_fidelity_v1,
 };
 use evidentrail_bench_harness::{
     FirstPartyLogBriefBridgeErrorV1, MatchedRepresentationArmV1, MatchedRepresentationComparisonV1,

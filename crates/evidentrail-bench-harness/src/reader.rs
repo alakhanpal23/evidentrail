@@ -4,7 +4,8 @@ use std::fmt;
 use std::path::PathBuf;
 
 use evidentrail_bench::{
-    EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1, EvidenceTargetV1, MethodDescriptor,
+    EvidenceTargetV1, EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1,
+    MethodDescriptor,
 };
 use evidentrail_core::derive_question_digest_v1;
 use evidentrail_schema::bounds::JSON_SAFE_INTEGER_MAX;
@@ -44,14 +45,17 @@ const METHOD_ARTIFACT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/reader-meth
 const PUBLIC_INPUT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/reader-public-input/v1";
 const PROMPT_ARTIFACT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/reader-prompt/v1";
 const RECEIPT_ARTIFACT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/reader-receipt/v1";
-const REPEATABILITY_ARTIFACT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/reader-repeatability/v1";
-const GOVERNED_TRUTH_ARTIFACT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/reader-governed-truth/v1";
+const REPEATABILITY_ARTIFACT_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/reader-repeatability/v1";
+const GOVERNED_TRUTH_ARTIFACT_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/reader-governed-truth/v1";
 const PROMPT_TEMPLATE_V1: &[u8] = b"EVIDENTRAIL_BENCH_READER_PROMPT_V1\n\
 tainted_fields=lowercase_hex_only\n\
 answer=canonical_json_v1\n\
 tool_actions=forbidden\n\
 citations=declared_integer_handles_only\n";
-const UTF8_BYTE_TOKENIZER_CONTRACT_V1: &[u8] = b"evidentrail/bench-harness/reader-utf8-byte-tokenizer/v1";
+const UTF8_BYTE_TOKENIZER_CONTRACT_V1: &[u8] =
+    b"evidentrail/bench-harness/reader-utf8-byte-tokenizer/v1";
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ReaderCitationHandleV1 {
@@ -2187,11 +2191,15 @@ impl ReaderErrorV1 {
         match self {
             Self::InvalidCitationHandle => "EVIDENTRAIL_BENCH_READER_INVALID_CITATION_HANDLE",
             Self::EmptyCitationTargets => "EVIDENTRAIL_BENCH_READER_EMPTY_CITATION_TARGETS",
-            Self::InvalidCitationMarkerRange => "EVIDENTRAIL_BENCH_READER_INVALID_CITATION_MARKER_RANGE",
+            Self::InvalidCitationMarkerRange => {
+                "EVIDENTRAIL_BENCH_READER_INVALID_CITATION_MARKER_RANGE"
+            }
             Self::CitationMarkerMismatch => "EVIDENTRAIL_BENCH_READER_CITATION_MARKER_MISMATCH",
             Self::CitationMarkerOverlap => "EVIDENTRAIL_BENCH_READER_CITATION_MARKER_OVERLAP",
             Self::DuplicateCitationHandle => "EVIDENTRAIL_BENCH_READER_DUPLICATE_CITATION_HANDLE",
-            Self::NonCanonicalCitationHandles => "EVIDENTRAIL_BENCH_READER_NONCANONICAL_CITATION_HANDLES",
+            Self::NonCanonicalCitationHandles => {
+                "EVIDENTRAIL_BENCH_READER_NONCANONICAL_CITATION_HANDLES"
+            }
             Self::DuplicateCitationTarget => "EVIDENTRAIL_BENCH_READER_DUPLICATE_CITATION_TARGET",
             Self::EmptyMethodArtifact => "EVIDENTRAIL_BENCH_READER_EMPTY_METHOD_ARTIFACT",
             Self::MethodArtifactTooLarge => "EVIDENTRAIL_BENCH_READER_METHOD_ARTIFACT_TOO_LARGE",
@@ -2210,7 +2218,9 @@ impl ReaderErrorV1 {
             Self::ContextArtifactDigestMismatch => {
                 "EVIDENTRAIL_BENCH_READER_CONTEXT_ARTIFACT_DIGEST_MISMATCH"
             }
-            Self::MethodCaseBindingMismatch => "EVIDENTRAIL_BENCH_READER_METHOD_CASE_BINDING_MISMATCH",
+            Self::MethodCaseBindingMismatch => {
+                "EVIDENTRAIL_BENCH_READER_METHOD_CASE_BINDING_MISMATCH"
+            }
             Self::InvalidResourceCap => "EVIDENTRAIL_BENCH_READER_INVALID_RESOURCE_CAP",
             Self::ReaderCallCapMustBeOne => "EVIDENTRAIL_BENCH_READER_CALL_CAP_MUST_BE_ONE",
             Self::InconsistentResourceCaps => "EVIDENTRAIL_BENCH_READER_INCONSISTENT_RESOURCE_CAPS",
@@ -2226,7 +2236,9 @@ impl ReaderErrorV1 {
             Self::NonCanonicalAnswer => "EVIDENTRAIL_BENCH_READER_NONCANONICAL_ANSWER",
             Self::InvalidUncertaintyMicros => "EVIDENTRAIL_BENCH_READER_INVALID_UNCERTAINTY_MICROS",
             Self::ToolActionsForbidden => "EVIDENTRAIL_BENCH_READER_TOOL_ACTIONS_FORBIDDEN",
-            Self::NonCanonicalAnswerCitations => "EVIDENTRAIL_BENCH_READER_NONCANONICAL_ANSWER_CITATIONS",
+            Self::NonCanonicalAnswerCitations => {
+                "EVIDENTRAIL_BENCH_READER_NONCANONICAL_ANSWER_CITATIONS"
+            }
             Self::NonCanonicalAnswerClaims => "EVIDENTRAIL_BENCH_READER_NONCANONICAL_ANSWER_CLAIMS",
             Self::InvalidAbstentionShape => "EVIDENTRAIL_BENCH_READER_INVALID_ABSTENTION_SHAPE",
             Self::InvalidAnswerShape => "EVIDENTRAIL_BENCH_READER_INVALID_ANSWER_SHAPE",
@@ -2245,9 +2257,15 @@ impl ReaderErrorV1 {
                 "EVIDENTRAIL_BENCH_READER_GOVERNED_CASE_BINDING_MISMATCH"
             }
             Self::MissingAnswerableTruth => "EVIDENTRAIL_BENCH_READER_MISSING_ANSWERABLE_TRUTH",
-            Self::UnexpectedUnanswerableTruth => "EVIDENTRAIL_BENCH_READER_UNEXPECTED_UNANSWERABLE_TRUTH",
-            Self::InvalidGovernedGranularity => "EVIDENTRAIL_BENCH_READER_INVALID_GOVERNED_GRANULARITY",
-            Self::GovernedClaimSetsOverlap => "EVIDENTRAIL_BENCH_READER_GOVERNED_CLAIM_SETS_OVERLAP",
+            Self::UnexpectedUnanswerableTruth => {
+                "EVIDENTRAIL_BENCH_READER_UNEXPECTED_UNANSWERABLE_TRUTH"
+            }
+            Self::InvalidGovernedGranularity => {
+                "EVIDENTRAIL_BENCH_READER_INVALID_GOVERNED_GRANULARITY"
+            }
+            Self::GovernedClaimSetsOverlap => {
+                "EVIDENTRAIL_BENCH_READER_GOVERNED_CLAIM_SETS_OVERLAP"
+            }
             Self::DuplicateGovernedCode => "EVIDENTRAIL_BENCH_READER_DUPLICATE_GOVERNED_CODE",
             Self::ScoreOverflow => "EVIDENTRAIL_BENCH_READER_SCORE_OVERFLOW",
             Self::Harness(error) => error.code(),

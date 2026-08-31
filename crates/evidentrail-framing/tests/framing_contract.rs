@@ -802,5 +802,8 @@ fn diagnostics_are_contentless() {
     ] {
         assert!(!diagnostic.contains(canary));
     }
-    assert_eq!(error.code(), "EVIDENTRAIL_FRAMING_BLOCK_BYTE_COUNT_OVERFLOW");
+    assert_eq!(
+        error.code(),
+        "EVIDENTRAIL_FRAMING_BLOCK_BYTE_COUNT_OVERFLOW"
+    );
 }

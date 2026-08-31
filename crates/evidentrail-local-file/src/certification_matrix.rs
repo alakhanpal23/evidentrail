@@ -1,7 +1,9 @@
 use std::error::Error as StdError;
 use std::fmt;
 
-use evidentrail_schema::{LocalFileArchitectureV1, LocalFileFilesystemV1, LocalFileOperatingSystemV1};
+use evidentrail_schema::{
+    LocalFileArchitectureV1, LocalFileFilesystemV1, LocalFileOperatingSystemV1,
+};
 #[cfg(any(target_os = "macos", test))]
 use sha2::{Digest as _, Sha256};
 
@@ -463,7 +465,7 @@ mod tests {
         let x86 = derive_receipt_digest(LocalFileArchitectureV1::X86_64, host);
         assert_eq!(
             arm.canonical_token(),
-            "local_file_host_matrix_receipt_sha256_63b30799c85e2839b27ab91529c819a7d8f1bbcd668bd48c8ead721f15f3c95a"
+            "local_file_host_matrix_receipt_sha256_c04bbd235aec37f30d5bd075fe31e897072b9b18aaa04f53a8e8ce182ddd7add"
         );
         assert_ne!(arm, x86);
         assert_ne!(

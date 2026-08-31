@@ -70,7 +70,9 @@ impl AuthenticatedEncryptedRetentionErrorV1 {
                 "EVIDENTRAIL_AUTHENTICATED_RETENTION_SNAPSHOT_PROJECTION_FAILED"
             }
             Self::RepositoryFailed => "EVIDENTRAIL_AUTHENTICATED_RETENTION_REPOSITORY_FAILED",
-            Self::ReferenceUnavailable => "EVIDENTRAIL_AUTHENTICATED_RETENTION_REFERENCE_UNAVAILABLE",
+            Self::ReferenceUnavailable => {
+                "EVIDENTRAIL_AUTHENTICATED_RETENTION_REFERENCE_UNAVAILABLE"
+            }
             Self::InsufficientExpansionBudget => {
                 "EVIDENTRAIL_AUTHENTICATED_RETENTION_INSUFFICIENT_EXPANSION_BUDGET"
             }

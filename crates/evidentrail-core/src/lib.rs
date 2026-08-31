@@ -24,6 +24,10 @@ pub use block::{
     BlockAssignment, BlockExpansion, BlockIndex, BlockLookupError, BlockReconciliationError,
     EventBlock,
 };
+pub use coverage::{
+    PresentationAssignment, PresentationReceipt, PresentationReceiptEntry,
+    PresentationReconciliationError,
+};
 pub use evidentrail_schema::{
     AcknowledgedCounts, AcquisitionCounts, AcquisitionOutcome, AcquisitionReceipt,
     AcquisitionReceiptId, AcquisitionSequence, AdapterIdentity, AdapterOutcome, AttemptCounts,
@@ -42,10 +46,6 @@ pub use evidentrail_schema::{
     RecordFormatHint, RecordFragmentReason, RecordHints, RecordState, ResultId, RetrievalId,
     SinkAck, SourceCursor, SourceIdentityDigest, SourceMember, SourceRecordId, SourceStream,
     SourceTimestamp, TransformationReceiptId, UnixTimestampNanos, UnknownCompletenessReason,
-};
-pub use coverage::{
-    PresentationAssignment, PresentationReceipt, PresentationReceiptEntry,
-    PresentationReconciliationError,
 };
 pub use expansion::{
     ExpandedEventV1, ExpansionLimitV1, ExpansionRequestV1, ExpansionResponseV1,

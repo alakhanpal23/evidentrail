@@ -11,8 +11,8 @@ use crate::{
     MacOsTimePeakRssObserverV1, PreparedConstrainedPinnedDrainMatchedCaseV1,
     ReaderCitationHandleV1, ReaderErrorV1, ReaderMethodArtifactV1, ReaderPublicInputV1,
     ReaderRepeatabilityReceiptV1, ReaderResourceCapsV1, artifact_digest_for_bytes_v1,
-    legacy_drain_full_membership_method_descriptor_v1, evaluate_governed_reader_v1,
-    execute_deterministic_fixture_reader_v1,
+    evaluate_governed_reader_v1, execute_deterministic_fixture_reader_v1,
+    legacy_drain_full_membership_method_descriptor_v1,
 };
 
 pub const CONSTRAINED_READER_PAIR_CONTRACT_VERSION_V1: u16 = 1;
@@ -21,10 +21,12 @@ pub const CONSTRAINED_READER_CONTEXT_V1: &[u8] = b"Diagnose the public request f
 
 const CITATION_POLICY_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/constrained-reader-citation-policy/v1\0first-party=canonical-log-brief-packet-markers-backed-by-source-exact-submission-claims\0drain=none-because-pattern-and-transformed-sample-output-is-not-source-exact\0marker-to-events=complete-displayed-packet-membership\0hidden-labels=none";
 const INPUT_PAIR_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/constrained-reader-input-pair/v1";
-const RECEIPT_PAIR_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/constrained-reader-receipt-pair/v1";
+const RECEIPT_PAIR_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/constrained-reader-receipt-pair/v1";
 const REPEATABILITY_PAIR_DOMAIN_V1: &[u8] =
     b"evidentrail/bench-harness/constrained-reader-repeatability-pair/v1";
-const GOVERNED_PAIR_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/constrained-reader-governed-pair/v1";
+const GOVERNED_PAIR_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/constrained-reader-governed-pair/v1";
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ConstrainedReaderInputPairV1 {
@@ -1040,8 +1042,12 @@ impl ConstrainedReaderPairErrorV1 {
             Self::FirstPartyCitationPolicyMismatch => {
                 "EVIDENTRAIL_BENCH_CONSTRAINED_READER_FIRST_PARTY_CITATION_POLICY_MISMATCH"
             }
-            Self::SharedInputMismatch => "EVIDENTRAIL_BENCH_CONSTRAINED_READER_SHARED_INPUT_MISMATCH",
-            Self::ReaderArmBindingMismatch => "EVIDENTRAIL_BENCH_CONSTRAINED_READER_ARM_BINDING_MISMATCH",
+            Self::SharedInputMismatch => {
+                "EVIDENTRAIL_BENCH_CONSTRAINED_READER_SHARED_INPUT_MISMATCH"
+            }
+            Self::ReaderArmBindingMismatch => {
+                "EVIDENTRAIL_BENCH_CONSTRAINED_READER_ARM_BINDING_MISMATCH"
+            }
             Self::ReaderConfigurationMismatch => {
                 "EVIDENTRAIL_BENCH_CONSTRAINED_READER_CONFIGURATION_MISMATCH"
             }

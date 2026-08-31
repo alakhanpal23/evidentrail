@@ -51,7 +51,8 @@ const GOVERNED_SELECTION_CORPUS_DOMAIN_V1: &[u8] =
     b"evidentrail/bench/governed-synthetic-three-lane-selection-corpus/v1\0";
 const MATCHED_BASELINE_OUTCOME_DOMAIN_V1: &[u8] =
     b"evidentrail/bench/matched-selection-baseline-outcome/v1\0";
-const MATCHED_BASELINE_SET_DOMAIN_V1: &[u8] = b"evidentrail/bench/matched-selection-baseline-set/v1\0";
+const MATCHED_BASELINE_SET_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench/matched-selection-baseline-set/v1\0";
 
 /// Closed preregistered schedule used by the first conformance tranche.
 ///
@@ -3352,7 +3353,9 @@ impl ThreeLaneSelectionCorpusErrorV1 {
         match self {
             Self::InvalidTokenBudget => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_INVALID_TOKEN_BUDGET",
             Self::DuplicateBudgetCase => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_DUPLICATE_BUDGET_CASE",
-            Self::MissingBudgetCases { .. } => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_MISSING_BUDGET_CASES",
+            Self::MissingBudgetCases { .. } => {
+                "EVIDENTRAIL_BENCH_SELECTION_CORPUS_MISSING_BUDGET_CASES"
+            }
             Self::DuplicateCase => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_DUPLICATE_CASE",
             Self::MissingCases { .. } => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_MISSING_CASES",
             Self::MissingMasks => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_MISSING_MASKS",
@@ -3361,10 +3364,14 @@ impl ThreeLaneSelectionCorpusErrorV1 {
             Self::PreparedBindingMismatch => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_PREPARED_BINDING",
             Self::ForeignSelectionCorpus => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_FOREIGN_SELECTION",
             Self::ForeignSourceCorpus => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_FOREIGN_SOURCE",
-            Self::NonEventRequirementTarget => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_NON_EVENT_REQUIREMENT",
+            Self::NonEventRequirementTarget => {
+                "EVIDENTRAIL_BENCH_SELECTION_CORPUS_NON_EVENT_REQUIREMENT"
+            }
             Self::SelectedEventMismatch => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_SELECTED_EVENT",
             Self::RecallUniverseMismatch => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_RECALL_UNIVERSE",
-            Self::ExactOracleBindingMismatch => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_EXACT_ORACLE_BINDING",
+            Self::ExactOracleBindingMismatch => {
+                "EVIDENTRAIL_BENCH_SELECTION_CORPUS_EXACT_ORACLE_BINDING"
+            }
             Self::ExactOracleDecisionMismatch => {
                 "EVIDENTRAIL_BENCH_SELECTION_CORPUS_EXACT_ORACLE_DECISION"
             }
@@ -3375,7 +3382,9 @@ impl ThreeLaneSelectionCorpusErrorV1 {
             Self::Method(_) => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_METHOD",
             Self::Reference(_) => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_REFERENCE",
             Self::Render(_) => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_RENDER",
-            Self::SourceCorpusEvaluation(_) => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_SOURCE_EVALUATION",
+            Self::SourceCorpusEvaluation(_) => {
+                "EVIDENTRAIL_BENCH_SELECTION_CORPUS_SOURCE_EVALUATION"
+            }
             Self::CaseEvaluation(_) => "EVIDENTRAIL_BENCH_SELECTION_CORPUS_CASE_EVALUATION",
         }
     }

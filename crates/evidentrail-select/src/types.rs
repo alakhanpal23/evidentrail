@@ -7,7 +7,8 @@ use sha2::{Digest, Sha256};
 /// Integer scale used by V1 facet weights and packet affinities.
 pub const AFFINITY_SCALE_V1: u32 = 1_000_000;
 /// Versioned deterministic selection-objective policy identity.
-pub const SELECTION_OBJECTIVE_POLICY_NAME_V1: &[u8] = b"evidentrail/selection/top-k-facility-coverage";
+pub const SELECTION_OBJECTIVE_POLICY_NAME_V1: &[u8] =
+    b"evidentrail/selection/top-k-facility-coverage";
 /// V2 introduces a two-packet saturation cardinality for provider relations.
 pub const SELECTION_OBJECTIVE_POLICY_VERSION_V1: &[u8] = b"2";
 /// Exact per-endpoint provider relation weight. Two distinct selected packets
@@ -204,7 +205,9 @@ impl FacetConstructionError {
         match self {
             Self::EmptySemanticKey => "EVIDENTRAIL_SELECT_EMPTY_FACET_SEMANTIC_KEY",
             Self::SemanticKeyTooLarge => "EVIDENTRAIL_SELECT_FACET_SEMANTIC_KEY_TOO_LARGE",
-            Self::InvalidProviderRelationWeight => "EVIDENTRAIL_SELECT_INVALID_PROVIDER_RELATION_WEIGHT",
+            Self::InvalidProviderRelationWeight => {
+                "EVIDENTRAIL_SELECT_INVALID_PROVIDER_RELATION_WEIGHT"
+            }
         }
     }
 }

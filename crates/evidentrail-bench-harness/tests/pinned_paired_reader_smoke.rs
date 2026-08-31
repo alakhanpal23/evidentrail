@@ -7,13 +7,13 @@ use std::process::Command;
 
 use evidentrail_bench::{EvidentrailBenchAnnotationSpecV1, WeightedDiagnosticRequirementV1};
 use evidentrail_bench_harness::{
-    LEGACY_DRAIN_PINNED_COMMIT_V1, CONSTRAINED_MATCHED_QUESTION_V1, CONSTRAINED_READER_CONTEXT_V1,
-    CompactAgentViewErrorV1, ConstrainedMatchedCaseErrorV1, ConstrainedReaderPairErrorV1,
+    CONSTRAINED_MATCHED_QUESTION_V1, CONSTRAINED_READER_CONTEXT_V1, CompactAgentViewErrorV1,
+    ConstrainedMatchedCaseErrorV1, ConstrainedReaderPairErrorV1,
     ConstrainedReaderPairRepeatabilityV1, DeterministicFixtureReaderModeV1,
     DeterministicFixtureReaderV1, FirstPartyConstrainedSubprocessErrorV1,
     FirstPartyConstrainedSubprocessTargetV1, GovernedReaderTruthV1, HarnessError, HarnessLimitsV1,
-    HostedReaderJsonlErrorV1, HostedReaderModelMessagesV1, MacOsTimePeakRssObserverV1,
-    PeakRssObserverErrorV1, PinnedLegacyDrainExecutionTargetV1,
+    HostedReaderJsonlErrorV1, HostedReaderModelMessagesV1, LEGACY_DRAIN_PINNED_COMMIT_V1,
+    MacOsTimePeakRssObserverV1, PeakRssObserverErrorV1, PinnedLegacyDrainExecutionTargetV1,
     PreparedPinnedDrainMatchedCaseErrorV1, ReaderAbstentionAssessmentV1, ReaderCauseGranularityV1,
     ReaderErrorV1, ReaderPublicInputV1, ReaderResourceCapsV1, artifact_digest_for_bytes_v1,
     compare_compact_agent_view_reader_receipts_v1, constrained_pinned_drain_public_input_v1,
@@ -394,13 +394,19 @@ impl PinnedReaderSmokeErrorV1 {
             Self::GitCommandFailed => "EVIDENTRAIL_BENCH_PINNED_READER_GIT_COMMAND_FAILED",
             Self::RevisionMismatch => "EVIDENTRAIL_BENCH_PINNED_READER_REVISION_MISMATCH",
             Self::WorktreeDirty => "EVIDENTRAIL_BENCH_PINNED_READER_WORKTREE_DIRTY",
-            Self::BuildArtifactMismatch => "EVIDENTRAIL_BENCH_PINNED_READER_BUILD_ARTIFACT_MISMATCH",
+            Self::BuildArtifactMismatch => {
+                "EVIDENTRAIL_BENCH_PINNED_READER_BUILD_ARTIFACT_MISMATCH"
+            }
             Self::DomainConstructionFailed => {
                 "EVIDENTRAIL_BENCH_PINNED_READER_DOMAIN_CONSTRUCTION_FAILED"
             }
-            Self::ReceiptBindingMismatch => "EVIDENTRAIL_BENCH_PINNED_READER_RECEIPT_BINDING_MISMATCH",
+            Self::ReceiptBindingMismatch => {
+                "EVIDENTRAIL_BENCH_PINNED_READER_RECEIPT_BINDING_MISMATCH"
+            }
             Self::RepeatabilityMismatch => "EVIDENTRAIL_BENCH_PINNED_READER_REPEATABILITY_MISMATCH",
-            Self::GovernedOutcomeMismatch => "EVIDENTRAIL_BENCH_PINNED_READER_GOVERNED_OUTCOME_MISMATCH",
+            Self::GovernedOutcomeMismatch => {
+                "EVIDENTRAIL_BENCH_PINNED_READER_GOVERNED_OUTCOME_MISMATCH"
+            }
             Self::Prepared(error) => error.code(),
             Self::FirstParty(error) => error.code(),
             Self::Constrained(error) => error.code(),

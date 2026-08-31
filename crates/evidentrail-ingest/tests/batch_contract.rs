@@ -98,7 +98,10 @@ fn operation_identity_is_stable_for_ordinal_while_digest_binds_changed_bytes() {
     let retry_ack = sink.commit_batch(&first).unwrap();
     assert_eq!(first_ack.as_slice(), retry_ack.as_slice());
     let error = sink.commit_batch(&changed).unwrap_err();
-    assert_eq!(error.to_string(), "EVIDENTRAIL_BATCH_SINK_OPERATION_CONFLICT");
+    assert_eq!(
+        error.to_string(),
+        "EVIDENTRAIL_BATCH_SINK_OPERATION_CONFLICT"
+    );
 }
 
 #[test]

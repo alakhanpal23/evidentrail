@@ -34,7 +34,9 @@ impl CoreResultPayloadErrorV1 {
     pub const fn code(self) -> &'static str {
         match self {
             Self::InvalidTimeRange => "EVIDENTRAIL_CORE_RESULT_PAYLOAD_INVALID_TIME_RANGE",
-            Self::PlaintextLengthOverflow => "EVIDENTRAIL_CORE_RESULT_PAYLOAD_PLAINTEXT_LENGTH_OVERFLOW",
+            Self::PlaintextLengthOverflow => {
+                "EVIDENTRAIL_CORE_RESULT_PAYLOAD_PLAINTEXT_LENGTH_OVERFLOW"
+            }
             Self::OuterSealFailed => "EVIDENTRAIL_CORE_RESULT_PAYLOAD_OUTER_SEAL_FAILED",
             Self::OuterDecodeFailed => "EVIDENTRAIL_CORE_RESULT_PAYLOAD_OUTER_DECODE_FAILED",
             Self::OuterAuthenticationFailed => {

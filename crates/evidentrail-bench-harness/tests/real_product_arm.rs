@@ -46,8 +46,10 @@ fn real_memory_arm_is_deterministic_and_durable_qualification_fails_closed() {
 #[cfg(unix)]
 #[test]
 fn real_memory_and_v2_durable_product_arms_have_identical_public_commitments() {
-    let root =
-        std::env::temp_dir().join(format!("evidentrail-t4-real-durable-arm-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "evidentrail-t4-real-durable-arm-{}",
+        std::process::id()
+    ));
     if root.exists() {
         std::fs::remove_dir_all(&root).unwrap();
     }

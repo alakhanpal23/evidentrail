@@ -716,7 +716,9 @@ impl PassthroughBriefError {
             Self::ReferenceTargetMustBeOneEvent => {
                 "EVIDENTRAIL_EVIDENCE_REFERENCE_TARGET_MUST_BE_ONE_EVENT"
             }
-            Self::ReferenceTargetsUnknownEvent => "EVIDENTRAIL_EVIDENCE_REFERENCE_TARGETS_UNKNOWN_EVENT",
+            Self::ReferenceTargetsUnknownEvent => {
+                "EVIDENTRAIL_EVIDENCE_REFERENCE_TARGETS_UNKNOWN_EVENT"
+            }
             Self::DuplicateReferenceTarget => "EVIDENTRAIL_EVIDENCE_DUPLICATE_REFERENCE_TARGET",
             Self::DuplicateReferenceIdentity => "EVIDENTRAIL_EVIDENCE_DUPLICATE_REFERENCE_IDENTITY",
             Self::MissingEventReference => "EVIDENTRAIL_EVIDENCE_MISSING_EVENT_REFERENCE",

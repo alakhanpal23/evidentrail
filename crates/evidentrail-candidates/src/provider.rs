@@ -27,7 +27,8 @@ use crate::provider_types::{
 use crate::types::{CandidateBuildErrorV1, CandidateNeedsMoreReasonV1, CandidateNeedsMoreV1};
 
 const NATIVE_KEY_DOMAIN_V1: &[u8] = b"evidentrail/provider-correlation-key/native-event/v1\0";
-const ATTESTED_KEY_DOMAIN_V1: &[u8] = b"evidentrail/provider-correlation-key/adapter-attestation/v1\0";
+const ATTESTED_KEY_DOMAIN_V1: &[u8] =
+    b"evidentrail/provider-correlation-key/adapter-attestation/v1\0";
 
 #[derive(Clone)]
 struct NodeOccurrence {

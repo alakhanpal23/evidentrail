@@ -7,8 +7,12 @@ use evidentrail_candidates::{
     generate_failure_coverage_candidates_v1, generate_lexical_candidates_v1,
     generate_provider_correlations_v1,
 };
-use evidentrail_core::{BlockId, BlockIndex, EventId, EventLedger, ResultId, derive_question_digest_v1};
-use evidentrail_evidence::{CompiledPacketMembershipV1, Utf8ByteTokenizerV1, certify_compiled_costs_v1};
+use evidentrail_core::{
+    BlockId, BlockIndex, EventId, EventLedger, ResultId, derive_question_digest_v1,
+};
+use evidentrail_evidence::{
+    CompiledPacketMembershipV1, Utf8ByteTokenizerV1, certify_compiled_costs_v1,
+};
 use evidentrail_select::{
     AffinityV1, FacetAffinityV1, FacetIdV1, IntactPacketV1, MandatoryPacketV1, NeedsMoreReasonV1,
     PacketConstructionError, PacketIdV1, ProductionFacetKindV1, ProductionFacetV1,

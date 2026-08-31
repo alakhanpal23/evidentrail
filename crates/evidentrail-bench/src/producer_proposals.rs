@@ -1280,7 +1280,9 @@ impl ProducerProposalErrorV1 {
             Self::TooManyMembersPerProposal => "EVIDENTRAIL_BENCH_PROPOSAL_MEMBER_CAP",
             Self::DuplicateProposalMember => "EVIDENTRAIL_BENCH_PROPOSAL_DUPLICATE_MEMBER",
             Self::TooManyProposalPackets => "EVIDENTRAIL_BENCH_PROPOSAL_PACKET_CAP",
-            Self::TooManyProposalMemberReferences => "EVIDENTRAIL_BENCH_PROPOSAL_MEMBER_REFERENCE_CAP",
+            Self::TooManyProposalMemberReferences => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_MEMBER_REFERENCE_CAP"
+            }
             Self::DuplicateProposalId => "EVIDENTRAIL_BENCH_PROPOSAL_DUPLICATE_ID",
             Self::UnknownProposalMember { .. } => "EVIDENTRAIL_BENCH_PROPOSAL_UNKNOWN_MEMBER",
             Self::AccountingOverflow => "EVIDENTRAIL_BENCH_PROPOSAL_ACCOUNTING_OVERFLOW",
@@ -1297,9 +1299,13 @@ impl ProducerProposalErrorV1 {
             }
             Self::RetrievalMismatch => "EVIDENTRAIL_BENCH_PROPOSAL_RETRIEVAL_MISMATCH",
             Self::PlanIdentityMismatch => "EVIDENTRAIL_BENCH_PROPOSAL_PLAN_IDENTITY_MISMATCH",
-            Self::AcquisitionReceiptMismatch => "EVIDENTRAIL_BENCH_PROPOSAL_ACQUISITION_RECEIPT_MISMATCH",
+            Self::AcquisitionReceiptMismatch => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_ACQUISITION_RECEIPT_MISMATCH"
+            }
             Self::SourceIdentityMismatch => "EVIDENTRAIL_BENCH_PROPOSAL_SOURCE_IDENTITY_MISMATCH",
-            Self::MeasurementBindingMismatch => "EVIDENTRAIL_BENCH_PROPOSAL_MEASUREMENT_BINDING_MISMATCH",
+            Self::MeasurementBindingMismatch => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_MEASUREMENT_BINDING_MISMATCH"
+            }
             Self::ZeroRendererContractVersion => {
                 "EVIDENTRAIL_BENCH_PROPOSAL_ZERO_RENDERER_CONTRACT_VERSION"
             }
@@ -1337,10 +1343,18 @@ impl ProducerProposalErrorV1 {
             Self::BlockIndexUniverseMismatch => {
                 "EVIDENTRAIL_BENCH_PROPOSAL_BLOCK_INDEX_UNIVERSE_MISMATCH"
             }
-            Self::UnknownAnnotationEvent { .. } => "EVIDENTRAIL_BENCH_PROPOSAL_UNKNOWN_ANNOTATION_EVENT",
-            Self::UnknownAnnotationBlock { .. } => "EVIDENTRAIL_BENCH_PROPOSAL_UNKNOWN_ANNOTATION_BLOCK",
-            Self::RequirementWeightOverflow => "EVIDENTRAIL_BENCH_PROPOSAL_REQUIREMENT_WEIGHT_OVERFLOW",
-            Self::RequirementCountOverflow => "EVIDENTRAIL_BENCH_PROPOSAL_REQUIREMENT_COUNT_OVERFLOW",
+            Self::UnknownAnnotationEvent { .. } => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_UNKNOWN_ANNOTATION_EVENT"
+            }
+            Self::UnknownAnnotationBlock { .. } => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_UNKNOWN_ANNOTATION_BLOCK"
+            }
+            Self::RequirementWeightOverflow => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_REQUIREMENT_WEIGHT_OVERFLOW"
+            }
+            Self::RequirementCountOverflow => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_REQUIREMENT_COUNT_OVERFLOW"
+            }
             Self::GovernedCaseValidationInvariant => {
                 "EVIDENTRAIL_BENCH_PROPOSAL_GOVERNED_CASE_VALIDATION_INVARIANT"
             }

@@ -98,8 +98,12 @@ impl EncryptedCoreResultRepositoryErrorV1 {
             Self::DuplicateResult => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_DUPLICATE_RESULT",
             Self::AuthorityMismatch => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_AUTHORITY_MISMATCH",
             Self::KeyProviderFailed => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_KEY_PROVIDER_FAILED",
-            Self::NonceIssuanceFailed => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_NONCE_ISSUANCE_FAILED",
-            Self::ManifestSealFailed => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_MANIFEST_SEAL_FAILED",
+            Self::NonceIssuanceFailed => {
+                "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_NONCE_ISSUANCE_FAILED"
+            }
+            Self::ManifestSealFailed => {
+                "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_MANIFEST_SEAL_FAILED"
+            }
             Self::SealBindingFailed => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_SEAL_BINDING_FAILED",
             Self::KeySealFailed => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_KEY_SEAL_FAILED",
             Self::PublicationFailed => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_PUBLICATION_FAILED",
@@ -109,8 +113,12 @@ impl EncryptedCoreResultRepositoryErrorV1 {
             Self::CiphertextDecodeFailed => {
                 "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_CIPHERTEXT_DECODE_FAILED"
             }
-            Self::SealBindingMismatch => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_SEAL_BINDING_MISMATCH",
-            Self::ManifestOpenFailed => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_MANIFEST_OPEN_FAILED",
+            Self::SealBindingMismatch => {
+                "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_SEAL_BINDING_MISMATCH"
+            }
+            Self::ManifestOpenFailed => {
+                "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_MANIFEST_OPEN_FAILED"
+            }
             Self::NoStagedResult => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_NO_STAGED_RESULT",
             Self::EmptySegment => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_EMPTY_SEGMENT",
             Self::FrameCountCap => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_FRAME_COUNT_CAP",
@@ -133,12 +141,18 @@ impl EncryptedCoreResultRepositoryErrorV1 {
             Self::EventIndexBuildFailed => {
                 "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_EVENT_INDEX_BUILD_FAILED"
             }
-            Self::EventIndexMismatch => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_EVENT_INDEX_MISMATCH",
-            Self::CatalogBuildFailed => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_CATALOG_BUILD_FAILED",
+            Self::EventIndexMismatch => {
+                "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_EVENT_INDEX_MISMATCH"
+            }
+            Self::CatalogBuildFailed => {
+                "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_CATALOG_BUILD_FAILED"
+            }
             Self::CatalogMismatch => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_CATALOG_MISMATCH",
             Self::FrameNotFound => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_FRAME_NOT_FOUND",
             Self::EventNotFound => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_EVENT_NOT_FOUND",
-            Self::EventBindingMismatch => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_EVENT_BINDING_MISMATCH",
+            Self::EventBindingMismatch => {
+                "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_EVENT_BINDING_MISMATCH"
+            }
             Self::AliasManifestRequiresTypedStaging => {
                 "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_ALIAS_MANIFEST_REQUIRES_TYPED_STAGING"
             }
@@ -148,7 +162,9 @@ impl EncryptedCoreResultRepositoryErrorV1 {
             Self::AliasManifestResultMismatch => {
                 "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_ALIAS_MANIFEST_RESULT_MISMATCH"
             }
-            Self::AliasManifestMissing => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_ALIAS_MANIFEST_MISSING",
+            Self::AliasManifestMissing => {
+                "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_ALIAS_MANIFEST_MISSING"
+            }
             Self::AliasManifestDuplicate => {
                 "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_ALIAS_MANIFEST_DUPLICATE"
             }
@@ -158,8 +174,12 @@ impl EncryptedCoreResultRepositoryErrorV1 {
             Self::AliasManifestEventMismatch => {
                 "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_ALIAS_MANIFEST_EVENT_MISMATCH"
             }
-            Self::BundleEncodeFailed => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_BUNDLE_ENCODE_FAILED",
-            Self::BundleDecodeFailed => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_BUNDLE_DECODE_FAILED",
+            Self::BundleEncodeFailed => {
+                "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_BUNDLE_ENCODE_FAILED"
+            }
+            Self::BundleDecodeFailed => {
+                "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_BUNDLE_DECODE_FAILED"
+            }
             Self::BundleMismatch => "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_BUNDLE_MISMATCH",
             Self::FrameIdentityMismatch => {
                 "EVIDENTRAIL_ENCRYPTED_CORE_REPOSITORY_FRAME_IDENTITY_MISMATCH"

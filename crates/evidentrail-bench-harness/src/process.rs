@@ -680,7 +680,11 @@ fn force_kill_and_reap(
     let status = child
         .wait()
         .map_err(|_| HarnessError::ChildTerminationFailed)?;
-    if !process_group_termination_confirmed {
+    // A short-lived child can create a second race: the first group signal may
+    // fail while the wrapper is exiting, then the unconditional wait reaps it.
+    // Retry the group confirmation after the reap so a vanished group is
+    // accepted and a still-live group receives the kill signal.
+    if !process_group_termination_confirmed && !request_termination(child, process_group) {
         return Err(HarnessError::ChildTerminationFailed);
     }
     Ok(status)

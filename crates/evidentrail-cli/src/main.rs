@@ -36,12 +36,15 @@ use evidentrail_schema::InternalPathPolicyDigest;
 use evidentrail_store::DurableRetainedEventStoreV3;
 use evidentrail_store::PackedMemoryEventStoreV3;
 #[cfg(target_os = "macos")]
-use evidentrail_store::{DurableRepositoryErrorV2, DurableResultRepositoryV2, MacOsKeychainAuthorityV2};
+use evidentrail_store::{
+    DurableRepositoryErrorV2, DurableResultRepositoryV2, MacOsKeychainAuthorityV2,
+};
 
 const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] < logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nBrief reads only explicit standard input and retention defaults to memory. Streaming\nV3 is available behind the internal EVIDENTRAIL_STREAMING_V3=1 rollout gate; durable brief\nretention always uses V3 and is explicit, requires the platform external authority,\nand fails closed when that authority is locked or unavailable. Doctor inspects metadata\nfor exactly one explicit file; it never reads file contents, approves a source, or mints\nhost certification. The product does not discover files, crawl a workspace, inspect\nambient logs, or invoke a model. Use --question-file when the question should not appear\nin the process argument list. The pinned tokenizer conservatively counts one rendered\nUTF-8 byte as one budget unit; this is not a model-token count.\n";
 
 const DOCTOR_SUCCESS_CODE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_FILE_METADATA_OK";
-const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_INTERNAL_PATH_POLICY_UNAVAILABLE";
+const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str =
+    "EVIDENTRAIL_CLI_DOCTOR_INTERNAL_PATH_POLICY_UNAVAILABLE";
 
 struct BriefOptions {
     question: Vec<u8>,
@@ -113,8 +116,12 @@ fn run() -> Result<ExitCode, CliFailure> {
             Ok(ExitCode::SUCCESS)
         }
         ParseDecision::Version => {
-            writeln!(io::stdout().lock(), "evidentrail {}", env!("CARGO_PKG_VERSION"))
-                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_STDOUT_WRITE_FAILURE"))?;
+            writeln!(
+                io::stdout().lock(),
+                "evidentrail {}",
+                env!("CARGO_PKG_VERSION")
+            )
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_STDOUT_WRITE_FAILURE"))?;
             Ok(ExitCode::SUCCESS)
         }
         ParseDecision::Run(options) => run_brief(options),
@@ -243,7 +250,9 @@ fn parse_args(
         }
     }
     if inline_question.is_some() == question_file.is_some() {
-        return Err(CliFailure::usage("EVIDENTRAIL_CLI_QUESTION_SOURCE_REQUIRED"));
+        return Err(CliFailure::usage(
+            "EVIDENTRAIL_CLI_QUESTION_SOURCE_REQUIRED",
+        ));
     }
     let question = if let Some(question) = inline_question {
         question
@@ -251,14 +260,16 @@ fn parse_args(
             .map_err(|_| CliFailure::usage("EVIDENTRAIL_CLI_QUESTION_NOT_UTF8"))?
             .into_bytes()
     } else {
-        let question_file =
-            question_file.ok_or_else(|| CliFailure::usage("EVIDENTRAIL_CLI_QUESTION_SOURCE_REQUIRED"))?;
+        let question_file = question_file
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_CLI_QUESTION_SOURCE_REQUIRED"))?;
         let file = File::open(question_file)
             .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_QUESTION_FILE_OPEN_FAILURE"))?;
         match read_bounded(file, MAX_QUESTION_BYTES_V1) {
             Ok(question) => question,
             Err(BoundedReadFailure::Io) => {
-                return Err(CliFailure::runtime("EVIDENTRAIL_CLI_QUESTION_FILE_READ_FAILURE"));
+                return Err(CliFailure::runtime(
+                    "EVIDENTRAIL_CLI_QUESTION_FILE_READ_FAILURE",
+                ));
             }
             Err(BoundedReadFailure::LimitExceeded) => {
                 return Err(CliFailure::usage("EVIDENTRAIL_CLI_QUESTION_TOO_LARGE"));
@@ -490,10 +501,12 @@ fn prepare_durable_cache_parent_v2(repository_root: &Path) -> Result<(), CliFail
         }
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            fs::create_dir(parent)
-                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE"))?;
-            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
-                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE"))?;
+            fs::create_dir(parent).map_err(|_| {
+                CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE")
+            })?;
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).map_err(|_| {
+                CliFailure::runtime("EVIDENTRAIL_CLI_DURABLE_CACHE_ROOT_UNAVAILABLE")
+            })?;
         }
         Err(_) => {
             return Err(CliFailure::runtime(

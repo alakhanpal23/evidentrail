@@ -489,7 +489,9 @@ impl InvocationInputContractV1 {
     pub const fn code(self) -> &'static str {
         match self {
             Self::ByteExact => "byte_exact",
-            Self::LegacyDrainRawTextKnownNormalization => "legacy_drain_raw_text_known_normalization",
+            Self::LegacyDrainRawTextKnownNormalization => {
+                "legacy_drain_raw_text_known_normalization"
+            }
             Self::LegacyDrainRawTextFullMembership => "legacy_drain_raw_text_full_membership",
         }
     }
@@ -958,8 +960,12 @@ impl HarnessError {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
-            Self::LimitExceedsHardBound { .. } => "EVIDENTRAIL_BENCH_HARNESS_LIMIT_EXCEEDS_HARD_BOUND",
-            Self::LimitNotRepresentable { .. } => "EVIDENTRAIL_BENCH_HARNESS_LIMIT_NOT_REPRESENTABLE",
+            Self::LimitExceedsHardBound { .. } => {
+                "EVIDENTRAIL_BENCH_HARNESS_LIMIT_EXCEEDS_HARD_BOUND"
+            }
+            Self::LimitNotRepresentable { .. } => {
+                "EVIDENTRAIL_BENCH_HARNESS_LIMIT_NOT_REPRESENTABLE"
+            }
             Self::ZeroWallDeadline => "EVIDENTRAIL_BENCH_HARNESS_ZERO_WALL_DEADLINE",
             Self::InvalidEnvironmentName => "EVIDENTRAIL_BENCH_HARNESS_INVALID_ENVIRONMENT_NAME",
             Self::InvalidEnvironmentValue => "EVIDENTRAIL_BENCH_HARNESS_INVALID_ENVIRONMENT_VALUE",
@@ -980,11 +986,15 @@ impl HarnessError {
                 "EVIDENTRAIL_BENCH_HARNESS_STDIN_ARTIFACT_DIGEST_MISMATCH"
             }
             Self::StdinByteCapExceeded => "EVIDENTRAIL_BENCH_HARNESS_STDIN_BYTE_CAP_EXCEEDED",
-            Self::UnknownPublicCaseArtifact => "EVIDENTRAIL_BENCH_HARNESS_UNKNOWN_PUBLIC_CASE_ARTIFACT",
+            Self::UnknownPublicCaseArtifact => {
+                "EVIDENTRAIL_BENCH_HARNESS_UNKNOWN_PUBLIC_CASE_ARTIFACT"
+            }
             Self::SystemArtifactMismatch => "EVIDENTRAIL_BENCH_HARNESS_SYSTEM_ARTIFACT_MISMATCH",
             Self::BuildArtifactMismatch => "EVIDENTRAIL_BENCH_HARNESS_BUILD_ARTIFACT_MISMATCH",
             Self::ArtifactLengthOverflow => "EVIDENTRAIL_BENCH_HARNESS_ARTIFACT_LENGTH_OVERFLOW",
-            Self::InvocationBindingOverflow => "EVIDENTRAIL_BENCH_HARNESS_INVOCATION_BINDING_OVERFLOW",
+            Self::InvocationBindingOverflow => {
+                "EVIDENTRAIL_BENCH_HARNESS_INVOCATION_BINDING_OVERFLOW"
+            }
             Self::ArtifactNotRegularFile => "EVIDENTRAIL_BENCH_HARNESS_ARTIFACT_NOT_REGULAR_FILE",
             Self::ArtifactReadFailed => "EVIDENTRAIL_BENCH_HARNESS_ARTIFACT_READ_FAILED",
             Self::ExecutableArtifactDigestMismatch => {
@@ -1001,9 +1011,13 @@ impl HarnessError {
             Self::ChildStatusFailed => "EVIDENTRAIL_BENCH_HARNESS_CHILD_STATUS_FAILED",
             Self::ChildTerminationFailed => "EVIDENTRAIL_BENCH_HARNESS_CHILD_TERMINATION_FAILED",
             Self::WorkerThreadFailed => "EVIDENTRAIL_BENCH_HARNESS_WORKER_THREAD_FAILED",
-            Self::UnsupportedExternalInput => "EVIDENTRAIL_BENCH_HARNESS_UNSUPPORTED_EXTERNAL_INPUT",
+            Self::UnsupportedExternalInput => {
+                "EVIDENTRAIL_BENCH_HARNESS_UNSUPPORTED_EXTERNAL_INPUT"
+            }
             Self::InvalidSampleCap => "EVIDENTRAIL_BENCH_HARNESS_INVALID_SAMPLE_CAP",
-            Self::FullMembershipEmptyInput => "EVIDENTRAIL_BENCH_HARNESS_FULL_MEMBERSHIP_EMPTY_INPUT",
+            Self::FullMembershipEmptyInput => {
+                "EVIDENTRAIL_BENCH_HARNESS_FULL_MEMBERSHIP_EMPTY_INPUT"
+            }
             Self::FullMembershipRecordCapExceeded => {
                 "EVIDENTRAIL_BENCH_HARNESS_FULL_MEMBERSHIP_RECORD_CAP_EXCEEDED"
             }
@@ -1025,7 +1039,9 @@ impl HarnessError {
             }
             Self::OutputNotComplete => "EVIDENTRAIL_BENCH_HARNESS_OUTPUT_NOT_COMPLETE",
             Self::ProcessNotSuccessful => "EVIDENTRAIL_BENCH_HARNESS_PROCESS_NOT_SUCCESSFUL",
-            Self::MeasurementBindingMismatch => "EVIDENTRAIL_BENCH_HARNESS_MEASUREMENT_BINDING_MISMATCH",
+            Self::MeasurementBindingMismatch => {
+                "EVIDENTRAIL_BENCH_HARNESS_MEASUREMENT_BINDING_MISMATCH"
+            }
             Self::PublicResultBindingMismatch => {
                 "EVIDENTRAIL_BENCH_HARNESS_PUBLIC_RESULT_BINDING_MISMATCH"
             }
@@ -1064,7 +1080,9 @@ impl HarnessError {
             Self::SourceRecordLedgerNotSourceExact => {
                 "EVIDENTRAIL_BENCH_HARNESS_SOURCE_RECORD_LEDGER_NOT_SOURCE_EXACT"
             }
-            Self::SourceRecordLedgerFragment => "EVIDENTRAIL_BENCH_HARNESS_SOURCE_RECORD_LEDGER_FRAGMENT",
+            Self::SourceRecordLedgerFragment => {
+                "EVIDENTRAIL_BENCH_HARNESS_SOURCE_RECORD_LEDGER_FRAGMENT"
+            }
             Self::SourceRecordLedgerEventMismatch => {
                 "EVIDENTRAIL_BENCH_HARNESS_SOURCE_RECORD_LEDGER_EVENT_MISMATCH"
             }

@@ -1,6 +1,7 @@
 use evidentrail_bench::{
-    CandidateResourceCap, EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1,
-    EvidentrailBenchHiddenEvaluationManifestV1, EvidentrailBenchRunManifestV1, EvidenceTargetV1,
+    CandidateResourceCap, EvidenceTargetV1, EvidentrailBenchAnnotationSpecV1,
+    EvidentrailBenchCaseSpecV1, EvidentrailBenchHiddenEvaluationManifestV1,
+    EvidentrailBenchRunManifestV1,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

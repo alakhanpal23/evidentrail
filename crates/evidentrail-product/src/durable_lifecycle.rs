@@ -589,7 +589,11 @@ pub fn durable_product_build_context_v2() -> BuildContextDigestsV1 {
     )
 }
 
-fn operation(result_id: evidentrail_schema::ResultId, ordinal: u64, purpose: &[u8]) -> OperationIdV1 {
+fn operation(
+    result_id: evidentrail_schema::ResultId,
+    ordinal: u64,
+    purpose: &[u8],
+) -> OperationIdV1 {
     let mut hasher = Sha256::new();
     hasher.update(OPERATION_DOMAIN_V2);
     hasher.update(result_id.as_bytes());

@@ -261,9 +261,13 @@ impl LedgerBuildError {
             Self::ByteCountOverflow => "EVIDENTRAIL_LEDGER_BYTE_COUNT_OVERFLOW",
             Self::SourceRecordIdCollision(_) => "EVIDENTRAIL_LEDGER_SOURCE_RECORD_ID_COLLISION",
             Self::EventIdCollision(_) => "EVIDENTRAIL_LEDGER_EVENT_ID_COLLISION",
-            Self::TransformationReceiptCollision => "EVIDENTRAIL_LEDGER_TRANSFORMATION_RECEIPT_COLLISION",
+            Self::TransformationReceiptCollision => {
+                "EVIDENTRAIL_LEDGER_TRANSFORMATION_RECEIPT_COLLISION"
+            }
             Self::CompletionIdentityMismatch => "EVIDENTRAIL_LEDGER_COMPLETION_IDENTITY_MISMATCH",
-            Self::CompletionRecordCountMismatch => "EVIDENTRAIL_LEDGER_COMPLETION_RECORD_COUNT_MISMATCH",
+            Self::CompletionRecordCountMismatch => {
+                "EVIDENTRAIL_LEDGER_COMPLETION_RECORD_COUNT_MISMATCH"
+            }
             Self::CompletionPayloadByteCountMismatch => {
                 "EVIDENTRAIL_LEDGER_COMPLETION_PAYLOAD_BYTE_COUNT_MISMATCH"
             }

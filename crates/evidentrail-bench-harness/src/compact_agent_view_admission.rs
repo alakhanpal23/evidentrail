@@ -27,7 +27,8 @@ pub const COMPACT_AGENT_VIEW_CHALLENGE_NEEDS_MORE_CASE_COUNT_V1: u64 = 1;
 pub const MAX_COMPACT_AGENT_VIEW_MEASURED_READER_PAIRS_V1: usize = 16;
 
 const CHALLENGE_CORPUS_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/compact-agent-view-admission-challenge-corpus/v1\0rendered-cases=4\0needs-more-cases=1\0classes=arbitrary-bytes-structural-injection,duplicate-occurrences,empty-crlf-backslash,deep-stack-trace\0source=typed-owned-compiled-log-brief\0byte-proof=decode-range-and-compare-to-structured-event\0citation-proof=alias-and-occurrence-target-equality\0production-renderer-unchanged=true\0hosted-reader=false";
-const CHALLENGE_CASE_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/compact-agent-view-challenge-case/v1";
+const CHALLENGE_CASE_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/compact-agent-view-challenge-case/v1";
 const NEEDS_MORE_DOMAIN_V1: &[u8] =
     b"evidentrail/bench-harness/compact-agent-view-needs-more-observation/v1";
 const CHALLENGE_CORPUS_DOMAIN_V1: &[u8] =

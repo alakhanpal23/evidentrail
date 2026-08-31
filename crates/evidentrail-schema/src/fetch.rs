@@ -377,14 +377,20 @@ impl FetchConstructionError {
             Self::CompletedMembersExceedAttempted => {
                 "EVIDENTRAIL_FETCH_COMPLETED_MEMBERS_EXCEED_ATTEMPTED"
             }
-            Self::CompletedPagesExceedAttempted => "EVIDENTRAIL_FETCH_COMPLETED_PAGES_EXCEED_ATTEMPTED",
-            Self::PayloadBytesExceedSourceBytes => "EVIDENTRAIL_FETCH_PAYLOAD_BYTES_EXCEED_SOURCE_BYTES",
+            Self::CompletedPagesExceedAttempted => {
+                "EVIDENTRAIL_FETCH_COMPLETED_PAGES_EXCEED_ATTEMPTED"
+            }
+            Self::PayloadBytesExceedSourceBytes => {
+                "EVIDENTRAIL_FETCH_PAYLOAD_BYTES_EXCEED_SOURCE_BYTES"
+            }
             Self::CompleteWithNonFinishedOutcome => {
                 "EVIDENTRAIL_FETCH_COMPLETE_WITH_NON_FINISHED_OUTCOME"
             }
             Self::CompleteWithErrorCodes => "EVIDENTRAIL_FETCH_COMPLETE_WITH_ERROR_CODES",
             Self::CompleteWithTerminatingCap => "EVIDENTRAIL_FETCH_COMPLETE_WITH_TERMINATING_CAP",
-            Self::CompleteWithIncompleteMembers => "EVIDENTRAIL_FETCH_COMPLETE_WITH_INCOMPLETE_MEMBERS",
+            Self::CompleteWithIncompleteMembers => {
+                "EVIDENTRAIL_FETCH_COMPLETE_WITH_INCOMPLETE_MEMBERS"
+            }
             Self::CompleteWithIncompletePages => "EVIDENTRAIL_FETCH_COMPLETE_WITH_INCOMPLETE_PAGES",
         }
     }

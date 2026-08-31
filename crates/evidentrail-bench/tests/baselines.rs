@@ -227,7 +227,7 @@ fn bm25f_bounds_config_identity_and_diagnostics_are_contentless() {
     assert_eq!(config.digest(), Bm25fConfigV1.digest());
     assert_eq!(
         config.digest().to_string(),
-        "artifact_sha256_0f52c2e17ba2bbab50e8229b91402d1e66e6df58596a60d591c22116e0c24329"
+        "artifact_sha256_9a974d471c75d69c5a88292716f9fa60e1a6e9fb596985bd53792480d09efe8c"
     );
     assert_eq!(config.tokenizer_contract(), "ascii_lower_bounded_v1");
     assert_eq!(config.scoring_contract(), "fixed_point_bm25f_style_v1");

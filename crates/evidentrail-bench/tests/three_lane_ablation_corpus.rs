@@ -1,9 +1,10 @@
 use std::collections::BTreeSet;
 
 use evidentrail_bench::{
-    BenchmarkBudgetV1, BenchmarkRunIdentityV1, CandidateResourceCap, EvidentrailBenchAnnotationSpecV1,
-    EvidentrailBenchCaseSpecV1, EvidentrailBenchHiddenEvaluationManifestV1, EvidentrailBenchRunManifestV1,
-    EvidenceTargetV1, ExpectedAcquisitionClassV1, FrozenPublicSyntheticThreeLaneAblationCorpusV1,
+    BenchmarkBudgetV1, BenchmarkRunIdentityV1, CandidateResourceCap, EvidenceTargetV1,
+    EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1,
+    EvidentrailBenchHiddenEvaluationManifestV1, EvidentrailBenchRunManifestV1,
+    ExpectedAcquisitionClassV1, FrozenPublicSyntheticThreeLaneAblationCorpusV1,
     FrozenPublicSyntheticThreeLaneSelectionCorpusV1, GovernedCaseArtifactBindingV1,
     GovernedSyntheticThreeLaneAblationCaseInputV1, GovernedSyntheticThreeLaneSelectionCaseInputV1,
     MAX_EXACT_SELECTION_ORACLE_OPTIONAL_PACKETS_V1, MatchedBaselineArmV1,
@@ -1267,9 +1268,9 @@ fn budgeted_selector_and_canonical_renderer_freeze_before_required_event_scoring
     assert_eq!(
         three_lane_ablation_method_family_digest_v1().as_bytes(),
         &[
-            0x86, 0x55, 0x26, 0xe9, 0xb3, 0xbe, 0x94, 0xc5, 0x90, 0xf0, 0x65, 0xeb, 0x7d, 0x25,
-            0x19, 0xde, 0x9d, 0x5d, 0xc1, 0xc1, 0x27, 0xa9, 0x66, 0xdc, 0x73, 0x04, 0x59, 0x2e,
-            0xc3, 0xd0, 0x85, 0x39,
+            0xd4, 0x53, 0xc2, 0x1d, 0x23, 0x0a, 0x13, 0x19, 0xc8, 0x52, 0x4d, 0x46, 0x03, 0xaa,
+            0x12, 0x66, 0xaf, 0x0e, 0xb7, 0x08, 0xb6, 0x62, 0x64, 0xac, 0xbb, 0x98, 0x09, 0x1d,
+            0xe3, 0xda, 0x16, 0x68,
         ]
     );
     let ledgers = setup_ledgers();
@@ -1349,7 +1350,7 @@ fn budgeted_selector_and_canonical_renderer_freeze_before_required_event_scoring
             }
             SyntheticThreeLaneAblationCaseV1::PartialRepeatedDistractors => None,
             SyntheticThreeLaneAblationCaseV1::UnknownArbitraryStructuralBytes => {
-                Some((1_500_000_000_000, 1_779, 3, 130))
+                Some((1_500_000_000_000, 1_785, 3, 130))
             }
         };
         match (oracle.decision().exact_evaluated(), expected_exact) {
@@ -1480,7 +1481,9 @@ fn budgeted_selector_and_canonical_renderer_freeze_before_required_event_scoring
             let outcome = public_case.outcome(mask);
             assert_eq!(outcome.budget(), schedule.budget(case));
             match outcome.decision() {
-                evidentrail_bench::FrozenSyntheticThreeLaneSelectionDecisionV1::Selected(selected) => {
+                evidentrail_bench::FrozenSyntheticThreeLaneSelectionDecisionV1::Selected(
+                    selected,
+                ) => {
                     selected_count += 1;
                     assert!(!selected.selected_packet_ids().is_empty());
                     assert!(!selected.selected_event_ids().is_empty());
@@ -1529,16 +1532,14 @@ fn budgeted_selector_and_canonical_renderer_freeze_before_required_event_scoring
                     );
                     assert!(!selected.render().text().contains('\0'));
                 }
-                evidentrail_bench::FrozenSyntheticThreeLaneSelectionDecisionV1::NeedsMore(needs_more) => {
-                    match needs_more.class() {
-                        SyntheticThreeLaneNeedsMoreClassV1::EmptyProposalUniverse => {
-                            empty_count += 1
-                        }
-                        SyntheticThreeLaneNeedsMoreClassV1::BudgetInfeasible => {
-                            budget_infeasible_count += 1;
-                        }
+                evidentrail_bench::FrozenSyntheticThreeLaneSelectionDecisionV1::NeedsMore(
+                    needs_more,
+                ) => match needs_more.class() {
+                    SyntheticThreeLaneNeedsMoreClassV1::EmptyProposalUniverse => empty_count += 1,
+                    SyntheticThreeLaneNeedsMoreClassV1::BudgetInfeasible => {
+                        budget_infeasible_count += 1;
                     }
-                }
+                },
             }
         }
     }
@@ -1686,7 +1687,9 @@ fn budgeted_selector_and_canonical_renderer_freeze_before_required_event_scoring
             assert_eq!(recall.requirement_count(), 1);
             assert!(recall.satisfied_requirement_count() <= 1);
             match public_outcome.decision() {
-                evidentrail_bench::FrozenSyntheticThreeLaneSelectionDecisionV1::Selected(selected) => {
+                evidentrail_bench::FrozenSyntheticThreeLaneSelectionDecisionV1::Selected(
+                    selected,
+                ) => {
                     assert_eq!(
                         point.selected_packet_count(),
                         selected.selected_packet_count()
@@ -1721,7 +1724,9 @@ fn budgeted_selector_and_canonical_renderer_freeze_before_required_event_scoring
                         }
                     );
                 }
-                evidentrail_bench::FrozenSyntheticThreeLaneSelectionDecisionV1::NeedsMore(needs_more) => {
+                evidentrail_bench::FrozenSyntheticThreeLaneSelectionDecisionV1::NeedsMore(
+                    needs_more,
+                ) => {
                     assert_eq!(point.selected_packet_count(), 0);
                     assert_eq!(point.selected_event_count(), 0);
                     assert_eq!(point.selected_unique_source_bytes(), 0);
@@ -1996,8 +2001,8 @@ fn budgeted_selector_and_canonical_renderer_freeze_before_required_event_scoring
             (13, 13),
             3,
             3,
-            122,
-            1_512,
+            128,
+            1_518,
             RequiredEventSelectionResidualV1::None,
             None,
         ),
@@ -2007,8 +2012,8 @@ fn budgeted_selector_and_canonical_renderer_freeze_before_required_event_scoring
             (13, 13),
             3,
             3,
-            122,
-            1_512,
+            128,
+            1_518,
             RequiredEventSelectionResidualV1::None,
             None,
         ),
@@ -2029,8 +2034,8 @@ fn budgeted_selector_and_canonical_renderer_freeze_before_required_event_scoring
             (13, 13),
             3,
             3,
-            122,
-            1_512,
+            128,
+            1_518,
             RequiredEventSelectionResidualV1::None,
             None,
         ),
@@ -2300,23 +2305,23 @@ fn budgeted_selector_and_canonical_renderer_freeze_before_required_event_scoring
         (
             SyntheticThreeLaneAblationCaseV1::UnknownArbitraryStructuralBytes,
             MatchedBaselineArmV1::RawChronological,
-            122,
+            128,
             (13, 13),
             2,
-            101,
+            107,
         ),
         (
             SyntheticThreeLaneAblationCaseV1::UnknownArbitraryStructuralBytes,
             MatchedBaselineArmV1::GrepHeadTail,
-            122,
+            128,
             (13, 13),
             3,
-            122,
+            128,
         ),
         (
             SyntheticThreeLaneAblationCaseV1::UnknownArbitraryStructuralBytes,
             MatchedBaselineArmV1::QuotaHybrid,
-            122,
+            128,
             (0, 13),
             5,
             110,
@@ -2764,7 +2769,8 @@ fn bounded_selector_challenger_is_frozen_paired_and_remains_evaluation_only() {
         19
     );
     assert!(public.cases().iter().all(|case| {
-        case.pair().challenger_identity() == evidentrail_bench::bounded_selector_challenger_identity_v1()
+        case.pair().challenger_identity()
+            == evidentrail_bench::bounded_selector_challenger_identity_v1()
     }));
 
     let density = public.case(SelectorChallengerComparisonCaseV1::Perturbation(

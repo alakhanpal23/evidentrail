@@ -259,11 +259,15 @@ impl DurableBatchJournalErrorV2 {
         match self {
             Self::InvalidEncodedLength => "EVIDENTRAIL_BATCH_JOURNAL_V2_INVALID_ENCODED_LENGTH",
             Self::InvalidHeader => "EVIDENTRAIL_BATCH_JOURNAL_V2_INVALID_HEADER",
-            Self::AcknowledgementCountCap => "EVIDENTRAIL_BATCH_JOURNAL_V2_ACKNOWLEDGEMENT_COUNT_CAP",
+            Self::AcknowledgementCountCap => {
+                "EVIDENTRAIL_BATCH_JOURNAL_V2_ACKNOWLEDGEMENT_COUNT_CAP"
+            }
             Self::NoncanonicalAcknowledgement => {
                 "EVIDENTRAIL_BATCH_JOURNAL_V2_NONCANONICAL_ACKNOWLEDGEMENT"
             }
-            Self::DuplicateAcknowledgement => "EVIDENTRAIL_BATCH_JOURNAL_V2_DUPLICATE_ACKNOWLEDGEMENT",
+            Self::DuplicateAcknowledgement => {
+                "EVIDENTRAIL_BATCH_JOURNAL_V2_DUPLICATE_ACKNOWLEDGEMENT"
+            }
             Self::AcknowledgementDigestMismatch => {
                 "EVIDENTRAIL_BATCH_JOURNAL_V2_ACKNOWLEDGEMENT_DIGEST_MISMATCH"
             }

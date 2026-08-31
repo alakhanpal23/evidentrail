@@ -107,7 +107,9 @@ impl SealedEncryptedCoreResultBundleErrorV1 {
             Self::FrameByteCap => "EVIDENTRAIL_SEALED_BUNDLE_FRAME_BYTE_CAP",
             Self::NoncanonicalLayout => "EVIDENTRAIL_SEALED_BUNDLE_NONCANONICAL_LAYOUT",
             Self::ManifestDecodeFailed => "EVIDENTRAIL_SEALED_BUNDLE_MANIFEST_DECODE_FAILED",
-            Self::SegmentHeaderDecodeFailed => "EVIDENTRAIL_SEALED_BUNDLE_SEGMENT_HEADER_DECODE_FAILED",
+            Self::SegmentHeaderDecodeFailed => {
+                "EVIDENTRAIL_SEALED_BUNDLE_SEGMENT_HEADER_DECODE_FAILED"
+            }
             Self::FrameDecodeFailed => "EVIDENTRAIL_SEALED_BUNDLE_FRAME_DECODE_FAILED",
             Self::ResultIdentityMismatch => "EVIDENTRAIL_SEALED_BUNDLE_RESULT_IDENTITY_MISMATCH",
             Self::SequenceMismatch => "EVIDENTRAIL_SEALED_BUNDLE_SEQUENCE_MISMATCH",

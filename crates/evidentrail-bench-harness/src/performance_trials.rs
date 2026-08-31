@@ -263,7 +263,9 @@ impl fmt::Display for M1PerformanceErrorV1 {
         formatter.write_str(match self {
             Self::InsufficientWarmups => "EVIDENTRAIL_M1_INSUFFICIENT_WARMUPS",
             Self::InsufficientMeasuredObservations => "EVIDENTRAIL_M1_INSUFFICIENT_OBSERVATIONS",
-            Self::InsufficientBootstrapResamples => "EVIDENTRAIL_M1_INSUFFICIENT_BOOTSTRAP_RESAMPLES",
+            Self::InsufficientBootstrapResamples => {
+                "EVIDENTRAIL_M1_INSUFFICIENT_BOOTSTRAP_RESAMPLES"
+            }
             Self::InvalidHardCap => "EVIDENTRAIL_M1_INVALID_HARD_CAP",
             Self::BaselineFixtureMismatch => "EVIDENTRAIL_M1_BASELINE_FIXTURE_MISMATCH",
             Self::InvalidMeasurement => "EVIDENTRAIL_M1_INVALID_MEASUREMENT",

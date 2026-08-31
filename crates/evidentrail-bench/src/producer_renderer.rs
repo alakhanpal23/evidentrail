@@ -331,7 +331,9 @@ impl ProducerProposalRenderErrorV1 {
                 "EVIDENTRAIL_BENCH_PROPOSAL_RENDER_ACQUISITION_BINDING_MISMATCH"
             }
             Self::UnknownMember { .. } => "EVIDENTRAIL_BENCH_PROPOSAL_RENDER_UNKNOWN_MEMBER",
-            Self::ProposalAccountingMismatch => "EVIDENTRAIL_BENCH_PROPOSAL_RENDER_ACCOUNTING_MISMATCH",
+            Self::ProposalAccountingMismatch => {
+                "EVIDENTRAIL_BENCH_PROPOSAL_RENDER_ACCOUNTING_MISMATCH"
+            }
             Self::AccountingOverflow => "EVIDENTRAIL_BENCH_PROPOSAL_RENDER_ACCOUNTING_OVERFLOW",
             Self::OutputLimitExceeded => "EVIDENTRAIL_BENCH_PROPOSAL_RENDER_OUTPUT_LIMIT_EXCEEDED",
             Self::AllocationFailed => "EVIDENTRAIL_BENCH_PROPOSAL_RENDER_ALLOCATION_FAILED",

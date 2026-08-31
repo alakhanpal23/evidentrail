@@ -329,7 +329,8 @@ fn write_reader_answer(bytes: &[u8]) -> bool {
 }
 
 fn emit_first_party_constrained_product() -> bool {
-    let Ok(expected_input) = evidentrail_bench_harness::constrained_pinned_drain_public_input_v1() else {
+    let Ok(expected_input) = evidentrail_bench_harness::constrained_pinned_drain_public_input_v1()
+    else {
         return false;
     };
     let Ok(expected_length) = u64::try_from(expected_input.len()) else {
@@ -345,7 +346,8 @@ fn emit_first_party_constrained_product() -> bool {
     if input != expected_input {
         return false;
     }
-    let Ok(output) = evidentrail_bench_harness::execute_constrained_first_party_fixture_v1(&input) else {
+    let Ok(output) = evidentrail_bench_harness::execute_constrained_first_party_fixture_v1(&input)
+    else {
         return false;
     };
     let mut stdout = io::stdout().lock();
@@ -425,10 +427,11 @@ fn emit_legacy_drain_fixture() {
   "line_compression": 1.0
 }"#
     } else if input.contains("evidentrail-bench constrained-generator-v1") {
-        let output = evidentrail_bench_harness::hermetic_legacy_drain_full_membership_fixture_json_v1(
-            input.as_bytes(),
-        )
-        .unwrap();
+        let output =
+            evidentrail_bench_harness::hermetic_legacy_drain_full_membership_fixture_json_v1(
+                input.as_bytes(),
+            )
+            .unwrap();
         io::stdout().write_all(&output).unwrap();
         return;
     } else if input == "2026-08-24T12:00:00Z INFO tamper\n" {

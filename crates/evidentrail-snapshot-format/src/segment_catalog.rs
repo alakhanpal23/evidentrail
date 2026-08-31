@@ -90,23 +90,35 @@ impl SegmentCatalogErrorV1 {
             Self::NonzeroReserved => "EVIDENTRAIL_SEGMENT_CATALOG_NONZERO_RESERVED",
             Self::EmptyCatalog => "EVIDENTRAIL_SEGMENT_CATALOG_EMPTY",
             Self::SegmentCountCap => "EVIDENTRAIL_SEGMENT_CATALOG_SEGMENT_COUNT_CAP",
-            Self::SegmentSequenceMismatch => "EVIDENTRAIL_SEGMENT_CATALOG_SEGMENT_SEQUENCE_MISMATCH",
+            Self::SegmentSequenceMismatch => {
+                "EVIDENTRAIL_SEGMENT_CATALOG_SEGMENT_SEQUENCE_MISMATCH"
+            }
             Self::InvalidFrameCount => "EVIDENTRAIL_SEGMENT_CATALOG_INVALID_FRAME_COUNT",
             Self::FrameCountCap => "EVIDENTRAIL_SEGMENT_CATALOG_FRAME_COUNT_CAP",
-            Self::GlobalFrameRangeMismatch => "EVIDENTRAIL_SEGMENT_CATALOG_GLOBAL_FRAME_RANGE_MISMATCH",
-            Self::GlobalFrameRangeOverflow => "EVIDENTRAIL_SEGMENT_CATALOG_GLOBAL_FRAME_RANGE_OVERFLOW",
+            Self::GlobalFrameRangeMismatch => {
+                "EVIDENTRAIL_SEGMENT_CATALOG_GLOBAL_FRAME_RANGE_MISMATCH"
+            }
+            Self::GlobalFrameRangeOverflow => {
+                "EVIDENTRAIL_SEGMENT_CATALOG_GLOBAL_FRAME_RANGE_OVERFLOW"
+            }
             Self::InvalidCiphertextByteCount => {
                 "EVIDENTRAIL_SEGMENT_CATALOG_INVALID_CIPHERTEXT_BYTE_COUNT"
             }
             Self::CiphertextByteCountCap => "EVIDENTRAIL_SEGMENT_CATALOG_CIPHERTEXT_BYTE_COUNT_CAP",
-            Self::InvalidSegmentByteCount => "EVIDENTRAIL_SEGMENT_CATALOG_INVALID_SEGMENT_BYTE_COUNT",
+            Self::InvalidSegmentByteCount => {
+                "EVIDENTRAIL_SEGMENT_CATALOG_INVALID_SEGMENT_BYTE_COUNT"
+            }
             Self::SegmentByteCountCap => "EVIDENTRAIL_SEGMENT_CATALOG_SEGMENT_BYTE_COUNT_CAP",
             Self::TotalFrameCountCap => "EVIDENTRAIL_SEGMENT_CATALOG_TOTAL_FRAME_COUNT_CAP",
             Self::TotalCiphertextByteCountCap => {
                 "EVIDENTRAIL_SEGMENT_CATALOG_TOTAL_CIPHERTEXT_BYTE_COUNT_CAP"
             }
-            Self::TotalSegmentByteCountCap => "EVIDENTRAIL_SEGMENT_CATALOG_TOTAL_SEGMENT_BYTE_COUNT_CAP",
-            Self::TotalFrameCountMismatch => "EVIDENTRAIL_SEGMENT_CATALOG_TOTAL_FRAME_COUNT_MISMATCH",
+            Self::TotalSegmentByteCountCap => {
+                "EVIDENTRAIL_SEGMENT_CATALOG_TOTAL_SEGMENT_BYTE_COUNT_CAP"
+            }
+            Self::TotalFrameCountMismatch => {
+                "EVIDENTRAIL_SEGMENT_CATALOG_TOTAL_FRAME_COUNT_MISMATCH"
+            }
             Self::TotalCiphertextByteCountMismatch => {
                 "EVIDENTRAIL_SEGMENT_CATALOG_TOTAL_CIPHERTEXT_BYTE_COUNT_MISMATCH"
             }

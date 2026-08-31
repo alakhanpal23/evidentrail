@@ -661,7 +661,9 @@ impl RunManifestError {
             Self::BudgetConstructionInvariantViolation => {
                 "EVIDENTRAIL_BENCH_RUN_BUDGET_CONSTRUCTION_INVARIANT_VIOLATION"
             }
-            Self::SeedExceedsJsonSafeInteger => "EVIDENTRAIL_BENCH_RUN_SEED_EXCEEDS_JSON_SAFE_INTEGER",
+            Self::SeedExceedsJsonSafeInteger => {
+                "EVIDENTRAIL_BENCH_RUN_SEED_EXCEEDS_JSON_SAFE_INTEGER"
+            }
             Self::EmptyPublicCaseArtifacts => "EVIDENTRAIL_BENCH_RUN_EMPTY_PUBLIC_CASE_ARTIFACTS",
             Self::EmptyGovernedCaseBindings => "EVIDENTRAIL_BENCH_RUN_EMPTY_GOVERNED_CASE_BINDINGS",
             Self::DuplicateGovernedPublicCaseArtifact => {
@@ -686,7 +688,9 @@ impl RunManifestError {
             Self::BudgetMismatch => "EVIDENTRAIL_BENCH_RUN_BUDGET_MISMATCH",
             Self::IncomparableBudgets => "EVIDENTRAIL_BENCH_RUN_INCOMPARABLE_BUDGETS",
             Self::UnknownPublicCaseArtifact => "EVIDENTRAIL_BENCH_RUN_UNKNOWN_PUBLIC_CASE_ARTIFACT",
-            Self::CandidateResourceCapExceeded => "EVIDENTRAIL_BENCH_RUN_CANDIDATE_RESOURCE_CAP_EXCEEDED",
+            Self::CandidateResourceCapExceeded => {
+                "EVIDENTRAIL_BENCH_RUN_CANDIDATE_RESOURCE_CAP_EXCEEDED"
+            }
         }
     }
 }

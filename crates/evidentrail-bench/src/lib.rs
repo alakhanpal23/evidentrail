@@ -60,12 +60,6 @@ pub use bounded_selector_challenger::{
     BoundedSelectorSelectedPlanV1, FrozenBoundedSelectorPairV1,
     bounded_selector_challenger_identity_v1, evaluate_bounded_selector_challenger_v1,
 };
-pub use evidentrail_compile::{
-    PreparedThreeLaneAblationSetV1, PreparedThreeLaneAblationV1, ThreeLaneAblationMaskV1,
-    ThreeLaneAblationPreparationDecisionV1, prepare_ready_three_lane_ablations_v1,
-    prepare_three_lane_ablations_v1, three_lane_ablation_config_digest_v1,
-    three_lane_ablation_method_family_digest_v1,
-};
 pub use cost_matched_selector_stress::{
     COST_MATCHED_CHALLENGER_POLICY_NAME_V1, COST_MATCHED_CHALLENGER_POLICY_VERSION_V1,
     COST_MATCHED_STRESS_CASE_COUNT_V1, COST_MATCHED_STRESS_MIN_OPTIONAL_PACKETS_V1,
@@ -87,6 +81,12 @@ pub use evaluator::{
     CaseAccountingDimensionV1, CaseEvaluationError, GovernedCaseEvaluationV1,
     GovernedRequirementRecallV1, PublicCaseAccountingV1, PublicCaseEvaluationResultV1,
     evaluate_governed_case_v1, evaluate_governed_case_with_presentation_v1,
+};
+pub use evidentrail_compile::{
+    PreparedThreeLaneAblationSetV1, PreparedThreeLaneAblationV1, ThreeLaneAblationMaskV1,
+    ThreeLaneAblationPreparationDecisionV1, prepare_ready_three_lane_ablations_v1,
+    prepare_three_lane_ablations_v1, three_lane_ablation_config_digest_v1,
+    three_lane_ablation_method_family_digest_v1,
 };
 pub use fidelity::{
     EvidenceRepresentationClaimV1, EvidenceRepresentationClassV1,
@@ -116,8 +116,8 @@ pub use hermetic_incident_outcome_corpus::{
     govern_hermetic_incident_outcome_corpus_v1, synthetic_hermetic_incident_annotations_v1,
 };
 pub use manifest::{
-    EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1, EvidenceTargetV1, ExpectedAcquisitionClassV1,
-    ManifestError, WeightedDiagnosticRequirementV1,
+    EvidenceTargetV1, EvidentrailBenchAnnotationSpecV1, EvidentrailBenchCaseSpecV1,
+    ExpectedAcquisitionClassV1, ManifestError, WeightedDiagnosticRequirementV1,
 };
 pub use measurement::{
     CandidateRendererIdentityV1, FrozenCandidateRenderingV1, FrozenCandidateSelectionDigestV1,
@@ -168,8 +168,9 @@ pub use resources::{
 };
 pub use run_manifest::{
     BenchmarkBudgetV1, BenchmarkRunIdentityDimensionV1, BenchmarkRunIdentityV1,
-    EvidentrailBenchHiddenEvaluationManifestV1, EvidentrailBenchRunManifestV1, ExternalSystemResultEnvelopeV1,
-    GovernedCaseArtifactBindingV1, GovernedCaseArtifactJoinV1, RunManifestError,
+    EvidentrailBenchHiddenEvaluationManifestV1, EvidentrailBenchRunManifestV1,
+    ExternalSystemResultEnvelopeV1, GovernedCaseArtifactBindingV1, GovernedCaseArtifactJoinV1,
+    RunManifestError,
 };
 pub use runner::{
     FrozenPublicCaseRunV1, FrozenPublicRunV1, HermeticGovernedCaseInputV1,

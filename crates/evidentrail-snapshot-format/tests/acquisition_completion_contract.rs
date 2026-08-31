@@ -197,7 +197,7 @@ fn exact_codec_and_independently_reconstructed_golden_hash_are_frozen() {
     // hashlib.sha256 from the frozen offsets and code table.
     assert_eq!(
         <[u8; 32]>::from(Sha256::digest(&expected)),
-        hex_array("b33886c70d5db5938a1a7913f30c6cb9f750ca0a831ba7fb3b1e060dc860f5f6")
+        hex_array("1ce0c151a11f47cb041da7ffc6e164a076f7acf12732ad8363791575b51f91be")
     );
 
     let restored = AcquisitionCompletionRecordV1::decode(&expected).unwrap();

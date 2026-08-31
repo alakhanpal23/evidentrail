@@ -3,8 +3,8 @@ use std::error::Error as StdError;
 use std::fmt;
 
 use evidentrail_bench::{
-    CandidateRendererIdentityV1, EvidentrailBenchCaseSpecV1, EvidentrailBenchRunManifestV1,
-    EvidenceRepresentationClaimV1, FrozenExternalRepresentationSubmissionV1,
+    CandidateRendererIdentityV1, EvidenceRepresentationClaimV1, EvidentrailBenchCaseSpecV1,
+    EvidentrailBenchRunManifestV1, FrozenExternalRepresentationSubmissionV1,
     MeasuredCandidateResources, MeasurementEnvironmentV1, MeasurementHarnessIdentityV1,
     MethodDescriptor, RenderedCandidateArtifactV1, TokenizerIdentityV1,
     ascii_byte_escape_v1_identity, derive_reversible_encoded_representation_artifact_digest_v1,

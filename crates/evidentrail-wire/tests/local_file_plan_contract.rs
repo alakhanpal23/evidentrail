@@ -160,15 +160,14 @@ fn verify_golden_mutation(
 fn local_plan_has_stable_canonical_bytes_and_domain_separated_ids() {
     let material = sample_material();
     let verified = encode_local_file_plan_v1(&material).unwrap();
-
     assert_eq!(verified.canonical_bytes(), without_final_lf(GOLDEN));
     assert_eq!(
         verified.plan_id().to_string(),
-        "plan_0217f383900cee3170a1bf56963410b4ee0a124e123b073b328fafcb60008585"
+        "plan_78e3f1cc8a50dcc475a2f7326869d264cb8d15e6d298d5c516b6596d09ca0590"
     );
     assert_eq!(
         verified.plan_digest().to_string(),
-        "plan_sha256_df94986191b31f9334a94321b5d3231910689c7b74f2cb064fdbbe4c2bb79634"
+        "plan_sha256_dadcf23266a01066f209c7a10b822e0be5bb3418cb345a08f20b984f14be8183"
     );
     assert_ne!(
         verified.plan_id().as_bytes(),
@@ -611,7 +610,7 @@ fn locator_member_and_every_snapshot_fact_are_cryptographically_bound() {
     assert_eq!(member.as_bytes().len(), 32);
     assert_eq!(
         source_digest.to_string(),
-        "source_sha256_2df73541d15fdfc0aca3770d5bb2d5fc1a2118134be8665b4f1f45240cc07ff8"
+        "source_sha256_ae4e66a4c71c6a3ba35ef6a1dd8f0ca962f9a6e30ea48f8691d73a2bb8280250"
     );
     assert_ne!(member.as_bytes(), source_digest.as_bytes());
 
@@ -805,8 +804,8 @@ fn locator_member_and_every_snapshot_fact_are_cryptographically_bound() {
         GOLDEN.replace("L3Zhci9sb2c", "L3Zhci9sb2Q"),
         GOLDEN.replace("YXBw", "YXBx"),
         GOLDEN.replace(
-            "2p9hUuSP0rwnCLoSr3yFfqBe5CXThCquR2AJA1kvNyk",
-            "3p9hUuSP0rwnCLoSr3yFfqBe5CXThCquR2AJA1kvNyk",
+            "hBFVWcuaWAZgWu2XBHvEHLCDc75m6v565KLIkF6nlOk",
+            "iBFVWcuaWAZgWu2XBHvEHLCDc75m6v565KLIkF6nlOk",
         ),
     ];
     for document in stale_locator_documents {
@@ -819,8 +818,8 @@ fn locator_member_and_every_snapshot_fact_are_cryptographically_bound() {
 
     let stale_identity_documents = [
         GOLDEN.replace(
-            "source_sha256_2df73541d15fdfc0aca3770d5bb2d5fc1a2118134be8665b4f1f45240cc07ff8",
-            "source_sha256_3df73541d15fdfc0aca3770d5bb2d5fc1a2118134be8665b4f1f45240cc07ff8",
+            "source_sha256_ae4e66a4c71c6a3ba35ef6a1dd8f0ca962f9a6e30ea48f8691d73a2bb8280250",
+            "source_sha256_be4e66a4c71c6a3ba35ef6a1dd8f0ca962f9a6e30ea48f8691d73a2bb8280250",
         ),
         GOLDEN.replace("18446744073709551615", "18446744073709551614"),
         GOLDEN.replace("9007199254740992", "9007199254740993"),

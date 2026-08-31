@@ -30,8 +30,10 @@ const RENDERER_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/compact-agent-vi
 const CONFIG_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/compact-agent-view-config/v1\0roles-visible=true\0basis-visible=always\0stream-visible=always\0event-index=one-based-within-packet\0result-token-visible=true\0max-output=reader-method-artifact-v1\0production-renderer-unchanged=true\0evaluation-only=true";
 const STRUCTURED_INPUT_DOMAIN_V1: &[u8] =
     b"evidentrail/bench-harness/compact-agent-view-structured-input/v1";
-const PACKET_AUDIT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/compact-agent-view-packet-audit/v1";
-const AUDIT_RECEIPT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/compact-agent-view-audit-receipt/v1";
+const PACKET_AUDIT_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/compact-agent-view-packet-audit/v1";
+const AUDIT_RECEIPT_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/compact-agent-view-audit-receipt/v1";
 const VIEW_RECEIPT_DOMAIN_V1: &[u8] = b"evidentrail/bench-harness/compact-agent-view-receipt/v1";
 const CORPUS_RECEIPT_DOMAIN_V1: &[u8] =
     b"evidentrail/bench-harness/compact-agent-view-corpus-reduction/v1";
@@ -1183,14 +1185,18 @@ impl CompactAgentViewErrorV1 {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
-            Self::StructuredInputMismatch => "EVIDENTRAIL_BENCH_COMPACT_VIEW_STRUCTURED_INPUT_MISMATCH",
+            Self::StructuredInputMismatch => {
+                "EVIDENTRAIL_BENCH_COMPACT_VIEW_STRUCTURED_INPUT_MISMATCH"
+            }
             Self::OutputTooLarge => "EVIDENTRAIL_BENCH_COMPACT_VIEW_OUTPUT_TOO_LARGE",
             Self::ReversibleEncodingMismatch => {
                 "EVIDENTRAIL_BENCH_COMPACT_VIEW_REVERSIBLE_ENCODING_MISMATCH"
             }
             Self::NonCanonicalOutput => "EVIDENTRAIL_BENCH_COMPACT_VIEW_NONCANONICAL_OUTPUT",
             Self::NotSmallerThanCanonical => "EVIDENTRAIL_BENCH_COMPACT_VIEW_NOT_SMALLER",
-            Self::InvalidCorpusMeasurement => "EVIDENTRAIL_BENCH_COMPACT_VIEW_INVALID_CORPUS_MEASUREMENT",
+            Self::InvalidCorpusMeasurement => {
+                "EVIDENTRAIL_BENCH_COMPACT_VIEW_INVALID_CORPUS_MEASUREMENT"
+            }
             Self::ReaderPreservationMismatch => {
                 "EVIDENTRAIL_BENCH_COMPACT_VIEW_READER_PRESERVATION_MISMATCH"
             }

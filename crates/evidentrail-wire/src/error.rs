@@ -98,7 +98,9 @@ impl PlanVerificationError {
             Self::InvalidTimestamp => "EVIDENTRAIL_WIRE_PLAN_INVALID_TIMESTAMP",
             Self::InvalidSemanticMaterial => "EVIDENTRAIL_WIRE_PLAN_INVALID_SEMANTIC_MATERIAL",
             Self::SourceMemberMismatch => "EVIDENTRAIL_WIRE_PLAN_SOURCE_MEMBER_MISMATCH",
-            Self::SourceIdentityDigestMismatch => "EVIDENTRAIL_WIRE_PLAN_SOURCE_IDENTITY_DIGEST_MISMATCH",
+            Self::SourceIdentityDigestMismatch => {
+                "EVIDENTRAIL_WIRE_PLAN_SOURCE_IDENTITY_DIGEST_MISMATCH"
+            }
             Self::PlanDigestMismatch => "EVIDENTRAIL_WIRE_PLAN_DIGEST_MISMATCH",
             Self::PlanIdMismatch => "EVIDENTRAIL_WIRE_PLAN_ID_MISMATCH",
             Self::CanonicalizationFailed => "EVIDENTRAIL_WIRE_PLAN_CANONICALIZATION_FAILED",

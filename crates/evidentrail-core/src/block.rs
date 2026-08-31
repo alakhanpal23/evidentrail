@@ -233,11 +233,15 @@ impl BlockReconciliationError {
             Self::EmptyAssignment { .. } => "EVIDENTRAIL_BLOCK_EMPTY_ASSIGNMENT",
             Self::ForeignMember { .. } => "EVIDENTRAIL_BLOCK_FOREIGN_MEMBER",
             Self::MemberLaneMismatch { .. } => "EVIDENTRAIL_BLOCK_MEMBER_LANE_MISMATCH",
-            Self::MemberLaneSequenceMismatch { .. } => "EVIDENTRAIL_BLOCK_MEMBER_LANE_SEQUENCE_MISMATCH",
+            Self::MemberLaneSequenceMismatch { .. } => {
+                "EVIDENTRAIL_BLOCK_MEMBER_LANE_SEQUENCE_MISMATCH"
+            }
             Self::DuplicateMember { .. } => "EVIDENTRAIL_BLOCK_DUPLICATE_MEMBER",
             Self::ReversedMembers { .. } => "EVIDENTRAIL_BLOCK_REVERSED_MEMBERS",
             Self::ReversedLaneSequence { .. } => "EVIDENTRAIL_BLOCK_REVERSED_LANE_SEQUENCE",
-            Self::NonContiguousLaneSequence { .. } => "EVIDENTRAIL_BLOCK_NONCONTIGUOUS_LANE_SEQUENCE",
+            Self::NonContiguousLaneSequence { .. } => {
+                "EVIDENTRAIL_BLOCK_NONCONTIGUOUS_LANE_SEQUENCE"
+            }
             Self::DuplicateAssignment { .. } => "EVIDENTRAIL_BLOCK_DUPLICATE_ASSIGNMENT",
             Self::OverlappingMember { .. } => "EVIDENTRAIL_BLOCK_OVERLAPPING_MEMBER",
             Self::MissingEvents(_) => "EVIDENTRAIL_BLOCK_MISSING_EVENTS",

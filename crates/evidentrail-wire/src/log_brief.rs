@@ -3,7 +3,9 @@ use evidentrail_evidence::{
     OwnedRenderedCompiledBriefV1, OwnedRenderedPassthroughBriefV1, compiled_renderer_digest_v1,
     utf8_byte_tokenizer_digest_v1,
 };
-use evidentrail_schema::{ArtifactDigest, PlanDigest, QuestionDigest, ResultId, UnixTimestampNanos};
+use evidentrail_schema::{
+    ArtifactDigest, PlanDigest, QuestionDigest, ResultId, UnixTimestampNanos,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 

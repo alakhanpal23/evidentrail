@@ -302,14 +302,20 @@ fn verifier_checks_repaired_invariants_instead_of_one_golden_patch_string() {
             .passed()
     );
 
-    let migration_verifier = program(&["--evidentrail-bench-incident-verifier-v1", "migration-drift"]);
+    let migration_verifier = program(&[
+        "--evidentrail-bench-incident-verifier-v1",
+        "migration-drift",
+    ]);
     assert!(
         execute_incident_verifier_v1(&migration_verifier, b"RUN_MIGRATIONS_THROUGH=43", caps,)
             .unwrap()
             .passed()
     );
 
-    let timeout_verifier = program(&["--evidentrail-bench-incident-verifier-v1", "upstream-timeout"]);
+    let timeout_verifier = program(&[
+        "--evidentrail-bench-incident-verifier-v1",
+        "upstream-timeout",
+    ]);
     assert!(
         execute_incident_verifier_v1(&timeout_verifier, b"upstream_timeout_ms=100\n", caps)
             .unwrap()

@@ -29,9 +29,11 @@ use crate::{
     MAX_EXACT_SELECTION_ORACLE_OPTIONAL_PACKETS_V1, evaluate_exact_small_selection_regret_v1,
 };
 
-const PUBLIC_CORPUS_DOMAIN_V1: &[u8] = b"evidentrail/bench/public-selector-perturbation-corpus/v1\0";
+const PUBLIC_CORPUS_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench/public-selector-perturbation-corpus/v1\0";
 const PUBLIC_CASE_DOMAIN_V1: &[u8] = b"evidentrail/bench/public-selector-perturbation-case/v1\0";
-const GOVERNED_REPORT_DOMAIN_V1: &[u8] = b"evidentrail/bench/governed-selector-perturbation-report/v1\0";
+const GOVERNED_REPORT_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench/governed-selector-perturbation-report/v1\0";
 
 pub const SYNTHETIC_SELECTOR_PERTURBATION_CASE_COUNT_V1: usize = 13;
 
@@ -669,7 +671,9 @@ impl SelectorPerturbationCorpusErrorV1 {
             Self::Oracle(_) => "EVIDENTRAIL_BENCH_SELECTOR_PERTURBATION_ORACLE",
             Self::ArithmeticOverflow => "EVIDENTRAIL_BENCH_SELECTOR_PERTURBATION_ARITHMETIC",
             Self::DigestLengthOverflow => "EVIDENTRAIL_BENCH_SELECTOR_PERTURBATION_DIGEST_LENGTH",
-            Self::DuplicateAnnotation => "EVIDENTRAIL_BENCH_SELECTOR_PERTURBATION_DUPLICATE_ANNOTATION",
+            Self::DuplicateAnnotation => {
+                "EVIDENTRAIL_BENCH_SELECTOR_PERTURBATION_DUPLICATE_ANNOTATION"
+            }
             Self::MissingAnnotations { .. } => {
                 "EVIDENTRAIL_BENCH_SELECTOR_PERTURBATION_MISSING_ANNOTATIONS"
             }

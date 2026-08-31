@@ -11,8 +11,8 @@ use evidentrail_bench_harness::{
     FirstPartyConstrainedSubprocessTargetV1, FrozenConstrainedReaderPairV1, GovernedReaderTruthV1,
     HarnessLimitsV1, MacOsTimePeakRssObserverV1, PinnedLegacyDrainExecutionTargetV1,
     ReaderCauseGranularityV1, ReaderErrorV1, ReaderResourceCapsV1, artifact_digest_for_bytes_v1,
-    legacy_drain_full_membership_method_descriptor_v1, evaluate_governed_constrained_reader_pair_v1,
-    execute_constrained_reader_pair_v1, log_brief_compiled_method_descriptor_v1,
+    evaluate_governed_constrained_reader_pair_v1, execute_constrained_reader_pair_v1,
+    legacy_drain_full_membership_method_descriptor_v1, log_brief_compiled_method_descriptor_v1,
     prepare_constrained_pinned_drain_matched_case_v1, prepare_constrained_reader_input_pair_v1,
 };
 use evidentrail_schema::ArtifactDigest;
@@ -87,9 +87,16 @@ fn foreign_truth(
             .to_vec()],
     )
     .unwrap();
-    let annotation =
-        EvidentrailBenchAnnotationSpecV1::new(foreign_case, [requirement], None, None, None, None, None)
-            .unwrap();
+    let annotation = EvidentrailBenchAnnotationSpecV1::new(
+        foreign_case,
+        [requirement],
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
     GovernedReaderTruthV1::try_new(
         foreign_case,
         annotation,

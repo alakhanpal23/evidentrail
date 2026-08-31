@@ -12,11 +12,11 @@ use crate::legacy_drain::{
     legacy_drain_hermetic_fixture_system_artifact_digest_v1,
 };
 use crate::{
+    ExitCategoryV1, ExternalOutputContractV1, InvocationDigestV1, InvocationInputContractV1,
     LEGACY_DRAIN_PINNED_COMMIT_V1, LegacyDrainAdapterModeV1, LegacyDrainAdapterV1,
-    LegacyDrainInputAssessmentV1, LegacyDrainInputNormalizationV1, ExitCategoryV1,
-    ExternalOutputContractV1, InvocationDigestV1, InvocationInputContractV1,
-    PublicSubprocessInvocationV1, StdinDeliveryV1, SubprocessExecutionReceiptV1,
-    artifact_digest_for_bytes_v1, legacy_drain_full_membership_adapter_artifact_digest_v1,
+    LegacyDrainInputAssessmentV1, LegacyDrainInputNormalizationV1, PublicSubprocessInvocationV1,
+    StdinDeliveryV1, SubprocessExecutionReceiptV1, artifact_digest_for_bytes_v1,
+    legacy_drain_full_membership_adapter_artifact_digest_v1,
 };
 
 const NORMALIZER_IDENTITY_V1: &[u8] =
@@ -786,7 +786,9 @@ impl LegacyDrainNormalizationErrorV1 {
     pub const fn code(self) -> &'static str {
         match self {
             Self::InvalidLimit { .. } => "LEGACY_DRAIN_NORMALIZER_INVALID_LIMIT",
-            Self::LimitExceedsHardBound { .. } => "LEGACY_DRAIN_NORMALIZER_LIMIT_EXCEEDS_HARD_BOUND",
+            Self::LimitExceedsHardBound { .. } => {
+                "LEGACY_DRAIN_NORMALIZER_LIMIT_EXCEEDS_HARD_BOUND"
+            }
             Self::ObservedLimitExceeded { .. } => "LEGACY_DRAIN_NORMALIZER_OBSERVED_LIMIT_EXCEEDED",
             Self::UnsupportedInvocation => "LEGACY_DRAIN_NORMALIZER_UNSUPPORTED_INVOCATION",
             Self::UnsupportedInput => "LEGACY_DRAIN_NORMALIZER_UNSUPPORTED_INPUT",
@@ -1033,7 +1035,8 @@ pub fn strict_normalize_pinned_legacy_drain_full_membership_v1(
     let raw_stderr_byte_count = count(execution.stderr().byte_count())?;
     let normalizer_artifact_digest = legacy_drain_full_membership_normalizer_artifact_digest_v1();
     let adapter_artifact_digest = legacy_drain_full_membership_adapter_artifact_digest_v1();
-    let quality_bridge = LegacyDrainQualityBridgeV1::NeedsRepresentationFidelityOrDownstreamAgentVds;
+    let quality_bridge =
+        LegacyDrainQualityBridgeV1::NeedsRepresentationFidelityOrDownstreamAgentVds;
     let artifact_digest = derive_full_membership_artifact_digest(
         invocation,
         limits,
@@ -1077,7 +1080,8 @@ pub fn strict_normalize_pinned_legacy_drain_full_membership_v1(
 
 fn validate_invocation(
     invocation: &PublicSubprocessInvocationV1,
-) -> Result<(LegacyDrainAdapterV1, LegacyDrainInputNormalizationV1), LegacyDrainNormalizationErrorV1> {
+) -> Result<(LegacyDrainAdapterV1, LegacyDrainInputNormalizationV1), LegacyDrainNormalizationErrorV1>
+{
     let program = invocation.program();
     let pinned_target = program.adapter_revision() == Some(LEGACY_DRAIN_PINNED_COMMIT_V1)
         && program.system_artifact_digest()
@@ -1670,7 +1674,10 @@ fn derive_normalization_artifact_digest(
 ) -> Result<ArtifactDigest, LegacyDrainNormalizationErrorV1> {
     let mut hasher = Sha256::new();
     update_field(&mut hasher, NORMALIZATION_RECEIPT_DOMAIN_V1)?;
-    update_u64(&mut hasher, LEGACY_DRAIN_JSON_NORMALIZER_CONTRACT_VERSION_V1)?;
+    update_u64(
+        &mut hasher,
+        LEGACY_DRAIN_JSON_NORMALIZER_CONTRACT_VERSION_V1,
+    )?;
     for digest in [
         normalizer_artifact_digest,
         invocation.run_manifest_artifact_digest(),

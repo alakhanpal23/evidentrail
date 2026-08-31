@@ -65,7 +65,9 @@ impl DisplayedAliasManifestErrorV1 {
             Self::WrongLength => "EVIDENTRAIL_DISPLAYED_ALIAS_MANIFEST_WRONG_LENGTH",
             Self::UnsupportedVersion => "EVIDENTRAIL_DISPLAYED_ALIAS_MANIFEST_UNSUPPORTED_VERSION",
             Self::UnsupportedSchema => "EVIDENTRAIL_DISPLAYED_ALIAS_MANIFEST_UNSUPPORTED_SCHEMA",
-            Self::NoncanonicalReserved => "EVIDENTRAIL_DISPLAYED_ALIAS_MANIFEST_NONCANONICAL_RESERVED",
+            Self::NoncanonicalReserved => {
+                "EVIDENTRAIL_DISPLAYED_ALIAS_MANIFEST_NONCANONICAL_RESERVED"
+            }
             Self::DigestMismatch => "EVIDENTRAIL_DISPLAYED_ALIAS_MANIFEST_DIGEST_MISMATCH",
             Self::ReferenceMismatch => "EVIDENTRAIL_DISPLAYED_ALIAS_MANIFEST_REFERENCE_MISMATCH",
             Self::TrailingData => "EVIDENTRAIL_DISPLAYED_ALIAS_MANIFEST_TRAILING_DATA",

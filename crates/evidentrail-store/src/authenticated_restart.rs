@@ -54,12 +54,16 @@ impl AuthenticatedFilesystemRestartErrorV1 {
             Self::SourceRepositoryUnavailable => {
                 "EVIDENTRAIL_AUTHENTICATED_RESTART_SOURCE_REPOSITORY_UNAVAILABLE"
             }
-            Self::FilesystemUnavailable => "EVIDENTRAIL_AUTHENTICATED_RESTART_FILESYSTEM_UNAVAILABLE",
+            Self::FilesystemUnavailable => {
+                "EVIDENTRAIL_AUTHENTICATED_RESTART_FILESYSTEM_UNAVAILABLE"
+            }
             Self::ProviderUnavailable => "EVIDENTRAIL_AUTHENTICATED_RESTART_PROVIDER_UNAVAILABLE",
             Self::CandidateQuarantined => "EVIDENTRAIL_AUTHENTICATED_RESTART_CANDIDATE_QUARANTINED",
             Self::QuarantineFailed => "EVIDENTRAIL_AUTHENTICATED_RESTART_QUARANTINE_FAILED",
             Self::CapacityUnavailable => "EVIDENTRAIL_AUTHENTICATED_RESTART_CAPACITY_UNAVAILABLE",
-            Self::RepositoryUnavailable => "EVIDENTRAIL_AUTHENTICATED_RESTART_REPOSITORY_UNAVAILABLE",
+            Self::RepositoryUnavailable => {
+                "EVIDENTRAIL_AUTHENTICATED_RESTART_REPOSITORY_UNAVAILABLE"
+            }
             Self::ResultUnavailable => "EVIDENTRAIL_AUTHENTICATED_RESTART_RESULT_UNAVAILABLE",
             Self::EventUnavailable => "EVIDENTRAIL_AUTHENTICATED_RESTART_EVENT_UNAVAILABLE",
             Self::AliasUnavailable => "EVIDENTRAIL_AUTHENTICATED_RESTART_ALIAS_UNAVAILABLE",

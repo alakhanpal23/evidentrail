@@ -18,7 +18,8 @@ pub const CORE_RESULT_MANIFEST_SCHEMA_V1: u16 = 1;
 pub const CORE_RESULT_MANIFEST_OBJECT_KIND_V1: u16 = 1;
 pub const CORE_RESULT_MANIFEST_HEADER_BYTES_V1: usize = 256;
 pub const CORE_RESULT_MANIFEST_DIGEST_BYTES_V1: usize = 32;
-pub const CORE_RESULT_MANIFEST_DIGEST_DOMAIN_V1: &[u8] = b"evidentrail.snapshot.core-result-manifest.v1";
+pub const CORE_RESULT_MANIFEST_DIGEST_DOMAIN_V1: &[u8] =
+    b"evidentrail.snapshot.core-result-manifest.v1";
 pub const MAX_ENCODED_CORE_RESULT_MANIFEST_BYTES_V1: usize = MAX_MANIFEST_PLAINTEXT_BYTES_V1;
 pub const MAX_CORE_RESULT_MANIFEST_COMPONENTS_BYTES_V1: usize =
     MAX_ENCODED_CORE_RESULT_MANIFEST_BYTES_V1 - CORE_RESULT_MANIFEST_HEADER_BYTES_V1;
@@ -99,7 +100,9 @@ impl CoreResultManifestErrorV1 {
             Self::InvalidMagic => "EVIDENTRAIL_CORE_RESULT_MANIFEST_INVALID_MAGIC",
             Self::UnsupportedVersion => "EVIDENTRAIL_CORE_RESULT_MANIFEST_UNSUPPORTED_VERSION",
             Self::UnsupportedSchema => "EVIDENTRAIL_CORE_RESULT_MANIFEST_UNSUPPORTED_SCHEMA",
-            Self::UnsupportedObjectKind => "EVIDENTRAIL_CORE_RESULT_MANIFEST_UNSUPPORTED_OBJECT_KIND",
+            Self::UnsupportedObjectKind => {
+                "EVIDENTRAIL_CORE_RESULT_MANIFEST_UNSUPPORTED_OBJECT_KIND"
+            }
             Self::InvalidHeaderWidth => "EVIDENTRAIL_CORE_RESULT_MANIFEST_INVALID_HEADER_WIDTH",
             Self::NonzeroFlags => "EVIDENTRAIL_CORE_RESULT_MANIFEST_NONZERO_FLAGS",
             Self::NonzeroReserved => "EVIDENTRAIL_CORE_RESULT_MANIFEST_NONZERO_RESERVED",
@@ -109,20 +112,28 @@ impl CoreResultManifestErrorV1 {
             Self::ComponentsSchemaMismatch => {
                 "EVIDENTRAIL_CORE_RESULT_MANIFEST_COMPONENTS_SCHEMA_MISMATCH"
             }
-            Self::InvalidComponentsOffset => "EVIDENTRAIL_CORE_RESULT_MANIFEST_INVALID_COMPONENTS_OFFSET",
+            Self::InvalidComponentsOffset => {
+                "EVIDENTRAIL_CORE_RESULT_MANIFEST_INVALID_COMPONENTS_OFFSET"
+            }
             Self::ComponentsLengthCap => "EVIDENTRAIL_CORE_RESULT_MANIFEST_COMPONENTS_LENGTH_CAP",
             Self::ComponentsDigestMismatch => {
                 "EVIDENTRAIL_CORE_RESULT_MANIFEST_COMPONENTS_DIGEST_MISMATCH"
             }
-            Self::ManifestDigestMismatch => "EVIDENTRAIL_CORE_RESULT_MANIFEST_RECORD_DIGEST_MISMATCH",
-            Self::ComponentsDecodeFailed => "EVIDENTRAIL_CORE_RESULT_MANIFEST_COMPONENTS_DECODE_FAILED",
+            Self::ManifestDigestMismatch => {
+                "EVIDENTRAIL_CORE_RESULT_MANIFEST_RECORD_DIGEST_MISMATCH"
+            }
+            Self::ComponentsDecodeFailed => {
+                "EVIDENTRAIL_CORE_RESULT_MANIFEST_COMPONENTS_DECODE_FAILED"
+            }
             Self::NoncanonicalComponentsEncoding => {
                 "EVIDENTRAIL_CORE_RESULT_MANIFEST_NONCANONICAL_COMPONENTS_ENCODING"
             }
             Self::AcquisitionReceiptReconstructionFailed => {
                 "EVIDENTRAIL_CORE_RESULT_MANIFEST_RECEIPT_RECONSTRUCTION_FAILED"
             }
-            Self::AcquisitionReceiptIdMismatch => "EVIDENTRAIL_CORE_RESULT_MANIFEST_RECEIPT_ID_MISMATCH",
+            Self::AcquisitionReceiptIdMismatch => {
+                "EVIDENTRAIL_CORE_RESULT_MANIFEST_RECEIPT_ID_MISMATCH"
+            }
             Self::AuthorityMismatch => "EVIDENTRAIL_CORE_RESULT_MANIFEST_AUTHORITY_MISMATCH",
             Self::ArithmeticOverflow => "EVIDENTRAIL_CORE_RESULT_MANIFEST_ARITHMETIC_OVERFLOW",
         }

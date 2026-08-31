@@ -659,7 +659,9 @@ impl FirstPartyConstrainedSubprocessErrorV1 {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
-            Self::TargetUnavailable => "EVIDENTRAIL_BENCH_FIRST_PARTY_SUBPROCESS_TARGET_UNAVAILABLE",
+            Self::TargetUnavailable => {
+                "EVIDENTRAIL_BENCH_FIRST_PARTY_SUBPROCESS_TARGET_UNAVAILABLE"
+            }
             Self::OracleExecutableUnavailable => {
                 "EVIDENTRAIL_BENCH_FIRST_PARTY_SUBPROCESS_ORACLE_EXECUTABLE_UNAVAILABLE"
             }
@@ -669,9 +671,13 @@ impl FirstPartyConstrainedSubprocessErrorV1 {
             Self::WorkingDirectoryUnavailable => {
                 "EVIDENTRAIL_BENCH_FIRST_PARTY_SUBPROCESS_WORKING_DIRECTORY_UNAVAILABLE"
             }
-            Self::ExecutableChanged => "EVIDENTRAIL_BENCH_FIRST_PARTY_SUBPROCESS_EXECUTABLE_CHANGED",
+            Self::ExecutableChanged => {
+                "EVIDENTRAIL_BENCH_FIRST_PARTY_SUBPROCESS_EXECUTABLE_CHANGED"
+            }
             Self::ForeignInput => "EVIDENTRAIL_BENCH_FIRST_PARTY_SUBPROCESS_FOREIGN_INPUT",
-            Self::InputShapeMismatch => "EVIDENTRAIL_BENCH_FIRST_PARTY_SUBPROCESS_INPUT_SHAPE_MISMATCH",
+            Self::InputShapeMismatch => {
+                "EVIDENTRAIL_BENCH_FIRST_PARTY_SUBPROCESS_INPUT_SHAPE_MISMATCH"
+            }
             Self::ArtifactLengthOverflow => {
                 "EVIDENTRAIL_BENCH_FIRST_PARTY_SUBPROCESS_ARTIFACT_LENGTH_OVERFLOW"
             }

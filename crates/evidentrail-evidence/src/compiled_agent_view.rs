@@ -532,9 +532,15 @@ impl CompiledAgentViewCandidateErrorV1 {
             Self::ReversibleEncodingMismatch => {
                 "EVIDENTRAIL_EVIDENCE_AGENT_VIEW_CANDIDATE_REVERSIBLE_ENCODING_MISMATCH"
             }
-            Self::NonCanonicalOutput => "EVIDENTRAIL_EVIDENCE_AGENT_VIEW_CANDIDATE_NONCANONICAL_OUTPUT",
-            Self::NotSmallerThanCanonical => "EVIDENTRAIL_EVIDENCE_AGENT_VIEW_CANDIDATE_NOT_SMALLER",
-            Self::ArithmeticOverflow => "EVIDENTRAIL_EVIDENCE_AGENT_VIEW_CANDIDATE_ARITHMETIC_OVERFLOW",
+            Self::NonCanonicalOutput => {
+                "EVIDENTRAIL_EVIDENCE_AGENT_VIEW_CANDIDATE_NONCANONICAL_OUTPUT"
+            }
+            Self::NotSmallerThanCanonical => {
+                "EVIDENTRAIL_EVIDENCE_AGENT_VIEW_CANDIDATE_NOT_SMALLER"
+            }
+            Self::ArithmeticOverflow => {
+                "EVIDENTRAIL_EVIDENCE_AGENT_VIEW_CANDIDATE_ARITHMETIC_OVERFLOW"
+            }
         }
     }
 }
@@ -811,7 +817,9 @@ fn hash_acquisition(
     Ok(())
 }
 
-const fn selection_strategy_code(strategy: evidentrail_select::SelectionStrategyV1) -> &'static str {
+const fn selection_strategy_code(
+    strategy: evidentrail_select::SelectionStrategyV1,
+) -> &'static str {
     match strategy {
         evidentrail_select::SelectionStrategyV1::MandatoryOnly => "mandatory_only",
         evidentrail_select::SelectionStrategyV1::DensityGreedy => "density_greedy",

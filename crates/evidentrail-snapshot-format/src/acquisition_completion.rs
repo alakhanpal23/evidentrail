@@ -114,17 +114,25 @@ impl AcquisitionCompletionRecordErrorV1 {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
-            Self::InvalidEncodedLength => "EVIDENTRAIL_ACQUISITION_COMPLETION_INVALID_ENCODED_LENGTH",
+            Self::InvalidEncodedLength => {
+                "EVIDENTRAIL_ACQUISITION_COMPLETION_INVALID_ENCODED_LENGTH"
+            }
             Self::InvalidMagic => "EVIDENTRAIL_ACQUISITION_COMPLETION_INVALID_MAGIC",
             Self::UnsupportedVersion => "EVIDENTRAIL_ACQUISITION_COMPLETION_UNSUPPORTED_VERSION",
             Self::UnsupportedSchema => "EVIDENTRAIL_ACQUISITION_COMPLETION_UNSUPPORTED_SCHEMA",
-            Self::UnsupportedObjectKind => "EVIDENTRAIL_ACQUISITION_COMPLETION_UNSUPPORTED_OBJECT_KIND",
+            Self::UnsupportedObjectKind => {
+                "EVIDENTRAIL_ACQUISITION_COMPLETION_UNSUPPORTED_OBJECT_KIND"
+            }
             Self::InvalidHeaderWidth => "EVIDENTRAIL_ACQUISITION_COMPLETION_INVALID_HEADER_WIDTH",
             Self::UnknownFlags => "EVIDENTRAIL_ACQUISITION_COMPLETION_UNKNOWN_FLAGS",
             Self::NonzeroReserved => "EVIDENTRAIL_ACQUISITION_COMPLETION_NONZERO_RESERVED",
             Self::TotalLengthCap => "EVIDENTRAIL_ACQUISITION_COMPLETION_TOTAL_LENGTH_CAP",
-            Self::AdapterFieldTooLong => "EVIDENTRAIL_ACQUISITION_COMPLETION_ADAPTER_FIELD_TOO_LONG",
-            Self::SourceMemberTooLong => "EVIDENTRAIL_ACQUISITION_COMPLETION_SOURCE_MEMBER_TOO_LONG",
+            Self::AdapterFieldTooLong => {
+                "EVIDENTRAIL_ACQUISITION_COMPLETION_ADAPTER_FIELD_TOO_LONG"
+            }
+            Self::SourceMemberTooLong => {
+                "EVIDENTRAIL_ACQUISITION_COMPLETION_SOURCE_MEMBER_TOO_LONG"
+            }
             Self::CursorTooLong => "EVIDENTRAIL_ACQUISITION_COMPLETION_CURSOR_TOO_LONG",
             Self::CountCap => "EVIDENTRAIL_ACQUISITION_COMPLETION_COUNT_CAP",
             Self::InvalidUtf8 => "EVIDENTRAIL_ACQUISITION_COMPLETION_INVALID_UTF8",
@@ -143,7 +151,9 @@ impl AcquisitionCompletionRecordErrorV1 {
                 "EVIDENTRAIL_ACQUISITION_COMPLETION_UNSUPPORTED_COMPLETENESS_KIND"
             }
             Self::UnsupportedCapKind => "EVIDENTRAIL_ACQUISITION_COMPLETION_UNSUPPORTED_CAP_KIND",
-            Self::UnsupportedErrorCode => "EVIDENTRAIL_ACQUISITION_COMPLETION_UNSUPPORTED_ERROR_CODE",
+            Self::UnsupportedErrorCode => {
+                "EVIDENTRAIL_ACQUISITION_COMPLETION_UNSUPPORTED_ERROR_CODE"
+            }
             Self::UnsupportedCompletenessProof => {
                 "EVIDENTRAIL_ACQUISITION_COMPLETION_UNSUPPORTED_COMPLETENESS_PROOF"
             }
@@ -153,11 +163,15 @@ impl AcquisitionCompletionRecordErrorV1 {
             Self::UnsupportedUnknownReason => {
                 "EVIDENTRAIL_ACQUISITION_COMPLETION_UNSUPPORTED_UNKNOWN_REASON"
             }
-            Self::NoncanonicalCodeFields => "EVIDENTRAIL_ACQUISITION_COMPLETION_NONCANONICAL_CODE_FIELDS",
+            Self::NoncanonicalCodeFields => {
+                "EVIDENTRAIL_ACQUISITION_COMPLETION_NONCANONICAL_CODE_FIELDS"
+            }
             Self::NoncanonicalCompletenessFields => {
                 "EVIDENTRAIL_ACQUISITION_COMPLETION_NONCANONICAL_COMPLETENESS_FIELDS"
             }
-            Self::InvalidFetchCompletion => "EVIDENTRAIL_ACQUISITION_COMPLETION_INVALID_FETCH_COMPLETION",
+            Self::InvalidFetchCompletion => {
+                "EVIDENTRAIL_ACQUISITION_COMPLETION_INVALID_FETCH_COMPLETION"
+            }
             Self::ReceiptRetrievalMismatch => {
                 "EVIDENTRAIL_ACQUISITION_COMPLETION_RECEIPT_RETRIEVAL_MISMATCH"
             }
