@@ -4,10 +4,11 @@ use std::fmt::Write as _;
 
 use evidentrail_schema::ArtifactDigest;
 use evidentrail_schema::bounds::JSON_SAFE_INTEGER_MAX;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     MAX_HARNESS_STREAM_BYTES_V1, MAX_HARNESS_WALL_NANOS_V1, MAX_READER_ANSWER_BYTES_V1,
-    ReaderPublicInputV1, artifact_digest_for_bytes_v1,
+    ReaderAnswerV1, ReaderPublicInputV1, artifact_digest_for_bytes_v1,
 };
 
 pub const HOSTED_READER_JSONL_ADAPTER_CONTRACT_VERSION_V1: u16 = 1;
@@ -18,7 +19,7 @@ pub const HOSTED_READER_SYSTEM_MESSAGE_V1: &[u8] = b"You are a single-shot diagn
 
 const HOSTED_READER_USER_TEMPLATE_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/hosted-reader-user-message/v1\0exact-utf8-sections=question,context,method_artifact\0section-lengths=decimal-utf8-bytes\0citation-catalog=handle,kind-set,target-count-no-target-identities\0method-identity=name,version\0tainted=true";
 const HOSTED_READER_JSONL_REQUEST_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/hosted-reader-jsonl-request/v1\0one-canonical-json-line\0system-and-user=utf8-decoded-from-lowercase-hex-before-provider-call\0credentials=out-of-band-never-serialized\0unknown-fields=reject\0shell=false\0network=not-implemented-in-v1-spec";
-const HOSTED_READER_JSONL_RESPONSE_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/hosted-reader-jsonl-response/v1\0one-canonical-json-line\0answer=reader-answer-schema-v1\0usage=required-prompt,completion,total-token-counts\0provider-request-id=sha256-digest-only\0unknown-fields=reject\0trailing-data=reject\0tool-actions=reject";
+const HOSTED_READER_JSONL_RESPONSE_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/hosted-reader-jsonl-response/v1\0one-canonical-json-line\0bindings=configuration,request,public-input,response-contract\0answer=reader-answer-schema-v1\0usage=required-provider-reported-prompt,completion,total-token-counts\0observations=wall-time,direct-process-peak-rss\0provider-request-id=sha256-digest-only\0unknown-fields=reject\0trailing-data=reject\0tool-actions=reject";
 const HOSTED_READER_FAILURE_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/hosted-reader-failure-policy/v1\0fail-closed=identity-mismatch,config-mismatch,malformed-jsonl,unknown-field,missing-usage,token-cap,byte-cap,wall-deadline,rss-cap,provider-error,rate-limit,timeout,tool-action,nondeterminism\0retries=0\0partial-output=reject\0diagnostics=contentless";
 const HOSTED_READER_REDACTION_MANIFEST_V1: &[u8] = b"evidentrail/bench-harness/hosted-reader-redaction/v1\0credentials=out-of-band-not-in-request,receipt,debug,error\0provider-request-id=digest-only\0question-context-artifact-answer=bytes-redacted-in-debug-and-errors\0raw-provider-error=digest-and-bounded-bytes-in-private-receipt-only\0hidden-labels=never-in-public-request";
 const MESSAGE_ARTIFACT_DOMAIN_V1: &[u8] =
@@ -27,6 +28,8 @@ const CONFIGURATION_ARTIFACT_DOMAIN_V1: &[u8] =
     b"evidentrail/bench-harness/hosted-reader-jsonl-configuration/v1";
 const REQUEST_ARTIFACT_DOMAIN_V1: &[u8] =
     b"evidentrail/bench-harness/hosted-reader-jsonl-request-artifact/v1";
+const RESPONSE_ARTIFACT_DOMAIN_V1: &[u8] =
+    b"evidentrail/bench-harness/hosted-reader-jsonl-response-artifact/v1";
 
 const MAX_HOSTED_IDENTITY_CODE_BYTES_V1: usize = 128;
 
@@ -372,7 +375,7 @@ impl HostedReaderJsonlAdapterSpecV1 {
 
     #[must_use]
     pub const fn response_parser_implemented(&self) -> bool {
-        false
+        true
     }
 
     #[must_use]
@@ -673,6 +676,289 @@ impl fmt::Debug for HostedReaderJsonlRequestV1 {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostedReaderTokenUsageV1 {
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    total_tokens: u64,
+}
+
+impl HostedReaderTokenUsageV1 {
+    #[must_use]
+    pub const fn prompt_tokens(self) -> u64 {
+        self.prompt_tokens
+    }
+
+    #[must_use]
+    pub const fn completion_tokens(self) -> u64 {
+        self.completion_tokens
+    }
+
+    #[must_use]
+    pub const fn total_tokens(self) -> u64 {
+        self.total_tokens
+    }
+
+    /// Counts are reported by the pinned provider adapter. V1 validates their
+    /// shape and caps but does not claim independent tokenizer measurement.
+    #[must_use]
+    pub const fn provider_reported(self) -> bool {
+        true
+    }
+}
+
+impl fmt::Debug for HostedReaderTokenUsageV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HostedReaderTokenUsageV1")
+            .field("prompt_tokens", &self.prompt_tokens)
+            .field("completion_tokens", &self.completion_tokens)
+            .field("total_tokens", &self.total_tokens)
+            .field("provider_reported", &true)
+            .finish()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HostedReaderJsonlResponseEnvelopeV1 {
+    schema_version: u16,
+    configuration_artifact_digest: String,
+    request_artifact_digest: String,
+    public_input_artifact_digest: String,
+    response_contract_artifact_digest: String,
+    provider_request_id_digest: String,
+    answer: ReaderAnswerV1,
+    usage: HostedReaderTokenUsageV1,
+    wall_time_nanos: u64,
+    direct_process_peak_rss_bytes: u64,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct HostedReaderJsonlResponseV1 {
+    artifact_digest: ArtifactDigest,
+    configuration_artifact_digest: ArtifactDigest,
+    request_artifact_digest: ArtifactDigest,
+    public_input_artifact_digest: ArtifactDigest,
+    provider_request_id_digest: ArtifactDigest,
+    answer: ReaderAnswerV1,
+    answer_artifact_digest: ArtifactDigest,
+    answer_bytes: Box<[u8]>,
+    usage: HostedReaderTokenUsageV1,
+    wall_time_nanos: u64,
+    direct_process_peak_rss_bytes: u64,
+    transport: Box<[u8]>,
+}
+
+impl HostedReaderJsonlResponseV1 {
+    pub fn try_parse(
+        spec: &HostedReaderJsonlAdapterSpecV1,
+        request: &HostedReaderJsonlRequestV1,
+        input: &ReaderPublicInputV1,
+        transport: &[u8],
+    ) -> Result<Self, HostedReaderJsonlErrorV1> {
+        let transport_len = checked_len(transport.len())?;
+        if transport_len == 0 || transport_len > spec.caps().response_transport_bytes() {
+            return Err(HostedReaderJsonlErrorV1::ResponseTransportCapExceeded);
+        }
+        let Some(json) = transport.strip_suffix(b"\n") else {
+            return Err(HostedReaderJsonlErrorV1::MalformedOrNonCanonicalResponse);
+        };
+        if json.is_empty() || json.contains(&b'\n') || json.contains(&b'\r') {
+            return Err(HostedReaderJsonlErrorV1::MalformedOrNonCanonicalResponse);
+        }
+        let envelope: HostedReaderJsonlResponseEnvelopeV1 = serde_json::from_slice(json)
+            .map_err(|_| HostedReaderJsonlErrorV1::MalformedOrNonCanonicalResponse)?;
+        let mut canonical = serde_json::to_vec(&envelope)
+            .map_err(|_| HostedReaderJsonlErrorV1::MalformedOrNonCanonicalResponse)?;
+        canonical.push(b'\n');
+        if canonical != transport {
+            return Err(HostedReaderJsonlErrorV1::MalformedOrNonCanonicalResponse);
+        }
+        if envelope.schema_version != HOSTED_READER_JSONL_RESPONSE_SCHEMA_VERSION_V1 {
+            return Err(HostedReaderJsonlErrorV1::UnsupportedResponseSchema);
+        }
+
+        let configuration_artifact_digest =
+            parse_digest_hex_v1(&envelope.configuration_artifact_digest)?;
+        let request_artifact_digest = parse_digest_hex_v1(&envelope.request_artifact_digest)?;
+        let public_input_artifact_digest =
+            parse_digest_hex_v1(&envelope.public_input_artifact_digest)?;
+        let response_contract_artifact_digest =
+            parse_digest_hex_v1(&envelope.response_contract_artifact_digest)?;
+        let provider_request_id_digest = parse_digest_hex_v1(&envelope.provider_request_id_digest)?;
+        if configuration_artifact_digest != spec.artifact_digest()
+            || configuration_artifact_digest != request.configuration_artifact_digest()
+            || request_artifact_digest != request.artifact_digest()
+            || public_input_artifact_digest != request.public_input_artifact_digest()
+            || public_input_artifact_digest != input.artifact_digest()
+            || response_contract_artifact_digest
+                != hosted_reader_jsonl_response_contract_artifact_digest_v1()
+        {
+            return Err(HostedReaderJsonlErrorV1::ResponseBindingMismatch);
+        }
+        if provider_request_id_digest
+            .as_bytes()
+            .iter()
+            .all(|byte| *byte == 0)
+        {
+            return Err(HostedReaderJsonlErrorV1::ZeroIdentityDigest);
+        }
+
+        let usage = envelope.usage;
+        let Some(expected_total) = usage.prompt_tokens().checked_add(usage.completion_tokens())
+        else {
+            return Err(HostedReaderJsonlErrorV1::InvalidTokenUsage);
+        };
+        if usage.prompt_tokens() == 0
+            || usage.completion_tokens() == 0
+            || usage.total_tokens() != expected_total
+            || usage.prompt_tokens() > spec.caps().prompt_tokens()
+            || usage.completion_tokens() > spec.caps().answer_tokens()
+            || usage.total_tokens() > spec.caps().total_tokens()
+            || usage.total_tokens() > JSON_SAFE_INTEGER_MAX
+        {
+            return Err(HostedReaderJsonlErrorV1::InvalidTokenUsage);
+        }
+        if envelope.wall_time_nanos == 0
+            || envelope.wall_time_nanos > spec.caps().wall_time_nanos()
+            || envelope.direct_process_peak_rss_bytes == 0
+            || envelope.direct_process_peak_rss_bytes > spec.caps().direct_process_peak_rss_bytes()
+        {
+            return Err(HostedReaderJsonlErrorV1::ResponseResourceCapExceeded);
+        }
+
+        let answer_bytes = serde_json::to_vec(&envelope.answer)
+            .map_err(|_| HostedReaderJsonlErrorV1::MalformedOrNonCanonicalResponse)?;
+        let answer = crate::reader::parse_strict_reader_answer_v1(&answer_bytes)
+            .map_err(|_| HostedReaderJsonlErrorV1::InvalidReaderAnswer)?;
+        if answer.citation_handles().iter().any(|handle| {
+            input
+                .method_artifact()
+                .citation_handles()
+                .binary_search_by_key(handle, |citation| citation.handle())
+                .is_err()
+        }) {
+            return Err(HostedReaderJsonlErrorV1::UndeclaredCitationHandle);
+        }
+        let answer_artifact_digest = artifact_digest_for_bytes_v1(&answer_bytes);
+        let artifact_digest = derive_response_artifact_v1(
+            configuration_artifact_digest,
+            request_artifact_digest,
+            public_input_artifact_digest,
+            provider_request_id_digest,
+            answer_artifact_digest,
+            usage,
+            envelope.wall_time_nanos,
+            envelope.direct_process_peak_rss_bytes,
+            transport,
+        )?;
+        Ok(Self {
+            artifact_digest,
+            configuration_artifact_digest,
+            request_artifact_digest,
+            public_input_artifact_digest,
+            provider_request_id_digest,
+            answer,
+            answer_artifact_digest,
+            answer_bytes: answer_bytes.into_boxed_slice(),
+            usage,
+            wall_time_nanos: envelope.wall_time_nanos,
+            direct_process_peak_rss_bytes: envelope.direct_process_peak_rss_bytes,
+            transport: transport.into(),
+        })
+    }
+
+    #[must_use]
+    pub const fn artifact_digest(&self) -> ArtifactDigest {
+        self.artifact_digest
+    }
+
+    #[must_use]
+    pub const fn configuration_artifact_digest(&self) -> ArtifactDigest {
+        self.configuration_artifact_digest
+    }
+
+    #[must_use]
+    pub const fn request_artifact_digest(&self) -> ArtifactDigest {
+        self.request_artifact_digest
+    }
+
+    #[must_use]
+    pub const fn public_input_artifact_digest(&self) -> ArtifactDigest {
+        self.public_input_artifact_digest
+    }
+
+    #[must_use]
+    pub const fn provider_request_id_digest(&self) -> ArtifactDigest {
+        self.provider_request_id_digest
+    }
+
+    #[must_use]
+    pub const fn answer(&self) -> &ReaderAnswerV1 {
+        &self.answer
+    }
+
+    #[must_use]
+    pub const fn answer_artifact_digest(&self) -> ArtifactDigest {
+        self.answer_artifact_digest
+    }
+
+    #[must_use]
+    pub const fn answer_bytes(&self) -> &[u8] {
+        &self.answer_bytes
+    }
+
+    #[must_use]
+    pub const fn usage(&self) -> HostedReaderTokenUsageV1 {
+        self.usage
+    }
+
+    #[must_use]
+    pub const fn wall_time_nanos(&self) -> u64 {
+        self.wall_time_nanos
+    }
+
+    #[must_use]
+    pub const fn direct_process_peak_rss_bytes(&self) -> u64 {
+        self.direct_process_peak_rss_bytes
+    }
+
+    #[must_use]
+    pub const fn transport(&self) -> &[u8] {
+        &self.transport
+    }
+
+    #[must_use]
+    pub const fn contains_credentials(&self) -> bool {
+        false
+    }
+}
+
+impl fmt::Debug for HostedReaderJsonlResponseV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HostedReaderJsonlResponseV1")
+            .field("artifact_identity_present", &true)
+            .field("configuration_binding_present", &true)
+            .field("request_binding_present", &true)
+            .field("public_input_binding_present", &true)
+            .field("provider_request_identity_present", &true)
+            .field("answer", &self.answer)
+            .field("usage", &self.usage)
+            .field("wall_time_nanos", &self.wall_time_nanos)
+            .field(
+                "direct_process_peak_rss_bytes",
+                &self.direct_process_peak_rss_bytes,
+            )
+            .field("transport_byte_count", &self.transport.len())
+            .field("contains_credentials", &false)
+            .field("content_redacted", &true)
+            .finish()
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum HostedReaderFailureRuleV1 {
     IdentityMismatch,
@@ -839,6 +1125,36 @@ fn derive_request_artifact_v1(
     Ok(artifact_digest_for_bytes_v1(&bytes))
 }
 
+#[allow(clippy::too_many_arguments)]
+fn derive_response_artifact_v1(
+    configuration: ArtifactDigest,
+    request: ArtifactDigest,
+    input: ArtifactDigest,
+    provider_request_id: ArtifactDigest,
+    answer: ArtifactDigest,
+    usage: HostedReaderTokenUsageV1,
+    wall_time_nanos: u64,
+    direct_process_peak_rss_bytes: u64,
+    transport: &[u8],
+) -> Result<ArtifactDigest, HostedReaderJsonlErrorV1> {
+    let mut bytes = Vec::new();
+    append_field(&mut bytes, RESPONSE_ARTIFACT_DOMAIN_V1)?;
+    for digest in [configuration, request, input, provider_request_id, answer] {
+        append_field(&mut bytes, digest.as_bytes())?;
+    }
+    for value in [
+        usage.prompt_tokens(),
+        usage.completion_tokens(),
+        usage.total_tokens(),
+        wall_time_nanos,
+        direct_process_peak_rss_bytes,
+    ] {
+        append_field(&mut bytes, &value.to_le_bytes())?;
+    }
+    append_field(&mut bytes, transport)?;
+    Ok(artifact_digest_for_bytes_v1(&bytes))
+}
+
 fn append_named_utf8_section(
     output: &mut Vec<u8>,
     name: &[u8],
@@ -904,6 +1220,30 @@ fn hex(bytes: &[u8]) -> Result<String, HostedReaderJsonlErrorV1> {
     Ok(output)
 }
 
+fn parse_digest_hex_v1(value: &str) -> Result<ArtifactDigest, HostedReaderJsonlErrorV1> {
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(HostedReaderJsonlErrorV1::MalformedDigest);
+    }
+    let mut bytes = [0_u8; 32];
+    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        if pair.iter().any(u8::is_ascii_uppercase) {
+            return Err(HostedReaderJsonlErrorV1::MalformedDigest);
+        }
+        let high = hex_nibble(pair[0]).ok_or(HostedReaderJsonlErrorV1::MalformedDigest)?;
+        let low = hex_nibble(pair[1]).ok_or(HostedReaderJsonlErrorV1::MalformedDigest)?;
+        bytes[index] = (high << 4) | low;
+    }
+    Ok(ArtifactDigest::from_bytes(bytes))
+}
+
+const fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum HostedReaderJsonlErrorV1 {
     InvalidIdentityCode,
@@ -914,6 +1254,15 @@ pub enum HostedReaderJsonlErrorV1 {
     InvalidCitationCatalog,
     ConfigurationBindingMismatch,
     RequestTransportCapExceeded,
+    ResponseTransportCapExceeded,
+    MalformedOrNonCanonicalResponse,
+    UnsupportedResponseSchema,
+    MalformedDigest,
+    ResponseBindingMismatch,
+    InvalidTokenUsage,
+    ResponseResourceCapExceeded,
+    InvalidReaderAnswer,
+    UndeclaredCitationHandle,
     ArtifactLengthOverflow,
 }
 
@@ -938,6 +1287,27 @@ impl HostedReaderJsonlErrorV1 {
             }
             Self::RequestTransportCapExceeded => {
                 "EVIDENTRAIL_BENCH_HOSTED_READER_REQUEST_TRANSPORT_CAP_EXCEEDED"
+            }
+            Self::ResponseTransportCapExceeded => {
+                "EVIDENTRAIL_BENCH_HOSTED_READER_RESPONSE_TRANSPORT_CAP_EXCEEDED"
+            }
+            Self::MalformedOrNonCanonicalResponse => {
+                "EVIDENTRAIL_BENCH_HOSTED_READER_MALFORMED_OR_NON_CANONICAL_RESPONSE"
+            }
+            Self::UnsupportedResponseSchema => {
+                "EVIDENTRAIL_BENCH_HOSTED_READER_UNSUPPORTED_RESPONSE_SCHEMA"
+            }
+            Self::MalformedDigest => "EVIDENTRAIL_BENCH_HOSTED_READER_MALFORMED_DIGEST",
+            Self::ResponseBindingMismatch => {
+                "EVIDENTRAIL_BENCH_HOSTED_READER_RESPONSE_BINDING_MISMATCH"
+            }
+            Self::InvalidTokenUsage => "EVIDENTRAIL_BENCH_HOSTED_READER_INVALID_TOKEN_USAGE",
+            Self::ResponseResourceCapExceeded => {
+                "EVIDENTRAIL_BENCH_HOSTED_READER_RESPONSE_RESOURCE_CAP_EXCEEDED"
+            }
+            Self::InvalidReaderAnswer => "EVIDENTRAIL_BENCH_HOSTED_READER_INVALID_READER_ANSWER",
+            Self::UndeclaredCitationHandle => {
+                "EVIDENTRAIL_BENCH_HOSTED_READER_UNDECLARED_CITATION_HANDLE"
             }
             Self::ArtifactLengthOverflow => {
                 "EVIDENTRAIL_BENCH_HOSTED_READER_ARTIFACT_LENGTH_OVERFLOW"
