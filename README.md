@@ -63,6 +63,21 @@ Keychain access and fails closed when that authority is unavailable.
 Engineering design, format, benchmark, and qualification details are kept in
 [`docs/`](docs/).
 
+### Optional LLM compression evaluation
+
+The benchmark harness includes a provider-neutral hosted-reader JSONL contract
+for checking a compact view against the full view with the same pinned model.
+The check passes only when the compact method artifact and provider-reported
+prompt are both smaller, while the structured diagnosis, claims, and citation
+semantics are exactly preserved. Responses are strictly parsed, identity-bound,
+resource-capped, and fail closed.
+
+This evaluation is opt-in and off the production path: CI uses offline fixtures,
+no model credentials are accepted by the library contract, an LLM never rewrites
+trusted evidence, and a passing receipt is not production-admission authority.
+See the [hosted LLM compression check](docs/HOSTED_LLM_COMPRESSION_CHECK.md)
+for the adapter flow and response contract.
+
 ## License
 
 Licensed under either of the following, at your option:

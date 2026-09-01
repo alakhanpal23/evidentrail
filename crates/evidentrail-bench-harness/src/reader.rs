@@ -1595,7 +1595,7 @@ fn citation_kind_summary_v1(targets: &[EvidenceTargetV1]) -> &'static str {
     }
 }
 
-fn parse_strict_reader_answer_v1(bytes: &[u8]) -> Result<ReaderAnswerV1, ReaderErrorV1> {
+pub(crate) fn parse_strict_reader_answer_v1(bytes: &[u8]) -> Result<ReaderAnswerV1, ReaderErrorV1> {
     checked_nonempty_bounded_len(
         bytes.len(),
         MAX_READER_ANSWER_BYTES_V1,

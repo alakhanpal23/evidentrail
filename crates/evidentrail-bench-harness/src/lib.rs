@@ -14,6 +14,7 @@ mod fidelity_bridge;
 mod first_party_log_brief;
 mod first_party_subprocess;
 mod hermetic_drain_fixture;
+mod hosted_reader_compression;
 mod hosted_reader_jsonl;
 mod incident_lab;
 mod legacy_drain;
@@ -105,13 +106,17 @@ pub use first_party_subprocess::{
 pub use hermetic_drain_fixture::{
     HermeticDrainFixtureErrorV1, hermetic_legacy_drain_full_membership_fixture_json_v1,
 };
+pub use hosted_reader_compression::{
+    HOSTED_READER_COMPRESSION_CHECK_CONTRACT_VERSION_V1, HostedReaderCompressionCheckErrorV1,
+    HostedReaderCompressionCheckReceiptV1, check_hosted_reader_compression_v1,
+};
 pub use hosted_reader_jsonl::{
     HOSTED_READER_FAILURE_RULES_V1, HOSTED_READER_JSONL_ADAPTER_CONTRACT_VERSION_V1,
     HOSTED_READER_JSONL_REQUEST_SCHEMA_VERSION_V1, HOSTED_READER_JSONL_RESPONSE_SCHEMA_VERSION_V1,
     HOSTED_READER_SYSTEM_MESSAGE_V1, HostedReaderDecodingConfigV1, HostedReaderFailureRuleV1,
     HostedReaderJsonlAdapterSpecV1, HostedReaderJsonlCapsV1, HostedReaderJsonlErrorV1,
-    HostedReaderJsonlRequestV1, HostedReaderModelMessagesV1,
-    hosted_reader_failure_policy_artifact_digest_v1,
+    HostedReaderJsonlRequestV1, HostedReaderJsonlResponseV1, HostedReaderModelMessagesV1,
+    HostedReaderTokenUsageV1, hosted_reader_failure_policy_artifact_digest_v1,
     hosted_reader_jsonl_request_contract_artifact_digest_v1,
     hosted_reader_jsonl_response_contract_artifact_digest_v1,
     hosted_reader_prompt_template_artifact_digest_v1,
