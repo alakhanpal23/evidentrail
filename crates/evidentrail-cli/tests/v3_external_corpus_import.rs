@@ -6,7 +6,14 @@ use sha2::{Digest, Sha256};
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    const LOWER_HEX: &[u8; 16] = b"0123456789abcdef";
+
+    let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
+    for byte in bytes {
+        encoded.push(char::from(LOWER_HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(LOWER_HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
 }
 
 #[test]

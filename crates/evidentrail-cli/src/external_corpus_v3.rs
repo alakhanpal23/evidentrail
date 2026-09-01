@@ -321,7 +321,14 @@ fn parse_digest_v3(value: &str, line: usize) -> Result<[u8; 32], ExternalCorpusI
 }
 
 fn hex_v3(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    const LOWER_HEX: &[u8; 16] = b"0123456789abcdef";
+
+    let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
+    for byte in bytes {
+        encoded.push(char::from(LOWER_HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(LOWER_HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
 }
 
 const fn error(line: usize, code: &'static str) -> ExternalCorpusImportErrorV3 {

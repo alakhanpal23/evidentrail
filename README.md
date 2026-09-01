@@ -62,3 +62,10 @@ Keychain access and fails closed when that authority is unavailable.
 
 Engineering design, format, benchmark, and qualification details are kept in
 [`docs/`](docs/).
+
+## License
+
+Licensed under either of the following, at your option:
+
+- [Apache License, Version 2.0](LICENSE-APACHE)
+- [MIT License](LICENSE-MIT)

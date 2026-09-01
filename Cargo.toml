@@ -24,6 +24,9 @@ resolver = "2"
 edition = "2024"
 rust-version = "1.85"
 publish = false
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/alakhanpal23/evidentrail"
+readme = "README.md"
 
 [workspace.dependencies]
 base64 = "0.22.1"
