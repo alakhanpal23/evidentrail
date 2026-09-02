@@ -93,6 +93,29 @@ impl EvidenceRankingRequestV1 {
     pub fn candidates(&self) -> &[EvidenceRankingCandidateV1] {
         &self.candidates
     }
+
+    /// Return an ephemeral copy with candidates in the supplied complete
+    /// permutation. This exists for benchmark order-sensitivity evaluation;
+    /// aliases and exact escaped bytes remain unchanged.
+    #[must_use]
+    pub fn reordered_candidates_v1(&self, order: &[usize]) -> Option<Self> {
+        if order.len() != self.candidates.len() {
+            return None;
+        }
+        let mut seen = vec![false; order.len()];
+        let mut candidates = Vec::with_capacity(order.len());
+        for index in order.iter().copied() {
+            if index >= self.candidates.len() || seen[index] {
+                return None;
+            }
+            seen[index] = true;
+            candidates.push(self.candidates[index].clone());
+        }
+        Some(Self {
+            escaped_question: self.escaped_question.clone(),
+            candidates,
+        })
+    }
 }
 
 impl fmt::Debug for EvidenceRankingRequestV1 {
@@ -106,6 +129,7 @@ impl fmt::Debug for EvidenceRankingRequestV1 {
 }
 
 /// Provider-neutral result from exactly one hosted call.
+#[derive(Clone)]
 pub struct EvidenceRankerOutputV1 {
     response_json: Vec<u8>,
     provider_digest: [u8; 32],

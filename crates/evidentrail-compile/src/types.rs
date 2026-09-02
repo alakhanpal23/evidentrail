@@ -8,8 +8,8 @@ use evidentrail_candidates::{
 use evidentrail_core::{BlockId, EventId, QuestionDigest, ResultId};
 use evidentrail_evidence::{CompiledCostCertificationError, CompiledCostCertificationV1};
 use evidentrail_select::{
-    OptionalPacketPriorityErrorV1, PacketConstructionError, PacketIdV1, ProductionFacetV1,
-    SelectionInvariantError, SelectionProblemConstructionError, SelectionV1,
+    OptionalPacketOrderErrorV1, OptionalPacketPriorityErrorV1, PacketConstructionError, PacketIdV1,
+    ProductionFacetV1, SelectionInvariantError, SelectionProblemConstructionError, SelectionV1,
 };
 
 use crate::proposal::{ProposalUniverseAccountingErrorV1, ProposalUniverseReceiptV1};
@@ -96,6 +96,7 @@ pub enum ThreeLaneCompileErrorV1 {
     SelectionProblem(SelectionProblemConstructionError),
     SelectionInvariant(SelectionInvariantError),
     OptionalPriority(OptionalPacketPriorityErrorV1),
+    OptionalOrder(OptionalPacketOrderErrorV1),
     CertificateVerification(CompiledCostCertificationError),
 }
 
@@ -123,6 +124,7 @@ impl ThreeLaneCompileErrorV1 {
             Self::SelectionProblem(_) => "EVIDENTRAIL_COMPILE_SELECTION_PROBLEM",
             Self::SelectionInvariant(_) => "EVIDENTRAIL_COMPILE_SELECTION_INVARIANT",
             Self::OptionalPriority(_) => "EVIDENTRAIL_COMPILE_OPTIONAL_PRIORITY",
+            Self::OptionalOrder(_) => "EVIDENTRAIL_COMPILE_OPTIONAL_ORDER",
             Self::CertificateVerification(_) => "EVIDENTRAIL_COMPILE_CERTIFICATE_VERIFICATION",
         }
     }

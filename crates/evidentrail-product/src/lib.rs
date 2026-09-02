@@ -48,6 +48,7 @@ use evidentrail_compile::{
     ProposalUniverseReceiptV1, ThreeLaneCompileErrorV1, ThreeLaneNeedsMoreV1,
     ThreeLaneProposalPreparationDecisionV1, ThreeLaneProposalPreparationNeedsMoreV1,
     prepare_three_lane_proposal_universe_v1, select_prepared_three_lane_proposals_v1,
+    select_prepared_three_lane_proposals_with_order_v1,
     select_prepared_three_lane_proposals_with_priorities_v1,
 };
 use evidentrail_core::{
@@ -927,19 +928,28 @@ fn assisted_selection_v1(
                 );
             }
         };
-    let consumed = consume_evidence_ranking_v1(
-        RankingConsumerV1::BoundedFourthAffinity,
-        &deterministic_ids,
-        &ranking,
-    );
-    let priorities = ranking_priorities_v1(&consumed);
-    let assisted = select_prepared_three_lane_proposals_with_priorities_v1(
-        ledger,
-        prepared.clone(),
-        total_token_budget,
-        tokenizer,
-        &priorities,
-    );
+    let consumed = consume_evidence_ranking_v1(attempt.consumer, &deterministic_ids, &ranking);
+    let assisted = match attempt.consumer {
+        RankingConsumerV1::ModelOrder | RankingConsumerV1::ReciprocalRankFusion => {
+            select_prepared_three_lane_proposals_with_order_v1(
+                ledger,
+                prepared.clone(),
+                total_token_budget,
+                tokenizer,
+                &consumed,
+            )
+        }
+        RankingConsumerV1::BoundedFourthAffinity => {
+            let priorities = ranking_priorities_v1(&consumed);
+            select_prepared_three_lane_proposals_with_priorities_v1(
+                ledger,
+                prepared.clone(),
+                total_token_budget,
+                tokenizer,
+                &priorities,
+            )
+        }
+    };
     match assisted {
         Ok(PreparedThreeLaneSelectionDecisionV1::Selected(assisted)) => {
             let proposal_changed = assisted
@@ -961,6 +971,7 @@ fn assisted_selection_v1(
             match attempt.application {
                 HostedRankingApplicationV1::Apply => (assisted, diagnostics),
                 HostedRankingApplicationV1::Shadow => (deterministic, diagnostics),
+                HostedRankingApplicationV1::Evaluation => (assisted, diagnostics),
             }
         }
         Ok(PreparedThreeLaneSelectionDecisionV1::NeedsMore(_)) | Err(_) => (
@@ -978,11 +989,13 @@ fn assisted_selection_v1(
 enum HostedRankingApplicationV1 {
     Apply,
     Shadow,
+    Evaluation,
 }
 
 struct HostedRankingAttemptV1<'a> {
     ranker: &'a mut dyn EvidenceRankerV1,
     application: HostedRankingApplicationV1,
+    consumer: RankingConsumerV1,
 }
 
 impl HostedRankingApplicationV1 {
@@ -990,6 +1003,7 @@ impl HostedRankingApplicationV1 {
         match self {
             Self::Apply => "apply",
             Self::Shadow => "shadow",
+            Self::Evaluation => "evaluation",
         }
     }
 }
@@ -1080,6 +1094,7 @@ impl MemoryProductV1 {
             Some(HostedRankingAttemptV1 {
                 ranker,
                 application: HostedRankingApplicationV1::Apply,
+                consumer: RankingConsumerV1::BoundedFourthAffinity,
             }),
         )
     }
@@ -1121,6 +1136,101 @@ impl MemoryProductV1 {
             Some(HostedRankingAttemptV1 {
                 ranker,
                 application: HostedRankingApplicationV1::Shadow,
+                consumer: RankingConsumerV1::BoundedFourthAffinity,
+            }),
+        )
+    }
+
+    /// Benchmark-only evaluation path. It uses the complete production
+    /// preparation, validation, selection, certification, rendering, and
+    /// expansion contracts, but labels diagnostics as `evaluation` and is not
+    /// wired to the CLI or MCP product surfaces.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_evaluation_ranked_result_v1<R: EvidenceRankerV1>(
+        &mut self,
+        result_id: ResultId,
+        question_bytes: &[u8],
+        ledger: EventLedger,
+        now: UnixTimestampNanos,
+        total_token_limit: u64,
+        ranker: &mut R,
+        consumer: RankingConsumerV1,
+    ) -> Result<DeterministicProductDecisionV1, ProductError> {
+        self.create_ranked_result_for_application_v1(
+            result_id,
+            question_bytes,
+            ledger,
+            now,
+            total_token_limit,
+            ranker,
+            HostedRankingApplicationV1::Evaluation,
+            consumer,
+        )
+    }
+
+    /// Benchmark-only shadow path for proving that every evaluated consumer
+    /// leaves the published deterministic bytes unchanged.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_shadow_ranked_result_for_consumer_v1<R: EvidenceRankerV1>(
+        &mut self,
+        result_id: ResultId,
+        question_bytes: &[u8],
+        ledger: EventLedger,
+        now: UnixTimestampNanos,
+        total_token_limit: u64,
+        ranker: &mut R,
+        consumer: RankingConsumerV1,
+    ) -> Result<DeterministicProductDecisionV1, ProductError> {
+        self.create_ranked_result_for_application_v1(
+            result_id,
+            question_bytes,
+            ledger,
+            now,
+            total_token_limit,
+            ranker,
+            HostedRankingApplicationV1::Shadow,
+            consumer,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_ranked_result_for_application_v1<R: EvidenceRankerV1>(
+        &mut self,
+        result_id: ResultId,
+        question_bytes: &[u8],
+        ledger: EventLedger,
+        now: UnixTimestampNanos,
+        total_token_limit: u64,
+        ranker: &mut R,
+        application: HostedRankingApplicationV1,
+        consumer: RankingConsumerV1,
+    ) -> Result<DeterministicProductDecisionV1, ProductError> {
+        TotalTokenBudgetV1::new(total_token_limit).map_err(ProductError::TokenBudget)?;
+        let tokenizer = Utf8ByteTokenizerV1::new();
+        let initial = self.create_result(
+            result_id,
+            question_bytes,
+            ledger,
+            now,
+            total_token_limit,
+            &tokenizer,
+        )?;
+        let required = match initial {
+            ProductResultDecisionV1::Rendered(rendered) => {
+                return Ok(DeterministicProductDecisionV1::Passthrough(rendered));
+            }
+            ProductResultDecisionV1::CompilationRequired(required) => required,
+        };
+        self.compile_retained_miss_v1(
+            result_id,
+            question_bytes,
+            *required,
+            now,
+            &tokenizer,
+            Some(HostedRankingAttemptV1 {
+                ranker,
+                application,
+                consumer,
             }),
         )
     }

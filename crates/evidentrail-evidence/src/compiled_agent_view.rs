@@ -824,6 +824,9 @@ const fn selection_strategy_code(
         evidentrail_select::SelectionStrategyV1::MandatoryOnly => "mandatory_only",
         evidentrail_select::SelectionStrategyV1::DensityGreedy => "density_greedy",
         evidentrail_select::SelectionStrategyV1::BestSingle => "best_single",
+        evidentrail_select::SelectionStrategyV1::ExternalOrderBudgetPack => {
+            "external_order_budget_pack"
+        }
     }
 }
 

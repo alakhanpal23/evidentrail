@@ -345,10 +345,12 @@ dependencies = [
  "evidentrail-select",
  "evidentrail-snapshot-format",
  "evidentrail-store",
+ "reqwest",
  "rustix",
  "serde",
  "serde_json",
  "sha2",
+ "zeroize",
 ]
 
 [[package]]

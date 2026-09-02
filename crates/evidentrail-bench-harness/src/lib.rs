@@ -14,12 +14,14 @@ mod fidelity_bridge;
 mod first_party_log_brief;
 mod first_party_subprocess;
 mod hermetic_drain_fixture;
+mod hosted_ranking_qualification;
 mod hosted_reader_compression;
 mod hosted_reader_jsonl;
 mod incident_lab;
 mod legacy_drain;
 mod legacy_drain_normalizer;
 mod matched_representation;
+mod openai_hosted_diagnosis;
 mod paired_reader;
 mod paired_trials;
 mod peak_rss_observer;
@@ -106,6 +108,19 @@ pub use first_party_subprocess::{
 pub use hermetic_drain_fixture::{
     HermeticDrainFixtureErrorV1, hermetic_legacy_drain_full_membership_fixture_json_v1,
 };
+pub use hosted_ranking_qualification::{
+    HOSTED_RANKING_BOOTSTRAP_RESAMPLES_V1, HOSTED_RANKING_COST_PER_ATTEMPT_GUARD_MICROUSD_V1,
+    HOSTED_RANKING_P95_COST_MICROUSD_CEILING_V1, HOSTED_RANKING_P95_END_TO_END_NANOS_CEILING_V1,
+    HOSTED_RANKING_PILOT_CASE_COUNT_V1, HOSTED_RANKING_PILOT_COST_CAP_MICROUSD_V1,
+    HOSTED_RANKING_PROTECTED_SLICE_REGRESSION_MICROS_V1, HOSTED_RANKING_QUALIFICATION_REPEATS_V1,
+    HOSTED_RANKING_QUALIFICATION_SCHEMA_VERSION_V1, HOSTED_RANKING_SCORED_CASE_COUNT_V1,
+    HOSTED_RANKING_SCORED_COST_CAP_MICROUSD_V1, HOSTED_RANKING_VALID_RESPONSE_FLOOR_MICROS_V1,
+    HostedRankingAttemptDiagnosticV1, HostedRankingBenchmarkPhaseV1,
+    HostedRankingConsumerSummaryV1, HostedRankingQualificationErrorV1,
+    HostedRankingQualificationReportV1, HostedRankingSyntheticFamilyV1,
+    run_hosted_ranking_qualification_phase_v1,
+    run_hosted_ranking_qualification_phase_with_reader_v1,
+};
 pub use hosted_reader_compression::{
     HOSTED_READER_COMPRESSION_CHECK_CONTRACT_VERSION_V1, HostedReaderCompressionCheckErrorV1,
     HostedReaderCompressionCheckReceiptV1, check_hosted_reader_compression_v1,
@@ -157,6 +172,11 @@ pub use matched_representation::{
     MatchedRepresentationNeedsDownstreamVdsV1, MatchedResourceMeasurementTrustV1,
     MatchedRuntimeDimensionV1, MatchedStaticRepresentationScoresV1,
     StaticRepresentationRecallOrderingV1, compare_matched_representations_v1,
+};
+pub use openai_hosted_diagnosis::{
+    HOSTED_DIAGNOSIS_DEADLINE_V1, HostedDiagnosisFailureV1, HostedDiagnosisOutputV1,
+    HostedDiagnosisReaderV1, OpenAiHostedDiagnosisReaderV1,
+    hosted_diagnosis_configuration_digest_v1, hosted_diagnosis_provider_digest_v1,
 };
 pub use paired_reader::{
     CONSTRAINED_READER_CITATION_POLICY_VERSION_V1, CONSTRAINED_READER_CONTEXT_V1,

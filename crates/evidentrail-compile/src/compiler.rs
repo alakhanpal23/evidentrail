@@ -674,6 +674,28 @@ pub fn select_prepared_three_lane_proposals_with_priorities_v1(
     )
 }
 
+/// Select from a frozen universe by packing intact optional packets in one
+/// validated external order. Mandatory authority, primary-gain eligibility,
+/// diversity quota, receipts, and cost certification remain deterministic.
+pub fn select_prepared_three_lane_proposals_with_order_v1(
+    ledger: &EventLedger,
+    prepared: PreparedThreeLaneProposalUniverseV1,
+    total_token_budget: TotalTokenBudgetV1,
+    tokenizer: &Utf8ByteTokenizerV1,
+    ordered_packet_ids: &[PacketIdV1],
+) -> Result<PreparedThreeLaneSelectionDecisionV1, ThreeLaneCompileErrorV1> {
+    if !prepared.receipt().input().matches(ledger, tokenizer) {
+        return Err(ThreeLaneCompileErrorV1::PreparedBindingMismatch);
+    }
+    select_bound_prepared_three_lane_proposals_with_assistance_v1(
+        ledger,
+        prepared,
+        total_token_budget,
+        tokenizer,
+        SelectionAssistanceV1::ExternalOrder(ordered_packet_ids),
+    )
+}
+
 /// Benchmark-only selection of one mask-specific prepared ablation.
 ///
 /// This validates the exact masked candidate-configuration receipt and then
@@ -751,6 +773,27 @@ fn select_bound_prepared_three_lane_proposals_with_priorities_v1(
     tokenizer: &Utf8ByteTokenizerV1,
     priorities: &[OptionalPacketPriorityV1],
 ) -> Result<PreparedThreeLaneSelectionDecisionV1, ThreeLaneCompileErrorV1> {
+    select_bound_prepared_three_lane_proposals_with_assistance_v1(
+        ledger,
+        prepared,
+        total_token_budget,
+        tokenizer,
+        SelectionAssistanceV1::BoundedPriorities(priorities),
+    )
+}
+
+enum SelectionAssistanceV1<'a> {
+    BoundedPriorities(&'a [OptionalPacketPriorityV1]),
+    ExternalOrder(&'a [PacketIdV1]),
+}
+
+fn select_bound_prepared_three_lane_proposals_with_assistance_v1(
+    ledger: &EventLedger,
+    prepared: PreparedThreeLaneProposalUniverseV1,
+    total_token_budget: TotalTokenBudgetV1,
+    tokenizer: &Utf8ByteTokenizerV1,
+    assistance: SelectionAssistanceV1<'_>,
+) -> Result<PreparedThreeLaneSelectionDecisionV1, ThreeLaneCompileErrorV1> {
     if prepared.proposal_packets().is_empty() {
         return Ok(PreparedThreeLaneSelectionDecisionV1::NeedsMore(Box::new(
             PreparedThreeLaneNeedsMoreV1::new(ThreeLaneNeedsMoreV1::NoProposalPackets, prepared),
@@ -766,14 +809,16 @@ fn select_bound_prepared_three_lane_proposals_with_priorities_v1(
         .collect::<Vec<_>>();
     proposal_packet_ids.sort_unstable();
     let problem = build_bound_selection_problem_v1(&prepared, total_token_budget)?;
-    let selection = if priorities.is_empty() {
-        problem
+    let selection = match assistance {
+        SelectionAssistanceV1::BoundedPriorities([]) => problem
             .select()
-            .map_err(ThreeLaneCompileErrorV1::SelectionInvariant)?
-    } else {
-        problem
+            .map_err(ThreeLaneCompileErrorV1::SelectionInvariant)?,
+        SelectionAssistanceV1::BoundedPriorities(priorities) => problem
             .select_with_optional_priorities(priorities.iter().copied())
-            .map_err(ThreeLaneCompileErrorV1::OptionalPriority)?
+            .map_err(ThreeLaneCompileErrorV1::OptionalPriority)?,
+        SelectionAssistanceV1::ExternalOrder(order) => problem
+            .select_in_optional_order(order)
+            .map_err(ThreeLaneCompileErrorV1::OptionalOrder)?,
     };
     let selection = match selection {
         SelectionDecisionV1::Selected(selection) if selection.packets().is_empty() => {

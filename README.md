@@ -63,6 +63,11 @@ explicit opt-in to exercise ranking while always publishing deterministic
 bytes. See [hosted evidence ranking](docs/HOSTED_EVIDENCE_RANKING.md) for the
 trust boundary and release status.
 
+The synthetic-only staged live qualification runner is documented in that
+same guide. It runs a non-scoring persistent-client pilot first, stops before
+the untouched scored corpus on any operational failure, and emits only
+contentless JSON metrics.
+
 Run the process-resident MCP service:
 
 ```sh

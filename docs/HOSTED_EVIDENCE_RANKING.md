@@ -49,7 +49,12 @@ It can break close candidate comparisons but adds no more than 1% to a
 candidate's existing positive marginal gain. It cannot make a zero-gain packet
 eligible, prioritize a mandatory packet, alter the breadth quota, split a
 packet, exceed the budget, or change bytes and expansion targets. Model-order
-and reciprocal-rank-fusion consumers are also exposed for the frozen benchmark.
+The frozen benchmark additionally evaluates direct model-order budget packing
+and reciprocal-rank-fusion budget packing. Those two evaluation-only consumers
+preserve mandatory membership, positive marginal-gain eligibility, the
+coverage-only diversity quota, packet indivisibility, certified costs, exact
+bytes, and expansion targets. The public CLI/MCP beta continues to use only the
+bounded-fourth-affinity consumer.
 
 There is no retry. Disabled operation, missing credentials, timeouts, rate
 limits, policy denials, provider failures, invalid output, and assisted-selector
@@ -79,3 +84,72 @@ The multi-vendor frozen benchmark, approval for every other provider or data
 class, organizational privacy review, shadow run, and every
 quality/latency/validity/cost gate remain required before any production
 admission or model/configuration change.
+
+## Frozen synthetic live qualification
+
+`evidentrail-hosted-ranking-bench` is an evaluation-only staged runner. It owns
+one persistent ranking HTTP client for the complete process. Each frozen case
+is compiled deterministically and with hosted assistance from identical bytes,
+candidate order is deterministically randomized on every repetition, and the
+one validated response is replayed in memory to all three consumers. Neither
+requests, responses, questions, logs, rendered evidence, nor raw block IDs are
+serialized. Output contains only digests, codes, counts, timing/token/cost
+measurements, integrity booleans, and aggregate outcomes.
+
+The `pilot` phase makes 18 ranking calls (six cases, three repeats), is
+non-scoring, and never starts the scored corpus. `qualify` runs that same pilot
+first and stops immediately unless integrity, adversarial, validity, latency,
+and cost gates pass. Only then does it open the untouched lineage-separated
+24-case scored corpus (72 ranking calls). Scored diagnosis evaluation uses a
+separate persistent single-shot hosted reader for the deterministic arm and
+the three assisted arms; these reader calls are evaluation overhead and are
+reported separately from assisted-request latency and cost.
+
+The freeze is:
+
+| Bound item | Frozen value |
+| --- | --- |
+| Ranking and reader model | `gpt-5.6-luna` |
+| Provider API | OpenAI Responses, `store:false`, no tools/history, reasoning `none`, strict JSON Schema |
+| Ranking deadline | 800 ms; no retries |
+| Outcome-reader deadline | 5 seconds; no retries; evaluation only |
+| Ranking price inputs | $0.20/M input tokens; $1.20/M output tokens |
+| Corpus | generated synthetic-only pilot 6 and scored 24; lineage-separated |
+| Repetitions | 3 per case with a different deterministic candidate permutation |
+| Evidence budget | 4,000 compiled render units per arm |
+| Structural validity | at least 99% |
+| Assisted end-to-end latency | p95 strictly below 1 second |
+| Assisted request cost | p95 at or below $0.01 |
+| Recall | paired 95% bootstrap lower bound strictly above zero |
+| Protected slice and verified diagnosis | no regression beyond one percentage point |
+| Phase spend guards | $1 pilot; $10 scored; current worst-case guards are $0.18 and $3.60 |
+
+Every scored arm must pass byte, citation/expansion, ID, mandatory-evidence,
+and budget integrity. Malformed response, duplicate ID, foreign ID,
+prompt-injection, duplicate-record, and malformed-byte challenges are frozen in
+the preflight/corpus. A consumer is eligible only if its recall, protected
+slice, evidence-sufficiency, and verified-diagnosis gates all pass. The report
+then selects the eligible consumer with the strongest worst-family recall,
+followed by diagnosis success and overall recall; a tie favors the bounded
+consumer. No eligible consumer means no hosted admission.
+
+Run from a shell that already has `OPENAI_API_KEY` set:
+
+```sh
+cargo build --release -p evidentrail-bench-harness --bin evidentrail-hosted-ranking-bench
+export EVIDENTRAIL_SYNTHETIC_HOSTED_BENCHMARK=1
+export EVIDENTRAIL_HOSTED_RANKING_SHADOW=1
+target/release/evidentrail-hosted-ranking-bench pilot > /tmp/evidentrail-hosted-pilot.json
+```
+
+Only after reviewing a passing pilot, run the staged scored qualification:
+
+```sh
+target/release/evidentrail-hosted-ranking-bench qualify > /tmp/evidentrail-hosted-qualification.json
+```
+
+Exit status `0` means the applicable gates passed; `2` means a gate failed or
+the scored phase was skipped. The runner never changes the 800 ms deadline to
+make a result pass. A live result remains a synthetic conformance result, not
+a real-incident or population-quality claim, and production remains default-off
+shadow until separately authorized realistic usage repeats the gates.

@@ -28,7 +28,7 @@ use evidentrail_core::{
 use evidentrail_product::AuthenticatedEncryptedRetentionV1;
 use evidentrail_product::{
     CompiledProductResultV1, DeterministicProductDecisionV1, EvidenceRankerV1,
-    HostedRankingDiagnosticsV1, MemoryProductV1, RenderedProductResultV1,
+    HostedRankingDiagnosticsV1, MemoryProductV1, RankingConsumerV1, RenderedProductResultV1,
     StreamingAnalysisContextV3, StreamingProductV3, streaming_product_build_context_v3,
 };
 #[cfg(unix)]
@@ -58,8 +58,10 @@ pub use external_corpus_v3::{
     import_external_adjudicated_corpus_v3,
 };
 pub use hosted_ranking::{
-    HOSTED_RANKING_DEADLINE_V1, HostedRankingDiagnosticRecordV1, OpenAiEvidenceRankerV1,
-    PINNED_HOSTED_RANKING_MODEL_V1,
+    FROZEN_INPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
+    FROZEN_OUTPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1, HOSTED_RANKING_DEADLINE_V1,
+    HostedRankingDiagnosticRecordV1, OpenAiEvidenceRankerV1, PINNED_HOSTED_RANKING_MODEL_V1,
+    hosted_ranking_configuration_digest_v1, hosted_ranking_provider_digest_v1,
 };
 #[cfg(unix)]
 pub use mcp::{
@@ -542,6 +544,21 @@ impl StdinBriefSessionV1 {
             StdinSessionRetentionStateV1::Rendered(FinalizedStdinArtifactV1::Compiled(
                 compiled,
             )) => compiled.hosted_ranking_diagnostics(),
+            StdinSessionRetentionStateV1::Rendered(FinalizedStdinArtifactV1::Passthrough(_))
+            | StdinSessionRetentionStateV1::NeedsMore
+            | StdinSessionRetentionStateV1::EncryptedAwaitingFilesystem
+            | StdinSessionRetentionStateV1::Published => None,
+        }
+    }
+
+    /// Read-only proposal audit for benchmark integrity checks. It exposes
+    /// packet identities and receipts, never retained source bytes.
+    #[must_use]
+    pub fn proposal_audit(&self) -> Option<&evidentrail_product::ThreeLaneProposalAuditV1> {
+        match &self.retention_state {
+            StdinSessionRetentionStateV1::Rendered(FinalizedStdinArtifactV1::Compiled(
+                compiled,
+            )) => compiled.proposal_audit(),
             StdinSessionRetentionStateV1::Rendered(FinalizedStdinArtifactV1::Passthrough(_))
             | StdinSessionRetentionStateV1::NeedsMore
             | StdinSessionRetentionStateV1::EncryptedAwaitingFilesystem
@@ -1201,6 +1218,88 @@ pub fn compile_explicit_stdin_retained_with_shadow_ranker_v1<R: EvidenceRankerV1
     let mut product = MemoryProductV1::new();
     let decision = product
         .create_shadow_ranked_result_v1(result_id, question, ledger, now, token_budget, ranker)
+        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
+    let (outcome, retention_state) =
+        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
+    Ok(StdinBriefSessionV1 {
+        product,
+        outcome,
+        created_at: now,
+        retention_state,
+    })
+}
+
+/// Benchmark-only retained evaluation of one ranking consumer. This is not a
+/// CLI or MCP product surface and must be used only with explicitly authorized
+/// synthetic inputs.
+#[allow(clippy::too_many_arguments)]
+pub fn compile_explicit_stdin_retained_with_evaluation_ranker_v1<R: EvidenceRankerV1>(
+    input: &[u8],
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+    ranker: &mut R,
+    consumer: RankingConsumerV1,
+) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
+    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
+    let PreparedExplicitStdinV1 {
+        result_id,
+        ledger,
+        record_count,
+        source_byte_count,
+    } = prepared;
+    let mut product = MemoryProductV1::new();
+    let decision = product
+        .create_evaluation_ranked_result_v1(
+            result_id,
+            question,
+            ledger,
+            now,
+            token_budget,
+            ranker,
+            consumer,
+        )
+        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
+    let (outcome, retention_state) =
+        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
+    Ok(StdinBriefSessionV1 {
+        product,
+        outcome,
+        created_at: now,
+        retention_state,
+    })
+}
+
+/// Benchmark-only shadow evaluation for an explicitly selected consumer.
+#[allow(clippy::too_many_arguments)]
+pub fn compile_explicit_stdin_retained_with_shadow_consumer_v1<R: EvidenceRankerV1>(
+    input: &[u8],
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+    ranker: &mut R,
+    consumer: RankingConsumerV1,
+) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
+    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
+    let PreparedExplicitStdinV1 {
+        result_id,
+        ledger,
+        record_count,
+        source_byte_count,
+    } = prepared;
+    let mut product = MemoryProductV1::new();
+    let decision = product
+        .create_shadow_ranked_result_for_consumer_v1(
+            result_id,
+            question,
+            ledger,
+            now,
+            token_budget,
+            ranker,
+            consumer,
+        )
         .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
     let (outcome, retention_state) =
         retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;

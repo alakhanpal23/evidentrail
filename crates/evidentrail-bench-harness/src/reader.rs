@@ -1615,6 +1615,28 @@ pub(crate) fn parse_strict_reader_answer_v1(bytes: &[u8]) -> Result<ReaderAnswer
     Ok(answer)
 }
 
+/// Parse a provider-enforced structured value. Canonical byte encoding is a
+/// property of the JSONL transport contract, not of a hosted provider's JSON
+/// text formatting, so this path validates the same schema and semantics but
+/// intentionally does not require byte-for-byte canonical serialization.
+pub(crate) fn parse_structured_reader_answer_v1(
+    bytes: &[u8],
+) -> Result<ReaderAnswerV1, ReaderErrorV1> {
+    checked_nonempty_bounded_len(
+        bytes.len(),
+        MAX_READER_ANSWER_BYTES_V1,
+        ReaderErrorV1::EmptyAnswer,
+        ReaderErrorV1::AnswerTooLarge,
+    )?;
+    let answer = serde_json::from_slice::<ReaderAnswerV1>(bytes)
+        .map_err(|_| ReaderErrorV1::MalformedAnswer)?;
+    if answer.schema_version != READER_ANSWER_SCHEMA_VERSION_V1 {
+        return Err(ReaderErrorV1::UnsupportedAnswerSchema);
+    }
+    validate_reader_answer_semantics_v1(&answer)?;
+    Ok(answer)
+}
+
 fn validate_reader_answer_semantics_v1(answer: &ReaderAnswerV1) -> Result<(), ReaderErrorV1> {
     if answer.uncertainty_micros > 1_000_000 {
         return Err(ReaderErrorV1::InvalidUncertaintyMicros);

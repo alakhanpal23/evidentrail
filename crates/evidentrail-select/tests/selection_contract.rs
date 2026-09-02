@@ -3,9 +3,10 @@ use evidentrail_select::{
     AffinityV1, COVERAGE_ONLY_OPTIONAL_BUDGET_DENOMINATOR_V1, ComposableCostModelV1,
     ComposablePacketCostV1, FacetAffinityV1, FacetConstructionError, FacetIdV1,
     FacetSaturationCardinalityV1, FacetWeightV1, FixedPointConstructionError, IntactPacketV1,
-    MandatoryPacketV1, NeedsMoreReasonV1, ObjectiveEvaluationError, OptionalPacketPriorityErrorV1,
-    OptionalPacketPriorityV1, PROVIDER_RELATION_ENDPOINT_WEIGHT_MICROS_V1, PacketConstructionError,
-    PacketIdV1, ProductionFacetKindV1, ProductionFacetV1, ReservedFixedOverheadV1,
+    MandatoryPacketV1, NeedsMoreReasonV1, ObjectiveEvaluationError, OptionalPacketOrderErrorV1,
+    OptionalPacketPriorityErrorV1, OptionalPacketPriorityV1,
+    PROVIDER_RELATION_ENDPOINT_WEIGHT_MICROS_V1, PacketConstructionError, PacketIdV1,
+    ProductionFacetKindV1, ProductionFacetV1, ReservedFixedOverheadV1,
     SELECTION_OBJECTIVE_POLICY_VERSION_V1, SelectionConstraintV1, SelectionDecisionV1,
     SelectionProblemConstructionError, SelectionProblemV1, SelectionStrategyV1,
     TokenValueConstructionError, TotalTokenBudgetV1,
@@ -15,6 +16,45 @@ fn bytes(seed: u64) -> [u8; 32] {
     let mut bytes = [0_u8; 32];
     bytes[..8].copy_from_slice(&seed.to_be_bytes());
     bytes
+}
+
+#[test]
+fn external_order_budget_pack_preserves_authority_gain_quota_and_budget() {
+    let first_facet = facet(930, ProductionFacetKindV1::FailureRole, 1_000_000);
+    let second_facet = facet(931, ProductionFacetKindV1::OnsetRole, 1_000_000);
+    let first = packet(932, &[932], 10, &[(first_facet.id(), 1_000_000)]);
+    let second = packet(933, &[933], 10, &[(second_facet.id(), 1_000_000)]);
+    let problem = SelectionProblemV1::new(
+        [first_facet, second_facet],
+        [first.clone(), second.clone()],
+        [],
+        budget(10),
+        overhead(0),
+    )
+    .unwrap();
+    let selection = selected(
+        problem
+            .select_in_optional_order(&[second.id(), first.id()])
+            .unwrap(),
+    );
+    assert_eq!(
+        selection.strategy(),
+        SelectionStrategyV1::ExternalOrderBudgetPack
+    );
+    assert_eq!(selection.packets()[0].packet().id(), second.id());
+    assert_eq!(selection.accounted_token_upper_bound(), 10);
+    assert_eq!(
+        selection.packets()[0].forcing_constraint(),
+        SelectionConstraintV1::ExternalOrderBudgetPack
+    );
+    assert_eq!(
+        problem.select_in_optional_order(&[second.id(), second.id()]),
+        Err(OptionalPacketOrderErrorV1::DuplicatePacket)
+    );
+    assert_eq!(
+        problem.select_in_optional_order(&[packet_id(999)]),
+        Err(OptionalPacketOrderErrorV1::UnknownPacket)
+    );
 }
 
 fn packet_id(seed: u64) -> PacketIdV1 {

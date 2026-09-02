@@ -1205,6 +1205,7 @@ const fn selection_strategy_code(strategy: SelectionStrategyV1) -> &'static [u8]
         SelectionStrategyV1::MandatoryOnly => b"mandatory_only",
         SelectionStrategyV1::DensityGreedy => b"density_greedy",
         SelectionStrategyV1::BestSingle => b"best_single",
+        SelectionStrategyV1::ExternalOrderBudgetPack => b"external_order_budget_pack",
     }
 }
 

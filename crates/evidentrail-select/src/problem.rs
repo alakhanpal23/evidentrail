@@ -238,6 +238,47 @@ impl fmt::Display for OptionalPacketPriorityErrorV1 {
 
 impl StdError for OptionalPacketPriorityErrorV1 {}
 
+/// Invalid model-supplied optional packet order. Diagnostics contain no
+/// packet identifiers or source content.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum OptionalPacketOrderErrorV1 {
+    TooManyPackets,
+    DuplicatePacket,
+    UnknownPacket,
+    MandatoryPacket,
+    SelectionInvariant,
+}
+
+impl OptionalPacketOrderErrorV1 {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::TooManyPackets => "EVIDENTRAIL_SELECT_TOO_MANY_ORDERED_OPTIONAL_PACKETS",
+            Self::DuplicatePacket => "EVIDENTRAIL_SELECT_DUPLICATE_ORDERED_OPTIONAL_PACKET",
+            Self::UnknownPacket => "EVIDENTRAIL_SELECT_UNKNOWN_ORDERED_OPTIONAL_PACKET",
+            Self::MandatoryPacket => "EVIDENTRAIL_SELECT_MANDATORY_ORDER_FORBIDDEN",
+            Self::SelectionInvariant => "EVIDENTRAIL_SELECT_OPTIONAL_ORDER_INVARIANT_FAILURE",
+        }
+    }
+}
+
+impl fmt::Debug for OptionalPacketOrderErrorV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OptionalPacketOrderErrorV1")
+            .field("code", &self.code())
+            .finish()
+    }
+}
+
+impl fmt::Display for OptionalPacketOrderErrorV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.code())
+    }
+}
+
+impl StdError for OptionalPacketOrderErrorV1 {}
+
 const OPTIONAL_PRIORITY_MAX_GAIN_DENOMINATOR_V1: u128 = 100_000_000;
 
 impl SelectionProblemV1 {
@@ -492,6 +533,149 @@ impl SelectionProblemV1 {
             .map_err(|_| OptionalPacketPriorityErrorV1::SelectionInvariant)
     }
 
+    /// Pack optional packets in one validated external order while preserving
+    /// mandatory evidence, intact packets, primary-gain eligibility, the
+    /// coverage-only quota, and exact budget accounting.
+    pub fn select_in_optional_order(
+        &self,
+        ordered_packet_ids: &[PacketIdV1],
+    ) -> Result<SelectionDecisionV1, OptionalPacketOrderErrorV1> {
+        if ordered_packet_ids.len() > self.packets.len() {
+            return Err(OptionalPacketOrderErrorV1::TooManyPackets);
+        }
+        let mut seen = BTreeSet::new();
+        let mut ordered_indices = Vec::with_capacity(ordered_packet_ids.len());
+        for packet_id in ordered_packet_ids {
+            if !seen.insert(*packet_id) {
+                return Err(OptionalPacketOrderErrorV1::DuplicatePacket);
+            }
+            if self.is_mandatory(*packet_id) {
+                return Err(OptionalPacketOrderErrorV1::MandatoryPacket);
+            }
+            ordered_indices.push(
+                self.packet_index(*packet_id)
+                    .ok_or(OptionalPacketOrderErrorV1::UnknownPacket)?,
+            );
+        }
+        self.select_validated_optional_order(&ordered_indices)
+            .map_err(|_| OptionalPacketOrderErrorV1::SelectionInvariant)
+    }
+
+    fn select_validated_optional_order(
+        &self,
+        ordered_indices: &[usize],
+    ) -> Result<SelectionDecisionV1, SelectionInvariantError> {
+        let fixed_overhead = self.reserved_fixed_overhead.upper_bound_tokens();
+        if fixed_overhead > self.total_token_budget.tokens() {
+            return Ok(SelectionDecisionV1::NeedsMore(NeedsMoreSelectionV1 {
+                reason: NeedsMoreReasonV1::FixedOverheadExceedsTotalBudget,
+                reserved_fixed_overhead: fixed_overhead,
+                mandatory_cost: self.mandatory_cost,
+                total_token_budget: self.total_token_budget,
+                mandatory_packet_count: self.mandatory.len(),
+            }));
+        }
+        let available_packet_budget = self.total_token_budget.tokens() - fixed_overhead;
+        if self.mandatory_cost > available_packet_budget {
+            return Ok(SelectionDecisionV1::NeedsMore(NeedsMoreSelectionV1 {
+                reason: NeedsMoreReasonV1::MandatoryCostExceedsAvailablePacketBudget,
+                reserved_fixed_overhead: fixed_overhead,
+                mandatory_cost: self.mandatory_cost,
+                total_token_budget: self.total_token_budget,
+                mandatory_packet_count: self.mandatory.len(),
+            }));
+        }
+        let optional_budget = available_packet_budget - self.mandatory_cost;
+        let coverage_only_token_limit =
+            optional_budget / COVERAGE_ONLY_OPTIONAL_BUDGET_DENOMINATOR_V1;
+        let mut remaining = optional_budget;
+        let mut remaining_coverage_only = coverage_only_token_limit;
+        let mut coverage = self.mandatory_coverage();
+        let mut selected_optional = Vec::new();
+        let mut selected_packet_cost = self.mandatory_cost;
+        let mut coverage_only_token_cost = 0_u64;
+        let mut total_gain = 0_u64;
+        for packet_index in ordered_indices {
+            let packet = &self.packets[*packet_index];
+            let cost = packet.composable_token_upper_bound().upper_bound_tokens();
+            if cost > remaining {
+                continue;
+            }
+            let marginal = self
+                .marginal_score(&coverage, packet)
+                .ok_or(SelectionInvariantError::ArithmeticInvariantViolation)?;
+            if marginal.gain == 0 || (marginal.coverage_only && cost > remaining_coverage_only) {
+                continue;
+            }
+            remaining -= cost;
+            if marginal.coverage_only {
+                remaining_coverage_only -= cost;
+                coverage_only_token_cost = coverage_only_token_cost
+                    .checked_add(cost)
+                    .ok_or(SelectionInvariantError::ArithmeticInvariantViolation)?;
+            }
+            selected_packet_cost = selected_packet_cost
+                .checked_add(cost)
+                .ok_or(SelectionInvariantError::ArithmeticInvariantViolation)?;
+            total_gain = total_gain
+                .checked_add(marginal.gain)
+                .ok_or(SelectionInvariantError::ArithmeticInvariantViolation)?;
+            self.apply_packet(&mut coverage, packet);
+            selected_optional.push((*packet_index, marginal.gain));
+        }
+
+        let mut selected_packets =
+            Vec::with_capacity(self.mandatory.len() + selected_optional.len());
+        for entry in &self.mandatory {
+            let packet_index = self
+                .packet_index(entry.packet_id())
+                .ok_or(SelectionInvariantError::ArithmeticInvariantViolation)?;
+            selected_packets.push(SelectedPacketV1 {
+                packet: self.packets[packet_index].clone(),
+                facet_kinds: self
+                    .packet_facet_kinds(&self.packets[packet_index])
+                    .ok_or(SelectionInvariantError::ArithmeticInvariantViolation)?,
+                marginal_gain: ObjectiveGainV1::from_numerator(0),
+                forcing_constraint: SelectionConstraintV1::MandatoryValidatedIdentifier {
+                    facet_id: entry.validated_identifier_facet_id(),
+                },
+            });
+        }
+        for (packet_index, marginal_gain) in selected_optional {
+            let packet = &self.packets[packet_index];
+            selected_packets.push(SelectedPacketV1 {
+                packet: packet.clone(),
+                facet_kinds: self
+                    .packet_facet_kinds(packet)
+                    .ok_or(SelectionInvariantError::ArithmeticInvariantViolation)?,
+                marginal_gain: ObjectiveGainV1::from_numerator(marginal_gain),
+                forcing_constraint: SelectionConstraintV1::ExternalOrderBudgetPack,
+            });
+        }
+        let accounted_token_upper_bound = fixed_overhead
+            .checked_add(selected_packet_cost)
+            .ok_or(SelectionInvariantError::ArithmeticInvariantViolation)?;
+        if accounted_token_upper_bound > self.total_token_budget.tokens() {
+            return Err(SelectionInvariantError::ArithmeticInvariantViolation);
+        }
+        Ok(SelectionDecisionV1::Selected(SelectionV1 {
+            strategy: if selected_packets.len() == self.mandatory.len() {
+                SelectionStrategyV1::MandatoryOnly
+            } else {
+                SelectionStrategyV1::ExternalOrderBudgetPack
+            },
+            total_token_budget: self.total_token_budget,
+            reserved_fixed_overhead: self.reserved_fixed_overhead,
+            mandatory_token_cost: self.mandatory_cost,
+            selected_packet_cost,
+            accounted_token_upper_bound,
+            coverage_only_token_limit,
+            coverage_only_token_cost,
+            normalized_gain: ObjectiveGainV1::from_numerator(total_gain),
+            packets: selected_packets,
+        }))
+    }
+
     fn select_with_priority_map(
         &self,
         priority_map: &BTreeMap<PacketIdV1, u32>,
@@ -567,7 +751,8 @@ impl SelectionProblemV1 {
             let forcing_constraint = match chosen.strategy {
                 SelectionStrategyV1::DensityGreedy => SelectionConstraintV1::DensityGreedy,
                 SelectionStrategyV1::BestSingle => SelectionConstraintV1::BestSingle,
-                SelectionStrategyV1::MandatoryOnly => {
+                SelectionStrategyV1::MandatoryOnly
+                | SelectionStrategyV1::ExternalOrderBudgetPack => {
                     return Err(SelectionInvariantError::ArithmeticInvariantViolation);
                 }
             };
@@ -943,6 +1128,7 @@ pub enum SelectionStrategyV1 {
     MandatoryOnly,
     DensityGreedy,
     BestSingle,
+    ExternalOrderBudgetPack,
 }
 
 /// Why one packet appears in the chosen set.
@@ -951,6 +1137,7 @@ pub enum SelectionConstraintV1 {
     MandatoryValidatedIdentifier { facet_id: FacetIdV1 },
     DensityGreedy,
     BestSingle,
+    ExternalOrderBudgetPack,
 }
 
 impl SelectionConstraintV1 {
@@ -960,6 +1147,7 @@ impl SelectionConstraintV1 {
             Self::MandatoryValidatedIdentifier { .. } => "mandatory_validated_identifier",
             Self::DensityGreedy => "density_greedy",
             Self::BestSingle => "best_single",
+            Self::ExternalOrderBudgetPack => "external_order_budget_pack",
         }
     }
 
@@ -967,7 +1155,7 @@ impl SelectionConstraintV1 {
     pub const fn mandatory_facet_id(self) -> Option<FacetIdV1> {
         match self {
             Self::MandatoryValidatedIdentifier { facet_id } => Some(facet_id),
-            Self::DensityGreedy | Self::BestSingle => None,
+            Self::DensityGreedy | Self::BestSingle | Self::ExternalOrderBudgetPack => None,
         }
     }
 }
