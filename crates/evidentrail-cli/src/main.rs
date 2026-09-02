@@ -17,8 +17,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use evidentrail_authority::{CanonicalUnixPathV1, InternalPathPolicyV1, InternalPathRegistryV1};
 use evidentrail_cli::{
-    DEFAULT_TOKEN_BUDGET_V1, MAX_QUESTION_BYTES_V1, MAX_STDIN_BYTES_V1, StdinBriefOutcomeV1,
-    compile_explicit_stdin_v1, compile_explicit_stream_v3, run_mcp_stdio_v1,
+    DEFAULT_TOKEN_BUDGET_V1, HostedRankingDiagnosticRecordV1, MAX_QUESTION_BYTES_V1,
+    MAX_STDIN_BYTES_V1, OpenAiEvidenceRankerV1, StdinBriefOutcomeV1,
+    compile_explicit_stdin_retained_with_ranker_v1,
+    compile_explicit_stdin_retained_with_shadow_ranker_v1, compile_explicit_stdin_v1,
+    compile_explicit_stream_v3, run_mcp_stdio_v1,
 };
 #[cfg(target_os = "macos")]
 use evidentrail_cli::{
@@ -40,7 +43,7 @@ use evidentrail_store::{
     DurableRepositoryErrorV2, DurableResultRepositoryV2, MacOsKeychainAuthorityV2,
 };
 
-const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] < logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nBrief reads only explicit standard input and retention defaults to memory. Streaming\nV3 is available behind the internal EVIDENTRAIL_STREAMING_V3=1 rollout gate; durable brief\nretention always uses V3 and is explicit, requires the platform external authority,\nand fails closed when that authority is locked or unavailable. Doctor inspects metadata\nfor exactly one explicit file; it never reads file contents, approves a source, or mints\nhost certification. The product does not discover files, crawl a workspace, inspect\nambient logs, or invoke a model. Use --question-file when the question should not appear\nin the process argument list. The pinned tokenizer conservatively counts one rendered\nUTF-8 byte as one budget unit; this is not a model-token count.\n";
+const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank] < logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nBrief reads only explicit standard input and retention defaults to memory. --llm-rank is\nan explicit memory-mode beta opt-in to one hosted evidence-ordering call; deterministic\ncompression remains the fallback and default. Streaming V3 is available behind the\ninternal EVIDENTRAIL_STREAMING_V3=1 rollout gate; durable brief retention always uses V3\nand is explicit, requires the platform external authority, and fails closed when that\nauthority is locked or unavailable. Doctor inspects metadata for exactly one explicit\nfile; it never reads file contents, approves a source, or mints host certification. The\nproduct does not discover files, crawl a workspace, or inspect ambient logs. Use\n--question-file when the question should not appear in the process argument list. The\npinned tokenizer conservatively counts one rendered UTF-8 byte as one budget unit; this\nis not a model-token count.\n";
 
 const DOCTOR_SUCCESS_CODE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_FILE_METADATA_OK";
 const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str =
@@ -50,6 +53,7 @@ struct BriefOptions {
     question: Vec<u8>,
     token_budget: u64,
     retention: McpRetentionSelectionV1,
+    llm_rank: bool,
 }
 
 struct DoctorOptions {
@@ -199,6 +203,7 @@ fn parse_args(
     let mut saw_token_budget = false;
     let mut retention = McpRetentionSelectionV1::Memory;
     let mut saw_retention = false;
+    let mut llm_rank = false;
     while let Some(argument) = args.next() {
         if argument == "--question" {
             let value = args
@@ -243,6 +248,11 @@ fn parse_args(
             } else {
                 return Err(CliFailure::usage("EVIDENTRAIL_CLI_INVALID_RETENTION"));
             };
+        } else if argument == "--llm-rank" {
+            if llm_rank {
+                return Err(CliFailure::usage("EVIDENTRAIL_CLI_DUPLICATE_OPTION"));
+            }
+            llm_rank = true;
         } else if argument == "--help" || argument == "-h" {
             return Ok(ParseDecision::Help);
         } else {
@@ -280,6 +290,7 @@ fn parse_args(
         question,
         token_budget,
         retention,
+        llm_rank,
     }))
 }
 
@@ -600,7 +611,53 @@ fn run_brief(options: BriefOptions) -> Result<ExitCode, CliFailure> {
     getrandom::fill(&mut identity_seed)
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_RANDOMNESS_FAILURE"))?;
     let now = unix_now_v1()?;
+    if options.llm_rank && options.retention == McpRetentionSelectionV1::Durable {
+        return Err(CliFailure::usage(
+            "EVIDENTRAIL_CLI_HOSTED_RANKING_REQUIRES_MEMORY_RETENTION",
+        ));
+    }
     let outcome = match options.retention {
+        McpRetentionSelectionV1::Memory if options.llm_rank => {
+            let input = match read_bounded(io::stdin().lock(), MAX_STDIN_BYTES_V1) {
+                Ok(input) => input,
+                Err(BoundedReadFailure::Io) => {
+                    return Err(CliFailure::runtime("EVIDENTRAIL_CLI_STDIN_READ_FAILURE"));
+                }
+                Err(BoundedReadFailure::LimitExceeded) => {
+                    return Err(CliFailure::runtime("EVIDENTRAIL_CLI_INPUT_TOO_LARGE"));
+                }
+            };
+            let mut ranker = OpenAiEvidenceRankerV1::from_environment();
+            let session = if hosted_ranking_shadow_enabled() {
+                compile_explicit_stdin_retained_with_shadow_ranker_v1(
+                    &input,
+                    &options.question,
+                    options.token_budget,
+                    identity_seed,
+                    now,
+                    &mut ranker,
+                )
+            } else {
+                compile_explicit_stdin_retained_with_ranker_v1(
+                    &input,
+                    &options.question,
+                    options.token_budget,
+                    identity_seed,
+                    now,
+                    &mut ranker,
+                )
+            }
+            .map_err(|error| CliFailure::runtime(error.code()))?;
+            if let Some(diagnostics) = session.hosted_ranking_diagnostics() {
+                let record = HostedRankingDiagnosticRecordV1::from_diagnostics(diagnostics);
+                let encoded = serde_json::to_string(&record).map_err(|_| {
+                    CliFailure::runtime("EVIDENTRAIL_CLI_DIAGNOSTIC_SERIALIZATION_FAILURE")
+                })?;
+                writeln!(io::stderr().lock(), "EVIDENTRAIL_HOSTED_RANKING {encoded}")
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_STDERR_WRITE_FAILURE"))?;
+            }
+            session.into_outcome()
+        }
         McpRetentionSelectionV1::Memory if streaming_v3_enabled() => compile_explicit_stream_v3(
             io::stdin().lock(),
             &options.question,
@@ -639,6 +696,10 @@ fn run_brief(options: BriefOptions) -> Result<ExitCode, CliFailure> {
 
 fn streaming_v3_enabled() -> bool {
     env::var_os("EVIDENTRAIL_STREAMING_V3").is_some_and(|value| value == "1")
+}
+
+fn hosted_ranking_shadow_enabled() -> bool {
+    env::var_os("EVIDENTRAIL_HOSTED_RANKING_SHADOW").is_some_and(|value| value == "1")
 }
 
 fn emit_brief_outcome(outcome: StdinBriefOutcomeV1) -> Result<ExitCode, CliFailure> {
@@ -818,8 +879,18 @@ mod tests {
         match parse_args(["brief".into(), "--question".into(), "why?".into()]) {
             Ok(ParseDecision::Run(options)) => {
                 assert_eq!(options.retention, McpRetentionSelectionV1::Memory);
+                assert!(!options.llm_rank);
             }
             _ => panic!("expected brief decision"),
+        }
+        match parse_args([
+            "brief".into(),
+            "--question".into(),
+            "why?".into(),
+            "--llm-rank".into(),
+        ]) {
+            Ok(ParseDecision::Run(options)) => assert!(options.llm_rank),
+            _ => panic!("expected hosted-ranking brief decision"),
         }
         match parse_args([
             "brief".into(),

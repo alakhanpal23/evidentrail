@@ -9,6 +9,7 @@
 #[cfg(unix)]
 mod durable_lifecycle;
 mod encrypted_retention;
+mod hosted_ranking;
 mod streaming_v3;
 
 #[cfg(unix)]
@@ -21,6 +22,14 @@ pub use encrypted_retention::{
     AuthenticatedEncryptedRetentionErrorV1, AuthenticatedEncryptedRetentionV1,
     AuthenticatedRetentionExpansionV1, AuthenticatedRetentionPublicationV1,
 };
+pub use hosted_ranking::{
+    EVIDENCE_RANKING_SCHEMA_VERSION_V1, EvidenceRankerFailureV1, EvidenceRankerOutputV1,
+    EvidenceRankerV1, EvidenceRankingCandidateV1, EvidenceRankingRequestV1,
+    HostedRankingDiagnosticsV1, MAX_HOSTED_RANKING_CANDIDATES_V1,
+    MAX_HOSTED_RANKING_ESCAPED_INPUT_BYTES_V1, MAX_HOSTED_RANKING_RESPONSE_BYTES_V1,
+    RankingConsumerV1, RankingValidationErrorV1, ValidatedEvidenceRankingV1,
+    consume_evidence_ranking_v1, ranking_priorities_v1, validate_evidence_ranking_response_v1,
+};
 pub use streaming_v3::{
     AnalysisPlanV3, MAX_ANALYSIS_PARTITION_BLOCKS_V3, MAX_ANALYSIS_PARTITION_BYTES_V3,
     MAX_ANALYSIS_PARTITIONS_V3, StreamingAnalysisContextV3, StreamingLaneContextV3,
@@ -31,13 +40,15 @@ pub use streaming_v3::{
 use std::collections::BTreeMap;
 use std::error::Error as StdError;
 use std::fmt;
+use std::time::Instant;
 
 use evidentrail_compile::{
-    PreparedThreeLaneProposalUniverseV1, PreparedThreeLaneSelectionDecisionV1,
-    ProposalPreparationInputReceiptV1, ProposalUniverseReceiptV1, ThreeLaneCompileErrorV1,
-    ThreeLaneNeedsMoreV1, ThreeLaneProposalPreparationDecisionV1,
-    ThreeLaneProposalPreparationNeedsMoreV1, prepare_three_lane_proposal_universe_v1,
-    select_prepared_three_lane_proposals_v1,
+    CertifiedThreeLaneSelectionV1, PreparedThreeLaneProposalUniverseV1,
+    PreparedThreeLaneSelectionDecisionV1, ProposalPreparationInputReceiptV1,
+    ProposalUniverseReceiptV1, ThreeLaneCompileErrorV1, ThreeLaneNeedsMoreV1,
+    ThreeLaneProposalPreparationDecisionV1, ThreeLaneProposalPreparationNeedsMoreV1,
+    prepare_three_lane_proposal_universe_v1, select_prepared_three_lane_proposals_v1,
+    select_prepared_three_lane_proposals_with_priorities_v1,
 };
 use evidentrail_core::{
     EventLedger, EvidenceReferenceV1, FetchCompleteness, PlanDigest, ResultId, UnixTimestampNanos,
@@ -47,8 +58,9 @@ use evidentrail_evidence::{
     CompiledBriefError, CompiledCostCertificationError, CompiledCostCertificationV1,
     CompiledPacketMembershipV1, OwnedRenderedCompiledBriefV1, OwnedRenderedPassthroughBriefV1,
     PassthroughBriefDecisionV1, PassthroughBriefError, PassthroughNotFitV1, PinnedTokenizer,
-    Utf8ByteTokenizerV1, certify_compiled_costs_v1, render_compiled_log_brief_v1,
-    render_cost_certified_compiled_log_brief_v1, render_passthrough_log_brief_v1,
+    Utf8ByteTokenizerV1, certify_compiled_costs_v1, escape_evidence_bytes,
+    render_compiled_log_brief_v1, render_cost_certified_compiled_log_brief_v1,
+    render_passthrough_log_brief_v1,
 };
 use evidentrail_framing::frame_source_lanes_v1;
 use evidentrail_schema::QuestionDigest;
@@ -107,6 +119,7 @@ pub struct CompiledProductResultV1 {
     expires_at: UnixTimestampNanos,
     artifact: OwnedRenderedCompiledBriefV1,
     proposal_audit: Option<Box<ThreeLaneProposalAuditV1>>,
+    hosted_ranking_diagnostics: Option<Box<HostedRankingDiagnosticsV1>>,
 }
 
 /// Truthful audit state for the production three-lane preparation/selection
@@ -340,6 +353,14 @@ impl CompiledProductResultV1 {
     pub fn proposal_audit(&self) -> Option<&ThreeLaneProposalAuditV1> {
         self.proposal_audit.as_deref()
     }
+
+    /// Contentless diagnostics for an explicitly requested ranking attempt.
+    /// `None` means no hosted-ranking attempt was eligible on this result path.
+    /// A present `not_sent` record means a local egress gate prevented contact.
+    #[must_use]
+    pub fn hosted_ranking_diagnostics(&self) -> Option<&HostedRankingDiagnosticsV1> {
+        self.hosted_ranking_diagnostics.as_deref()
+    }
 }
 
 impl fmt::Debug for CompiledProductResultV1 {
@@ -350,6 +371,10 @@ impl fmt::Debug for CompiledProductResultV1 {
             .field(
                 "proposal_audit_state",
                 &self.proposal_audit().map(ThreeLaneProposalAuditV1::code),
+            )
+            .field(
+                "hosted_ranking_attempted",
+                &self.hosted_ranking_diagnostics.is_some(),
             )
             .field("fixed_expiry_present", &true)
             .finish()
@@ -795,6 +820,180 @@ fn verify_retained_preparation_binding_v1(
     Ok(())
 }
 
+fn assisted_selection_v1(
+    ledger: &EventLedger,
+    question_bytes: &[u8],
+    prepared: &PreparedThreeLaneProposalUniverseV1,
+    total_token_budget: TotalTokenBudgetV1,
+    tokenizer: &Utf8ByteTokenizerV1,
+    deterministic: Box<CertifiedThreeLaneSelectionV1>,
+    attempt: HostedRankingAttemptV1<'_>,
+) -> (
+    Box<CertifiedThreeLaneSelectionV1>,
+    Option<HostedRankingDiagnosticsV1>,
+) {
+    let application_code = attempt.application.code();
+    let mandatory = prepared
+        .mandatory()
+        .iter()
+        .map(|entry| entry.packet_id())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut deterministic_ids = Vec::new();
+    for packet_id in deterministic
+        .selection()
+        .packets()
+        .iter()
+        .map(|selected| selected.packet().id())
+        .chain(prepared.proposal_packets().iter().map(|packet| packet.id()))
+    {
+        if !mandatory.contains(&packet_id) && seen.insert(packet_id) {
+            deterministic_ids.push(packet_id);
+        }
+    }
+    deterministic_ids.truncate(MAX_HOSTED_RANKING_CANDIDATES_V1);
+    if deterministic_ids.len() < 2 {
+        return (deterministic, None);
+    }
+
+    let escaped_question = escape_evidence_bytes(question_bytes);
+    if escaped_question.len() > MAX_HOSTED_RANKING_ESCAPED_INPUT_BYTES_V1 {
+        return (
+            deterministic,
+            Some(HostedRankingDiagnosticsV1::not_sent(
+                application_code,
+                "request_too_large",
+            )),
+        );
+    }
+    let mut escaped_input_bytes = escaped_question.len();
+    let mut candidates = Vec::with_capacity(deterministic_ids.len());
+    for (index, packet_id) in deterministic_ids.iter().copied().enumerate() {
+        let Some(metadata) = prepared.proposal_metadata(packet_id) else {
+            return (deterministic, None);
+        };
+        let mut exact_block = Vec::new();
+        for event_id in metadata.ordered_event_ids() {
+            let Ok(event) = ledger.event(*event_id) else {
+                return (deterministic, None);
+            };
+            exact_block.extend_from_slice(event.raw());
+        }
+        let escaped_block = escape_evidence_bytes(&exact_block);
+        escaped_input_bytes = match escaped_input_bytes.checked_add(escaped_block.len()) {
+            Some(total) if total <= MAX_HOSTED_RANKING_ESCAPED_INPUT_BYTES_V1 => total,
+            Some(_) | None => {
+                return (
+                    deterministic,
+                    Some(HostedRankingDiagnosticsV1::not_sent(
+                        application_code,
+                        "request_too_large",
+                    )),
+                );
+            }
+        };
+        candidates.push(EvidenceRankingCandidateV1::new(
+            format!("B{}", index + 1),
+            packet_id,
+            escaped_block,
+        ));
+    }
+    let request = EvidenceRankingRequestV1::new(escaped_question, candidates);
+    let ranking_started = Instant::now();
+    let output = match attempt.ranker.rank(&request) {
+        Ok(output) => output,
+        Err(error) => {
+            return (
+                deterministic,
+                Some(HostedRankingDiagnosticsV1::provider_failure(
+                    application_code,
+                    error,
+                    u64::try_from(ranking_started.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                )),
+            );
+        }
+    };
+    let ranking =
+        match validate_evidence_ranking_response_v1(output.response_json(), request.candidates()) {
+            Ok(ranking) => ranking,
+            Err(error) => {
+                return (
+                    deterministic,
+                    Some(HostedRankingDiagnosticsV1::invalid(
+                        application_code,
+                        &output,
+                        error,
+                    )),
+                );
+            }
+        };
+    let consumed = consume_evidence_ranking_v1(
+        RankingConsumerV1::BoundedFourthAffinity,
+        &deterministic_ids,
+        &ranking,
+    );
+    let priorities = ranking_priorities_v1(&consumed);
+    let assisted = select_prepared_three_lane_proposals_with_priorities_v1(
+        ledger,
+        prepared.clone(),
+        total_token_budget,
+        tokenizer,
+        &priorities,
+    );
+    match assisted {
+        Ok(PreparedThreeLaneSelectionDecisionV1::Selected(assisted)) => {
+            let proposal_changed = assisted
+                .selection()
+                .packets()
+                .iter()
+                .map(|selected| selected.packet().id())
+                .ne(deterministic
+                    .selection()
+                    .packets()
+                    .iter()
+                    .map(|selected| selected.packet().id()));
+            let diagnostics = Some(HostedRankingDiagnosticsV1::accepted(
+                application_code,
+                proposal_changed,
+                &output,
+                ranking.ranked_packet_ids(),
+            ));
+            match attempt.application {
+                HostedRankingApplicationV1::Apply => (assisted, diagnostics),
+                HostedRankingApplicationV1::Shadow => (deterministic, diagnostics),
+            }
+        }
+        Ok(PreparedThreeLaneSelectionDecisionV1::NeedsMore(_)) | Err(_) => (
+            deterministic,
+            Some(HostedRankingDiagnosticsV1::accepted_but_fallback(
+                application_code,
+                &output,
+                ranking.ranked_packet_ids(),
+            )),
+        ),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum HostedRankingApplicationV1 {
+    Apply,
+    Shadow,
+}
+
+struct HostedRankingAttemptV1<'a> {
+    ranker: &'a mut dyn EvidenceRankerV1,
+    application: HostedRankingApplicationV1,
+}
+
+impl HostedRankingApplicationV1 {
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Apply => "apply",
+            Self::Shadow => "shadow",
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct MemoryProductV1 {
     store: MemoryResultStore,
@@ -840,7 +1039,90 @@ impl MemoryProductV1 {
             }
             ProductResultDecisionV1::CompilationRequired(required) => required,
         };
-        self.compile_retained_miss_v1(result_id, question_bytes, *required, now, &tokenizer)
+        self.compile_retained_miss_v1(result_id, question_bytes, *required, now, &tokenizer, None)
+    }
+
+    /// Run the deterministic pipeline with one optional hosted-ranking call.
+    /// Passthrough and every deterministic `needs_more` decision return before
+    /// the ranker is contacted. Any ranking failure returns the already
+    /// computed deterministic selection without retrying.
+    pub fn create_hosted_ranked_result_v1<R: EvidenceRankerV1>(
+        &mut self,
+        result_id: ResultId,
+        question_bytes: &[u8],
+        ledger: EventLedger,
+        now: UnixTimestampNanos,
+        total_token_limit: u64,
+        ranker: &mut R,
+    ) -> Result<DeterministicProductDecisionV1, ProductError> {
+        TotalTokenBudgetV1::new(total_token_limit).map_err(ProductError::TokenBudget)?;
+        let tokenizer = Utf8ByteTokenizerV1::new();
+        let initial = self.create_result(
+            result_id,
+            question_bytes,
+            ledger,
+            now,
+            total_token_limit,
+            &tokenizer,
+        )?;
+        let required = match initial {
+            ProductResultDecisionV1::Rendered(rendered) => {
+                return Ok(DeterministicProductDecisionV1::Passthrough(rendered));
+            }
+            ProductResultDecisionV1::CompilationRequired(required) => required,
+        };
+        self.compile_retained_miss_v1(
+            result_id,
+            question_bytes,
+            *required,
+            now,
+            &tokenizer,
+            Some(HostedRankingAttemptV1 {
+                ranker,
+                application: HostedRankingApplicationV1::Apply,
+            }),
+        )
+    }
+
+    /// Run the complete hosted-ranking path but always render the already
+    /// computed deterministic selection. Contentless diagnostics report
+    /// whether the validated assisted proposal would have changed it.
+    pub fn create_shadow_ranked_result_v1<R: EvidenceRankerV1>(
+        &mut self,
+        result_id: ResultId,
+        question_bytes: &[u8],
+        ledger: EventLedger,
+        now: UnixTimestampNanos,
+        total_token_limit: u64,
+        ranker: &mut R,
+    ) -> Result<DeterministicProductDecisionV1, ProductError> {
+        TotalTokenBudgetV1::new(total_token_limit).map_err(ProductError::TokenBudget)?;
+        let tokenizer = Utf8ByteTokenizerV1::new();
+        let initial = self.create_result(
+            result_id,
+            question_bytes,
+            ledger,
+            now,
+            total_token_limit,
+            &tokenizer,
+        )?;
+        let required = match initial {
+            ProductResultDecisionV1::Rendered(rendered) => {
+                return Ok(DeterministicProductDecisionV1::Passthrough(rendered));
+            }
+            ProductResultDecisionV1::CompilationRequired(required) => required,
+        };
+        self.compile_retained_miss_v1(
+            result_id,
+            question_bytes,
+            *required,
+            now,
+            &tokenizer,
+            Some(HostedRankingAttemptV1 {
+                ranker,
+                application: HostedRankingApplicationV1::Shadow,
+            }),
+        )
     }
 
     /// Resume the deterministic compiler for an existing retained passthrough
@@ -864,7 +1146,7 @@ impl MemoryProductV1 {
             .ok_or(ProductError::CompilationUnavailable)?;
         let required = retained.into_compilation_required(result_id);
         let tokenizer = Utf8ByteTokenizerV1::new();
-        self.compile_retained_miss_v1(result_id, question_bytes, required, now, &tokenizer)
+        self.compile_retained_miss_v1(result_id, question_bytes, required, now, &tokenizer, None)
     }
 
     fn compile_retained_miss_v1(
@@ -874,6 +1156,7 @@ impl MemoryProductV1 {
         required: CompilationRequiredV1,
         now: UnixTimestampNanos,
         tokenizer: &Utf8ByteTokenizerV1,
+        mut hosted_attempt: Option<HostedRankingAttemptV1<'_>>,
     ) -> Result<DeterministicProductDecisionV1, ProductError> {
         let expected_question_digest = derive_question_digest_v1(question_bytes);
         verify_compiler_wrapper_binding_v1(
@@ -967,7 +1250,7 @@ impl MemoryProductV1 {
                     )
                     .map_err(ProductError::Compiler)?
                 };
-                let compiled = match selection_decision {
+                let deterministic_compiled = match selection_decision {
                     PreparedThreeLaneSelectionDecisionV1::NeedsMore(needs_more) => {
                         let reason = needs_more.reason();
                         let returned_prepared = needs_more.into_prepared();
@@ -984,6 +1267,24 @@ impl MemoryProductV1 {
                     }
                     PreparedThreeLaneSelectionDecisionV1::Selected(compiled) => compiled,
                 };
+                let (compiled, hosted_ranking_diagnostics) =
+                    if let Some(attempt) = hosted_attempt.take() {
+                        let retained_ledger = self
+                            .store
+                            .ledger(result_id, now)
+                            .map_err(ProductError::Store)?;
+                        assisted_selection_v1(
+                            retained_ledger,
+                            question_bytes,
+                            &frozen_prepared,
+                            total_token_budget,
+                            tokenizer,
+                            deterministic_compiled,
+                            attempt,
+                        )
+                    } else {
+                        (deterministic_compiled, None)
+                    };
                 verify_compiler_wrapper_binding_v1(
                     required.result_id,
                     required.question_digest,
@@ -1025,6 +1326,7 @@ impl MemoryProductV1 {
                     tokenizer,
                 )?;
                 result.proposal_audit = Some(Box::new(audit));
+                result.hosted_ranking_diagnostics = hosted_ranking_diagnostics.map(Box::new);
                 Ok(DeterministicProductDecisionV1::Compiled(Box::new(result)))
             }
         }
@@ -1226,6 +1528,7 @@ impl MemoryProductV1 {
                     expires_at,
                     artifact,
                     proposal_audit: None,
+                    hosted_ranking_diagnostics: None,
                 })
             }
             Err(error) => Err(ProductError::CompiledEvidence(error)),

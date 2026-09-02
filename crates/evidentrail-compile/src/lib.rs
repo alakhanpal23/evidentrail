@@ -27,6 +27,7 @@ pub use compiler::{
     compile_ready_three_lanes_v1, compile_three_lanes_v1,
     prepare_ready_three_lane_proposal_universe_v1, prepare_three_lane_proposal_universe_v1,
     select_prepared_three_lane_proposals_v1,
+    select_prepared_three_lane_proposals_with_priorities_v1,
 };
 pub use proposal::{
     PROPOSAL_COMPILER_POLICY_NAME_V1, PROPOSAL_COMPILER_POLICY_VERSION_V1,

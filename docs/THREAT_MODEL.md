@@ -155,7 +155,15 @@ Every evidence payload is serialized in a typed field with source identity and a
 
 Instruction-like text is retained because it may itself be incident evidence. It can be flagged without rewriting it. Fixed control fields, policy, query scope, expansion authorization, and command arguments are constructed outside the evidence channel.
 
-The deterministic engine and future ranker have no tool authority. A future model may return result-local ledger IDs, scores, roles, and uncertainty only. It may not emit provider syntax, commands, prose that becomes policy, or a new acquisition scope.
+The deterministic engine and optional hosted ranker have no tool authority. The hosted ranker may return only a complete permutation of request-local opaque block aliases. It may not emit provider syntax, commands, prose that becomes policy, mandatory authority, citations, or a new acquisition scope. Unknown, duplicate, missing, malformed, and foreign aliases invalidate the entire response and trigger deterministic fallback.
+
+Hosted egress is separately bounded after deterministic feasibility: no more
+than 32 optional blocks and 40 KiB of combined escaped question/evidence are
+eligible. The provider envelope is independently bounded and must contain one
+completed, non-refusal structured output. Internal shadow mode still requires
+explicit hosted opt-in and always publishes deterministic bytes. Operational
+records use a closed contentless schema and never include prompt, response,
+credential, provider request ID, raw alias, question, or source bytes.
 
 ### TB-7: Local snapshot and expansion
 

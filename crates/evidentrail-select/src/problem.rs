@@ -156,6 +156,90 @@ pub struct SelectionProblemV1 {
     mandatory_cost: u64,
 }
 
+/// One externally proposed priority for an optional intact packet.
+///
+/// This grants no mandatory authority and cannot make a zero-gain packet
+/// eligible. It is only a bounded signal in optional-candidate comparisons.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct OptionalPacketPriorityV1 {
+    packet_id: PacketIdV1,
+    affinity_micros: u32,
+}
+
+impl OptionalPacketPriorityV1 {
+    #[must_use]
+    pub const fn new(packet_id: PacketIdV1, affinity_micros: u32) -> Self {
+        Self {
+            packet_id,
+            affinity_micros,
+        }
+    }
+
+    #[must_use]
+    pub const fn packet_id(self) -> PacketIdV1 {
+        self.packet_id
+    }
+
+    #[must_use]
+    pub const fn affinity_micros(self) -> u32 {
+        self.affinity_micros
+    }
+}
+
+impl fmt::Debug for OptionalPacketPriorityV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OptionalPacketPriorityV1")
+            .field("affinity_micros", &self.affinity_micros)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Invalid optional-priority proposal. Diagnostics deliberately contain no
+/// packet identifiers or source content.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum OptionalPacketPriorityErrorV1 {
+    TooManyPriorities,
+    DuplicatePacket,
+    UnknownPacket,
+    MandatoryPacket,
+    AffinityOutOfRange,
+    SelectionInvariant,
+}
+
+impl OptionalPacketPriorityErrorV1 {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::TooManyPriorities => "EVIDENTRAIL_SELECT_TOO_MANY_OPTIONAL_PRIORITIES",
+            Self::DuplicatePacket => "EVIDENTRAIL_SELECT_DUPLICATE_OPTIONAL_PRIORITY",
+            Self::UnknownPacket => "EVIDENTRAIL_SELECT_UNKNOWN_OPTIONAL_PRIORITY_PACKET",
+            Self::MandatoryPacket => "EVIDENTRAIL_SELECT_MANDATORY_PRIORITY_FORBIDDEN",
+            Self::AffinityOutOfRange => "EVIDENTRAIL_SELECT_OPTIONAL_PRIORITY_OUT_OF_RANGE",
+            Self::SelectionInvariant => "EVIDENTRAIL_SELECT_OPTIONAL_PRIORITY_INVARIANT_FAILURE",
+        }
+    }
+}
+
+impl fmt::Debug for OptionalPacketPriorityErrorV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OptionalPacketPriorityErrorV1")
+            .field("code", &self.code())
+            .finish()
+    }
+}
+
+impl fmt::Display for OptionalPacketPriorityErrorV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.code())
+    }
+}
+
+impl StdError for OptionalPacketPriorityErrorV1 {}
+
+const OPTIONAL_PRIORITY_MAX_GAIN_DENOMINATOR_V1: u128 = 100_000_000;
+
 impl SelectionProblemV1 {
     pub fn new(
         facets: impl IntoIterator<Item = ProductionFacetV1>,
@@ -370,6 +454,48 @@ impl SelectionProblemV1 {
     /// fitting optional packet. No approximation factor beyond this exact
     /// implemented comparison is claimed.
     pub fn select(&self) -> Result<SelectionDecisionV1, SelectionInvariantError> {
+        self.select_with_priority_map(&BTreeMap::new())
+    }
+
+    /// Select with a bounded fourth optional-priority signal.
+    ///
+    /// Mandatory membership, primary marginal-gain eligibility, coverage-only
+    /// quota accounting, packet indivisibility, budget accounting, and final
+    /// normalized gain remain unchanged. Maximum influence is 1% of one
+    /// full-scale weight/affinity contribution.
+    pub fn select_with_optional_priorities(
+        &self,
+        priorities: impl IntoIterator<Item = OptionalPacketPriorityV1>,
+    ) -> Result<SelectionDecisionV1, OptionalPacketPriorityErrorV1> {
+        let mut priority_map = BTreeMap::new();
+        for priority in priorities {
+            if priority_map.len() >= self.packets.len() {
+                return Err(OptionalPacketPriorityErrorV1::TooManyPriorities);
+            }
+            if priority.affinity_micros() == 0 || priority.affinity_micros() > AFFINITY_SCALE_V1 {
+                return Err(OptionalPacketPriorityErrorV1::AffinityOutOfRange);
+            }
+            if self.is_mandatory(priority.packet_id()) {
+                return Err(OptionalPacketPriorityErrorV1::MandatoryPacket);
+            }
+            if self.packet_index(priority.packet_id()).is_none() {
+                return Err(OptionalPacketPriorityErrorV1::UnknownPacket);
+            }
+            if priority_map
+                .insert(priority.packet_id(), priority.affinity_micros())
+                .is_some()
+            {
+                return Err(OptionalPacketPriorityErrorV1::DuplicatePacket);
+            }
+        }
+        self.select_with_priority_map(&priority_map)
+            .map_err(|_| OptionalPacketPriorityErrorV1::SelectionInvariant)
+    }
+
+    fn select_with_priority_map(
+        &self,
+        priority_map: &BTreeMap<PacketIdV1, u32>,
+    ) -> Result<SelectionDecisionV1, SelectionInvariantError> {
         let fixed_overhead = self.reserved_fixed_overhead.upper_bound_tokens();
         if fixed_overhead > self.total_token_budget.tokens() {
             return Ok(SelectionDecisionV1::NeedsMore(NeedsMoreSelectionV1 {
@@ -395,9 +521,18 @@ impl SelectionProblemV1 {
         let coverage_only_token_limit =
             optional_budget / COVERAGE_ONLY_OPTIONAL_BUDGET_DENOMINATOR_V1;
         let baseline = self.mandatory_coverage();
-        let greedy = self.density_greedy(&baseline, optional_budget, coverage_only_token_limit)?;
-        let best_single =
-            self.best_single(&baseline, optional_budget, coverage_only_token_limit)?;
+        let greedy = self.density_greedy(
+            &baseline,
+            optional_budget,
+            coverage_only_token_limit,
+            priority_map,
+        )?;
+        let best_single = self.best_single(
+            &baseline,
+            optional_budget,
+            coverage_only_token_limit,
+            priority_map,
+        )?;
         let chosen = match best_single {
             Some(single) if plan_is_better(&single, &greedy) => single,
             _ => greedy,
@@ -487,6 +622,7 @@ impl SelectionProblemV1 {
         baseline: &[FacetCoverageV1],
         optional_budget: u64,
         coverage_only_token_limit: u64,
+        priority_map: &BTreeMap<PacketIdV1, u32>,
     ) -> Result<CandidatePlan, SelectionInvariantError> {
         let mut coverage = baseline.to_vec();
         let mut chosen = vec![false; self.packets.len()];
@@ -520,6 +656,7 @@ impl SelectionProblemV1 {
                 let candidate = ScoredCandidate {
                     packet_index,
                     gain: marginal.gain,
+                    priority_bonus: priority_bonus_v1(packet.id(), marginal.gain, priority_map),
                     coverage_only: marginal.coverage_only,
                 };
                 if best.as_ref().is_none_or(|current| {
@@ -573,6 +710,7 @@ impl SelectionProblemV1 {
         baseline: &[FacetCoverageV1],
         optional_budget: u64,
         coverage_only_token_limit: u64,
+        priority_map: &BTreeMap<PacketIdV1, u32>,
     ) -> Result<Option<CandidatePlan>, SelectionInvariantError> {
         let mut best: Option<ScoredCandidate> = None;
         for (packet_index, packet) in self.packets.iter().enumerate() {
@@ -594,6 +732,7 @@ impl SelectionProblemV1 {
             let candidate = ScoredCandidate {
                 packet_index,
                 gain: marginal.gain,
+                priority_bonus: priority_bonus_v1(packet.id(), marginal.gain, priority_map),
                 coverage_only: marginal.coverage_only,
             };
             if best.as_ref().is_none_or(|current| {
@@ -1026,6 +1165,7 @@ impl fmt::Debug for SelectionDecisionV1 {
 struct ScoredCandidate {
     packet_index: usize,
     gain: u64,
+    priority_bonus: u64,
     coverage_only: bool,
 }
 
@@ -1101,15 +1241,17 @@ fn density_candidate_is_better(
     let current_cost = packets[current.packet_index]
         .composable_token_upper_bound()
         .upper_bound_tokens();
-    let left = u128::from(candidate.gain) * u128::from(current_cost);
-    let right = u128::from(current.gain) * u128::from(candidate_cost);
+    let candidate_assisted_gain = candidate.gain.saturating_add(candidate.priority_bonus);
+    let current_assisted_gain = current.gain.saturating_add(current.priority_bonus);
+    let left = u128::from(candidate_assisted_gain) * u128::from(current_cost);
+    let right = u128::from(current_assisted_gain) * u128::from(candidate_cost);
     match left.cmp(&right) {
         Ordering::Greater => true,
         Ordering::Less => false,
         Ordering::Equal => {
-            candidate
-                .gain
-                .cmp(&current.gain)
+            candidate_assisted_gain
+                .cmp(&current_assisted_gain)
+                .then_with(|| candidate.gain.cmp(&current.gain))
                 .then_with(|| current_cost.cmp(&candidate_cost))
                 .then_with(|| current.packet_index.cmp(&candidate.packet_index))
                 == Ordering::Greater
@@ -1126,7 +1268,9 @@ fn single_candidate_is_better(
     let current_packet = &packets[current.packet_index];
     candidate
         .gain
-        .cmp(&current.gain)
+        .saturating_add(candidate.priority_bonus)
+        .cmp(&current.gain.saturating_add(current.priority_bonus))
+        .then_with(|| candidate.gain.cmp(&current.gain))
         .then_with(|| {
             current_packet
                 .composable_token_upper_bound()
@@ -1139,6 +1283,17 @@ fn single_candidate_is_better(
         })
         .then_with(|| current.packet_index.cmp(&candidate.packet_index))
         == Ordering::Greater
+}
+
+fn priority_bonus_v1(
+    packet_id: PacketIdV1,
+    marginal_gain: u64,
+    priorities: &BTreeMap<PacketIdV1, u32>,
+) -> u64 {
+    let affinity = u128::from(priorities.get(&packet_id).copied().unwrap_or(0));
+    let bonus = u128::from(marginal_gain).saturating_mul(affinity)
+        / OPTIONAL_PRIORITY_MAX_GAIN_DENOMINATOR_V1;
+    u64::try_from(bonus).unwrap_or(u64::MAX)
 }
 
 fn plan_is_better(candidate: &CandidatePlan, current: &CandidatePlan) -> bool {

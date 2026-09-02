@@ -57,6 +57,7 @@ jsonschema = { version = "=0.52.0", default-features = false }
 sha2 = "0.10.9"
 zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
 rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs", "system"] }
+reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

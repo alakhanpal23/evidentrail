@@ -8,6 +8,7 @@
 //! only after repository publication authority has been verified.
 
 mod external_corpus_v3;
+mod hosted_ranking;
 mod mcp;
 
 use std::error::Error as StdError;
@@ -26,9 +27,9 @@ use evidentrail_core::{
 #[cfg(unix)]
 use evidentrail_product::AuthenticatedEncryptedRetentionV1;
 use evidentrail_product::{
-    CompiledProductResultV1, DeterministicProductDecisionV1, MemoryProductV1,
-    RenderedProductResultV1, StreamingAnalysisContextV3, StreamingProductV3,
-    streaming_product_build_context_v3,
+    CompiledProductResultV1, DeterministicProductDecisionV1, EvidenceRankerV1,
+    HostedRankingDiagnosticsV1, MemoryProductV1, RenderedProductResultV1,
+    StreamingAnalysisContextV3, StreamingProductV3, streaming_product_build_context_v3,
 };
 #[cfg(unix)]
 use evidentrail_product::{DurableProductErrorV2, DurableProductV2};
@@ -55,6 +56,10 @@ use sha2::{Digest as _, Sha256};
 pub use external_corpus_v3::{
     ExternalCorpusImportErrorV3, ExternalCorpusImportReportV3,
     import_external_adjudicated_corpus_v3,
+};
+pub use hosted_ranking::{
+    HOSTED_RANKING_DEADLINE_V1, HostedRankingDiagnosticRecordV1, OpenAiEvidenceRankerV1,
+    PINNED_HOSTED_RANKING_MODEL_V1,
 };
 #[cfg(unix)]
 pub use mcp::{
@@ -527,6 +532,21 @@ impl StdinBriefSessionV1 {
     #[must_use]
     pub const fn created_at(&self) -> UnixTimestampNanos {
         self.created_at
+    }
+
+    /// Contentless hosted-ranking diagnostics, when this retained session used
+    /// the explicitly assisted compiled path.
+    #[must_use]
+    pub fn hosted_ranking_diagnostics(&self) -> Option<&HostedRankingDiagnosticsV1> {
+        match &self.retention_state {
+            StdinSessionRetentionStateV1::Rendered(FinalizedStdinArtifactV1::Compiled(
+                compiled,
+            )) => compiled.hosted_ranking_diagnostics(),
+            StdinSessionRetentionStateV1::Rendered(FinalizedStdinArtifactV1::Passthrough(_))
+            | StdinSessionRetentionStateV1::NeedsMore
+            | StdinSessionRetentionStateV1::EncryptedAwaitingFilesystem
+            | StdinSessionRetentionStateV1::Published => None,
+        }
     }
 
     /// Expand a published short evidence alias inside this session's retained
@@ -1075,6 +1095,27 @@ pub fn compile_explicit_stdin_v1(
         .map(StdinBriefSessionV1::into_outcome)
 }
 
+/// Compile explicit input with one optional hosted-ranking attempt after the
+/// deterministic passthrough and `needs_more` gates.
+pub fn compile_explicit_stdin_with_ranker_v1<R: EvidenceRankerV1>(
+    input: &[u8],
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+    ranker: &mut R,
+) -> Result<StdinBriefOutcomeV1, StdinBriefErrorV1> {
+    compile_explicit_stdin_retained_with_ranker_v1(
+        input,
+        question,
+        token_budget,
+        identity_seed,
+        now,
+        ranker,
+    )
+    .map(StdinBriefSessionV1::into_outcome)
+}
+
 /// Compile explicit input while retaining the exact memory-only result for
 /// result-scoped expansion in a resident CLI/MCP service.
 ///
@@ -1100,6 +1141,67 @@ pub fn compile_explicit_stdin_retained_v1(
         .create_deterministic_result_v1(result_id, question, ledger, now, token_budget)
         .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
 
+    let (outcome, retention_state) =
+        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
+    Ok(StdinBriefSessionV1 {
+        product,
+        outcome,
+        created_at: now,
+        retention_state,
+    })
+}
+
+/// Retained-session form of [`compile_explicit_stdin_with_ranker_v1`].
+pub fn compile_explicit_stdin_retained_with_ranker_v1<R: EvidenceRankerV1>(
+    input: &[u8],
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+    ranker: &mut R,
+) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
+    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
+    let PreparedExplicitStdinV1 {
+        result_id,
+        ledger,
+        record_count,
+        source_byte_count,
+    } = prepared;
+    let mut product = MemoryProductV1::new();
+    let decision = product
+        .create_hosted_ranked_result_v1(result_id, question, ledger, now, token_budget, ranker)
+        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
+    let (outcome, retention_state) =
+        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
+    Ok(StdinBriefSessionV1 {
+        product,
+        outcome,
+        created_at: now,
+        retention_state,
+    })
+}
+
+/// Retained internal-shadow form of hosted ranking. It performs the same one
+/// eligible call and validation but always publishes deterministic selection.
+pub fn compile_explicit_stdin_retained_with_shadow_ranker_v1<R: EvidenceRankerV1>(
+    input: &[u8],
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+    ranker: &mut R,
+) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
+    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
+    let PreparedExplicitStdinV1 {
+        result_id,
+        ledger,
+        record_count,
+        source_byte_count,
+    } = prepared;
+    let mut product = MemoryProductV1::new();
+    let decision = product
+        .create_shadow_ranked_result_v1(result_id, question, ledger, now, token_budget, ranker)
+        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
     let (outcome, retention_state) =
         retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
     Ok(StdinBriefSessionV1 {

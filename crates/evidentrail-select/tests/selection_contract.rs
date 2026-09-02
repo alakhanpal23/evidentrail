@@ -3,9 +3,9 @@ use evidentrail_select::{
     AffinityV1, COVERAGE_ONLY_OPTIONAL_BUDGET_DENOMINATOR_V1, ComposableCostModelV1,
     ComposablePacketCostV1, FacetAffinityV1, FacetConstructionError, FacetIdV1,
     FacetSaturationCardinalityV1, FacetWeightV1, FixedPointConstructionError, IntactPacketV1,
-    MandatoryPacketV1, NeedsMoreReasonV1, ObjectiveEvaluationError,
-    PROVIDER_RELATION_ENDPOINT_WEIGHT_MICROS_V1, PacketConstructionError, PacketIdV1,
-    ProductionFacetKindV1, ProductionFacetV1, ReservedFixedOverheadV1,
+    MandatoryPacketV1, NeedsMoreReasonV1, ObjectiveEvaluationError, OptionalPacketPriorityErrorV1,
+    OptionalPacketPriorityV1, PROVIDER_RELATION_ENDPOINT_WEIGHT_MICROS_V1, PacketConstructionError,
+    PacketIdV1, ProductionFacetKindV1, ProductionFacetV1, ReservedFixedOverheadV1,
     SELECTION_OBJECTIVE_POLICY_VERSION_V1, SelectionConstraintV1, SelectionDecisionV1,
     SelectionProblemConstructionError, SelectionProblemV1, SelectionStrategyV1,
     TokenValueConstructionError, TotalTokenBudgetV1,
@@ -81,6 +81,66 @@ fn selected(decision: SelectionDecisionV1) -> evidentrail_select::SelectionV1 {
         panic!("fixture must select");
     };
     selection
+}
+
+#[test]
+fn bounded_optional_priorities_can_break_ties_but_cannot_change_authority() {
+    let first_facet = facet(900, ProductionFacetKindV1::FailureRole, 1_000_000);
+    let second_facet = facet(901, ProductionFacetKindV1::OnsetRole, 1_000_000);
+    let first = packet(910, &[910], 10, &[(first_facet.id(), 1_000_000)]);
+    let second = packet(911, &[911], 10, &[(second_facet.id(), 1_000_000)]);
+    let problem = SelectionProblemV1::new(
+        [first_facet, second_facet],
+        [first.clone(), second.clone()],
+        [],
+        budget(10),
+        overhead(0),
+    )
+    .unwrap();
+    let baseline = selected(problem.select().unwrap());
+    assert_eq!(baseline.packets()[0].packet().id(), first.id());
+
+    let assisted = selected(
+        problem
+            .select_with_optional_priorities([OptionalPacketPriorityV1::new(
+                second.id(),
+                1_000_000,
+            )])
+            .unwrap(),
+    );
+    assert_eq!(assisted.packets()[0].packet().id(), second.id());
+    assert_eq!(assisted.accounted_token_upper_bound(), 10);
+
+    assert_eq!(
+        problem
+            .select_with_optional_priorities([OptionalPacketPriorityV1::new(packet_id(999), 1,)]),
+        Err(OptionalPacketPriorityErrorV1::UnknownPacket)
+    );
+
+    let identifier = facet(
+        920,
+        ProductionFacetKindV1::ValidatedQueryIdentifier,
+        1_000_000,
+    );
+    let mandatory_packet = packet(921, &[921], 1, &[(identifier.id(), 1_000_000)]);
+    let mandatory_problem = SelectionProblemV1::new(
+        [identifier.clone()],
+        [mandatory_packet.clone()],
+        [MandatoryPacketV1::validated_identifier(
+            mandatory_packet.id(),
+            identifier.id(),
+        )],
+        budget(1),
+        overhead(0),
+    )
+    .unwrap();
+    assert_eq!(
+        mandatory_problem.select_with_optional_priorities([OptionalPacketPriorityV1::new(
+            mandatory_packet.id(),
+            1,
+        )]),
+        Err(OptionalPacketPriorityErrorV1::MandatoryPacket)
+    );
 }
 
 #[test]

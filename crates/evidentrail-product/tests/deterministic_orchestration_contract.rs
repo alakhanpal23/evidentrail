@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::BTreeSet;
 
 use evidentrail_compile::{
@@ -17,7 +18,9 @@ use evidentrail_core::{
 use evidentrail_evidence::{CompiledCostCertificationError, Utf8ByteTokenizerV1};
 use evidentrail_framing::frame_source_lanes_v1;
 use evidentrail_product::{
-    DeterministicProductDecisionV1, MemoryProductV1, ProductError, ProductResultDecisionV1,
+    DeterministicProductDecisionV1, EvidenceRankerFailureV1, EvidenceRankerOutputV1,
+    EvidenceRankerV1, EvidenceRankingRequestV1, MemoryProductV1, ProductError,
+    ProductResultDecisionV1,
 };
 use evidentrail_schema::{ResultId, bounds::JSON_SAFE_INTEGER_MAX};
 use evidentrail_select::TotalTokenBudgetV1;
@@ -194,6 +197,265 @@ fn assert_exact_proposal_memberships(prepared: &PreparedThreeLaneProposalUnivers
         canonical_metadata_members.sort_unstable();
         assert_eq!(packet.event_ids(), canonical_metadata_members);
     }
+}
+
+#[derive(Default)]
+struct FailingRanker {
+    calls: Cell<usize>,
+}
+
+impl EvidenceRankerV1 for FailingRanker {
+    fn rank(
+        &mut self,
+        _request: &EvidenceRankingRequestV1,
+    ) -> Result<EvidenceRankerOutputV1, EvidenceRankerFailureV1> {
+        self.calls.set(self.calls.get() + 1);
+        Err(EvidenceRankerFailureV1::Timeout)
+    }
+}
+
+struct StaticOutputRanker {
+    response: Vec<u8>,
+}
+
+impl EvidenceRankerV1 for StaticOutputRanker {
+    fn rank(
+        &mut self,
+        _request: &EvidenceRankingRequestV1,
+    ) -> Result<EvidenceRankerOutputV1, EvidenceRankerFailureV1> {
+        Ok(EvidenceRankerOutputV1::new(
+            self.response.clone(),
+            [1; 32],
+            [2; 32],
+            3,
+            Some(4),
+            Some(5),
+            Some(6),
+        ))
+    }
+}
+
+fn two_candidate_oversized_records() -> Vec<FixtureRecord> {
+    let mut first = b"ERROR timeout alpha ".to_vec();
+    first.resize(7_000, b'a');
+    let mut second = b"ERROR timeout beta ".to_vec();
+    second.resize(7_000, b'b');
+    vec![
+        fixture(b"app-a", SourceStream::Stderr, 0, RecordBytes::whole(first)),
+        fixture(
+            b"app-b",
+            SourceStream::Stderr,
+            0,
+            RecordBytes::whole(second),
+        ),
+    ]
+}
+
+fn hosted_request_oversized_records() -> Vec<FixtureRecord> {
+    let mut first = b"ERROR timeout alpha ".to_vec();
+    first.resize(30_000, b'a');
+    let mut second = b"ERROR timeout beta ".to_vec();
+    second.resize(30_000, b'b');
+    vec![
+        fixture(b"app-a", SourceStream::Stderr, 0, RecordBytes::whole(first)),
+        fixture(
+            b"app-b",
+            SourceStream::Stderr,
+            0,
+            RecordBytes::whole(second),
+        ),
+    ]
+}
+
+#[test]
+fn hosted_assistance_is_post_feasibility_and_every_failure_is_exact_fallback() {
+    let now = UnixTimestampNanos::new(99);
+    let small = complete_ledger(
+        90,
+        vec![fixture(
+            b"app",
+            SourceStream::Stdout,
+            0,
+            RecordBytes::whole(b"small".to_vec()),
+        )],
+    );
+    let mut passthrough_ranker = FailingRanker::default();
+    let mut passthrough_product = MemoryProductV1::new();
+    let passthrough = passthrough_product
+        .create_hosted_ranked_result_v1(
+            result(90),
+            b"why?",
+            small,
+            now,
+            100_000,
+            &mut passthrough_ranker,
+        )
+        .unwrap();
+    assert!(matches!(
+        passthrough,
+        DeterministicProductDecisionV1::Passthrough(_)
+    ));
+    assert_eq!(passthrough_ranker.calls.get(), 0);
+
+    let source = complete_ledger(91, two_candidate_oversized_records());
+    let mut deterministic_product = MemoryProductV1::new();
+    let deterministic = deterministic_product
+        .create_deterministic_result_v1(result(91), b"timeout", source.clone(), now, 10_000)
+        .unwrap();
+    let DeterministicProductDecisionV1::Compiled(deterministic) = deterministic else {
+        panic!("fixture must compile");
+    };
+
+    let mut ranker = FailingRanker::default();
+    let mut assisted_product = MemoryProductV1::new();
+    let assisted = assisted_product
+        .create_hosted_ranked_result_v1(result(91), b"timeout", source, now, 10_000, &mut ranker)
+        .unwrap();
+    let DeterministicProductDecisionV1::Compiled(assisted) = assisted else {
+        panic!("fixture must compile");
+    };
+    assert_eq!(ranker.calls.get(), 1);
+    assert_eq!(
+        assisted.artifact().text(),
+        deterministic.artifact().text(),
+        "timeout fallback must be byte-identical"
+    );
+    let diagnostics = assisted.hosted_ranking_diagnostics().unwrap();
+    assert_eq!(diagnostics.validation_code(), "not_received");
+    assert_eq!(diagnostics.fallback_reason(), Some("timeout"));
+    assert!(diagnostics.elapsed_nanos().is_some());
+
+    let tiny_source = complete_ledger(92, two_candidate_oversized_records());
+    let mut needs_more_ranker = FailingRanker::default();
+    let mut needs_more_product = MemoryProductV1::new();
+    let needs_more = needs_more_product
+        .create_hosted_ranked_result_v1(
+            result(92),
+            b"timeout",
+            tiny_source,
+            now,
+            1,
+            &mut needs_more_ranker,
+        )
+        .unwrap();
+    assert!(matches!(
+        needs_more,
+        DeterministicProductDecisionV1::NeedsMore(_)
+    ));
+    assert_eq!(needs_more_ranker.calls.get(), 0);
+}
+
+#[test]
+fn hosted_egress_cap_is_checked_before_the_ranker_and_falls_back_exactly() {
+    let now = UnixTimestampNanos::new(101);
+    let source = complete_ledger(93, hosted_request_oversized_records());
+    let mut deterministic_product = MemoryProductV1::new();
+    let deterministic = deterministic_product
+        .create_deterministic_result_v1(result(93), b"timeout", source.clone(), now, 40_000)
+        .unwrap();
+    let DeterministicProductDecisionV1::Compiled(deterministic) = deterministic else {
+        panic!("fixture must compile");
+    };
+
+    let mut ranker = FailingRanker::default();
+    let mut assisted_product = MemoryProductV1::new();
+    let assisted = assisted_product
+        .create_hosted_ranked_result_v1(result(93), b"timeout", source, now, 40_000, &mut ranker)
+        .unwrap();
+    let DeterministicProductDecisionV1::Compiled(assisted) = assisted else {
+        panic!("fixture must compile");
+    };
+    assert_eq!(ranker.calls.get(), 0);
+    assert_eq!(assisted.artifact().text(), deterministic.artifact().text());
+    let diagnostics = assisted.hosted_ranking_diagnostics().unwrap();
+    assert_eq!(diagnostics.validation_code(), "not_sent");
+    assert_eq!(diagnostics.fallback_reason(), Some("request_too_large"));
+    assert_eq!(diagnostics.elapsed_nanos(), None);
+}
+
+#[test]
+fn every_invalid_model_response_class_is_byte_identical_fallback() {
+    let now = UnixTimestampNanos::new(102);
+    let source = complete_ledger(94, two_candidate_oversized_records());
+    let mut deterministic_product = MemoryProductV1::new();
+    let deterministic = deterministic_product
+        .create_deterministic_result_v1(result(94), b"timeout", source.clone(), now, 10_000)
+        .unwrap();
+    let DeterministicProductDecisionV1::Compiled(deterministic) = deterministic else {
+        panic!("fixture must compile");
+    };
+
+    let mut responses = vec![
+        b"not-json".to_vec(),
+        br#"{"schema_version":2,"ranked_block_ids":["B1","B2"]}"#.to_vec(),
+        br#"{"schema_version":1,"ranked_block_ids":["B1"]}"#.to_vec(),
+        br#"{"schema_version":1,"ranked_block_ids":["B1","B1"]}"#.to_vec(),
+        br#"{"schema_version":1,"ranked_block_ids":["B1","FOREIGN"]}"#.to_vec(),
+        br#"{"schema_version":1,"ranked_block_ids":["B1","B2"],"extra":true}"#.to_vec(),
+    ];
+    responses.push(vec![
+        b' ';
+        evidentrail_product::MAX_HOSTED_RANKING_RESPONSE_BYTES_V1
+            + 1
+    ]);
+
+    for (index, response) in responses.into_iter().enumerate() {
+        let mut ranker = StaticOutputRanker { response };
+        let mut assisted_product = MemoryProductV1::new();
+        let assisted = assisted_product
+            .create_hosted_ranked_result_v1(
+                result(94),
+                b"timeout",
+                source.clone(),
+                now,
+                10_000,
+                &mut ranker,
+            )
+            .unwrap();
+        let DeterministicProductDecisionV1::Compiled(assisted) = assisted else {
+            panic!("fixture must compile");
+        };
+        assert_eq!(
+            assisted.artifact().text(),
+            deterministic.artifact().text(),
+            "invalid response class {index} must fall back exactly"
+        );
+        assert_eq!(
+            assisted
+                .hosted_ranking_diagnostics()
+                .unwrap()
+                .fallback_reason(),
+            Some("invalid_response")
+        );
+    }
+}
+
+#[test]
+fn shadow_mode_runs_valid_ranking_but_always_publishes_deterministic_bytes() {
+    let now = UnixTimestampNanos::new(103);
+    let source = complete_ledger(95, two_candidate_oversized_records());
+    let mut deterministic_product = MemoryProductV1::new();
+    let deterministic = deterministic_product
+        .create_deterministic_result_v1(result(95), b"timeout", source.clone(), now, 10_000)
+        .unwrap();
+    let DeterministicProductDecisionV1::Compiled(deterministic) = deterministic else {
+        panic!("fixture must compile");
+    };
+    let mut ranker = StaticOutputRanker {
+        response: br#"{"schema_version":1,"ranked_block_ids":["B2","B1"]}"#.to_vec(),
+    };
+    let mut shadow_product = MemoryProductV1::new();
+    let shadow = shadow_product
+        .create_shadow_ranked_result_v1(result(95), b"timeout", source, now, 10_000, &mut ranker)
+        .unwrap();
+    let DeterministicProductDecisionV1::Compiled(shadow) = shadow else {
+        panic!("fixture must compile");
+    };
+    assert_eq!(shadow.artifact().text(), deterministic.artifact().text());
+    let diagnostics = shadow.hosted_ranking_diagnostics().unwrap();
+    assert_eq!(diagnostics.application_code(), "shadow");
+    assert_eq!(diagnostics.validation_code(), "accepted");
+    assert!(diagnostics.proposal_changed().is_some());
 }
 
 #[test]

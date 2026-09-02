@@ -24,6 +24,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
 zeroize.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
 evidentrail-store = { workspace = true, features = ["internal-test-provider"] }

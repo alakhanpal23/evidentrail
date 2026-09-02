@@ -22,7 +22,8 @@ smaller brief with expandable evidence references.
   inventing a confident summary.
 - Supports in-memory retention and an opt-in encrypted packed repository for
   restartable exact expansion.
-- Runs locally and does not invoke an AI model.
+- Runs locally and does not invoke an AI model by default. Hosted evidence
+  ranking is a separate explicit opt-in with deterministic fallback.
 
 ## Why it is useful
 
@@ -43,6 +44,24 @@ cargo run -p evidentrail-cli --bin evidentrail -- brief \
   --question "why did request REQ-7 fail?" \
   --token-budget 20000 < app.log
 ```
+
+Opt into one hosted evidence-ranking call (memory retention only):
+
+```sh
+OPENAI_API_KEY=... cargo run -p evidentrail-cli --bin evidentrail -- brief \
+  --question "why did request REQ-7 fail?" \
+  --token-budget 20000 --llm-rank < app.log
+```
+
+The model can reorder at most 32 intact optional blocks. It cannot rewrite
+evidence, add citations, remove mandatory evidence, or decide completeness.
+Missing credentials, the kill switch (`EVIDENTRAIL_HOSTED_RANKING_DISABLED=1`),
+timeouts, provider errors, and invalid responses all use the deterministic
+result without retrying. Hosted payloads have a separate 40-KiB escaped-input
+cap. Internal rollout can set `EVIDENTRAIL_HOSTED_RANKING_SHADOW=1` with the
+explicit opt-in to exercise ranking while always publishing deterministic
+bytes. See [hosted evidence ranking](docs/HOSTED_EVIDENCE_RANKING.md) for the
+trust boundary and release status.
 
 Run the process-resident MCP service:
 
@@ -72,9 +91,10 @@ prompt are both smaller, while the structured diagnosis, claims, and citation
 semantics are exactly preserved. Responses are strictly parsed, identity-bound,
 resource-capped, and fail closed.
 
-This evaluation is opt-in and off the production path: CI uses offline fixtures,
-no model credentials are accepted by the library contract, an LLM never rewrites
-trusted evidence, and a passing receipt is not production-admission authority.
+This evaluation and the hosted-ranking beta are opt-in: CI uses offline
+fixtures, credentials stay in the CLI adapter rather than the compiler/product
+contract, an LLM never rewrites trusted evidence, and a passing receipt is not
+production-admission authority.
 See the [hosted LLM compression check](docs/HOSTED_LLM_COMPRESSION_CHECK.md)
 for the adapter flow and response contract.
 

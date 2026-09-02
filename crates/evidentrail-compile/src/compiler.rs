@@ -15,8 +15,8 @@ use evidentrail_evidence::{
 };
 use evidentrail_select::{
     AffinityV1, FacetAffinityV1, FacetIdV1, IntactPacketV1, MandatoryPacketV1, NeedsMoreReasonV1,
-    PacketConstructionError, PacketIdV1, ProductionFacetKindV1, ProductionFacetV1,
-    SelectionDecisionV1, SelectionProblemV1, TotalTokenBudgetV1,
+    OptionalPacketPriorityV1, PacketConstructionError, PacketIdV1, ProductionFacetKindV1,
+    ProductionFacetV1, SelectionDecisionV1, SelectionProblemV1, TotalTokenBudgetV1,
 };
 
 use crate::proposal::{
@@ -653,6 +653,27 @@ pub fn select_prepared_three_lane_proposals_v1(
     select_bound_prepared_three_lane_proposals_v1(ledger, prepared, total_token_budget, tokenizer)
 }
 
+/// Select from a frozen universe with bounded optional-packet priorities.
+/// Priorities cannot alter mandatory authority, membership, costs, or receipts.
+pub fn select_prepared_three_lane_proposals_with_priorities_v1(
+    ledger: &EventLedger,
+    prepared: PreparedThreeLaneProposalUniverseV1,
+    total_token_budget: TotalTokenBudgetV1,
+    tokenizer: &Utf8ByteTokenizerV1,
+    priorities: &[OptionalPacketPriorityV1],
+) -> Result<PreparedThreeLaneSelectionDecisionV1, ThreeLaneCompileErrorV1> {
+    if !prepared.receipt().input().matches(ledger, tokenizer) {
+        return Err(ThreeLaneCompileErrorV1::PreparedBindingMismatch);
+    }
+    select_bound_prepared_three_lane_proposals_with_priorities_v1(
+        ledger,
+        prepared,
+        total_token_budget,
+        tokenizer,
+        priorities,
+    )
+}
+
 /// Benchmark-only selection of one mask-specific prepared ablation.
 ///
 /// This validates the exact masked candidate-configuration receipt and then
@@ -714,6 +735,22 @@ fn select_bound_prepared_three_lane_proposals_v1(
     total_token_budget: TotalTokenBudgetV1,
     tokenizer: &Utf8ByteTokenizerV1,
 ) -> Result<PreparedThreeLaneSelectionDecisionV1, ThreeLaneCompileErrorV1> {
+    select_bound_prepared_three_lane_proposals_with_priorities_v1(
+        ledger,
+        prepared,
+        total_token_budget,
+        tokenizer,
+        &[],
+    )
+}
+
+fn select_bound_prepared_three_lane_proposals_with_priorities_v1(
+    ledger: &EventLedger,
+    prepared: PreparedThreeLaneProposalUniverseV1,
+    total_token_budget: TotalTokenBudgetV1,
+    tokenizer: &Utf8ByteTokenizerV1,
+    priorities: &[OptionalPacketPriorityV1],
+) -> Result<PreparedThreeLaneSelectionDecisionV1, ThreeLaneCompileErrorV1> {
     if prepared.proposal_packets().is_empty() {
         return Ok(PreparedThreeLaneSelectionDecisionV1::NeedsMore(Box::new(
             PreparedThreeLaneNeedsMoreV1::new(ThreeLaneNeedsMoreV1::NoProposalPackets, prepared),
@@ -729,9 +766,15 @@ fn select_bound_prepared_three_lane_proposals_v1(
         .collect::<Vec<_>>();
     proposal_packet_ids.sort_unstable();
     let problem = build_bound_selection_problem_v1(&prepared, total_token_budget)?;
-    let selection = problem
-        .select()
-        .map_err(ThreeLaneCompileErrorV1::SelectionInvariant)?;
+    let selection = if priorities.is_empty() {
+        problem
+            .select()
+            .map_err(ThreeLaneCompileErrorV1::SelectionInvariant)?
+    } else {
+        problem
+            .select_with_optional_priorities(priorities.iter().copied())
+            .map_err(ThreeLaneCompileErrorV1::OptionalPriority)?
+    };
     let selection = match selection {
         SelectionDecisionV1::Selected(selection) if selection.packets().is_empty() => {
             return Ok(PreparedThreeLaneSelectionDecisionV1::NeedsMore(Box::new(

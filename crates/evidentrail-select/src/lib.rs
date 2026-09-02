@@ -17,7 +17,8 @@ mod problem;
 mod types;
 
 pub use problem::{
-    NeedsMoreReasonV1, NeedsMoreSelectionV1, ObjectiveEvaluationError, SelectedPacketV1,
+    NeedsMoreReasonV1, NeedsMoreSelectionV1, ObjectiveEvaluationError,
+    OptionalPacketPriorityErrorV1, OptionalPacketPriorityV1, SelectedPacketV1,
     SelectionConstraintV1, SelectionDecisionV1, SelectionInvariantError,
     SelectionProblemConstructionError, SelectionProblemV1, SelectionStrategyV1, SelectionV1,
 };
