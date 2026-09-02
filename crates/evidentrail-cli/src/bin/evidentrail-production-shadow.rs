@@ -9,8 +9,9 @@ use std::process::ExitCode;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use evidentrail_cli::{
-    MAX_QUESTION_BYTES_V1, MAX_STDIN_BYTES_V1, StdinBriefOutcomeV1,
-    compile_explicit_stdin_retained_v1,
+    HostedRankingDiagnosticRecordV1, MAX_QUESTION_BYTES_V1, MAX_STDIN_BYTES_V1,
+    OpenAiEvidenceRankerV1, StdinBriefOutcomeV1, compile_explicit_stdin_retained_v1,
+    compile_explicit_stdin_retained_with_ranker_v1,
 };
 use evidentrail_core::{ExpansionLimitV1, ExpansionRelationV1, UnixTimestampNanos};
 use evidentrail_schema::ExactnessBasis;
@@ -19,8 +20,8 @@ use evidentrail_store::{
 };
 use serde::{Deserialize, Serialize};
 
-const MANIFEST_VERSION_V1: u16 = 1;
-const REPORT_VERSION_V1: u16 = 1;
+const MANIFEST_VERSION_V2: u16 = 2;
+const REPORT_VERSION_V2: u16 = 2;
 const MAX_MANIFEST_BYTES_V1: usize = 1024 * 1024;
 const MAX_CASES_V1: usize = 100;
 const MIN_REPETITIONS_V1: u16 = 3;
@@ -41,7 +42,9 @@ struct ShadowManifestV1 {
     schema_version: u16,
     data_classification: DataClassificationV1,
     local_processing_only: bool,
+    ranking_mode: RankingModeV1,
     hosted_egress: bool,
+    hosted_egress_authorization: Option<HostedEgressAuthorizationV1>,
     content_telemetry: bool,
     retention: RetentionV1,
     repetitions: u16,
@@ -54,6 +57,19 @@ enum RetentionV1 {
     MemoryOnly,
 }
 
+#[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum RankingModeV1 {
+    Deterministic,
+    Hosted,
+}
+
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum HostedEgressAuthorizationV1 {
+    OperatorApprovedOpenaiResponsesV1,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ShadowCaseV1 {
@@ -62,6 +78,7 @@ struct ShadowCaseV1 {
     required_evidence_files: Vec<PathBuf>,
     token_budget: u64,
     protected_slice: bool,
+    hosted_egress_approved: bool,
 }
 
 #[derive(Serialize)]
@@ -69,10 +86,21 @@ struct ShadowReportV1 {
     schema_version: u16,
     qualification_eligible: bool,
     mode: &'static str,
+    ranking_mode: RankingModeV1,
     data_classification: DataClassificationV1,
     local_processing_only: bool,
-    memory_only: bool,
+    application_memory_only: bool,
     hosted_egress_attempted: bool,
+    hosted_ranking_diagnostic_count: u64,
+    hosted_provider_call_count: u64,
+    hosted_accepted_response_count: u64,
+    hosted_fallback_count: u64,
+    hosted_input_tokens: u64,
+    hosted_output_tokens: u64,
+    hosted_cost_microusd: u64,
+    p50_hosted_provider_nanos: u64,
+    p95_hosted_provider_nanos: u64,
+    hosted_execution_gate_passed: bool,
     content_fields_emitted: bool,
     case_count: usize,
     repetitions: u16,
@@ -93,6 +121,7 @@ struct ShadowReportV1 {
     quality_gate_passed: bool,
     pilot_passed: bool,
     cases: Vec<CaseReportV1>,
+    hosted_ranking_diagnostics: Vec<HostedRankingDiagnosticRecordV1>,
 }
 
 #[derive(Serialize)]
@@ -116,11 +145,20 @@ struct CaseReportV1 {
     p50_end_to_end_nanos: u64,
     p95_end_to_end_nanos: u64,
     all_integrity_checks_passed: bool,
+    hosted_ranking_diagnostic_count: u64,
+    hosted_provider_call_count: u64,
+    hosted_accepted_response_count: u64,
+    hosted_fallback_count: u64,
 }
 
 struct CaseRunV1 {
     report: CaseReportV1,
     elapsed_nanos: Vec<u64>,
+    hosted_provider_nanos: Vec<u64>,
+    hosted_input_tokens: u64,
+    hosted_output_tokens: u64,
+    hosted_cost_microusd: u64,
+    hosted_ranking_diagnostics: Vec<HostedRankingDiagnosticRecordV1>,
 }
 
 #[derive(Clone, Copy)]
@@ -233,6 +271,8 @@ fn run() -> Result<ShadowReportV1, ShadowErrorV1> {
         }
     }
 
+    let mut hosted_ranker = (manifest.ranking_mode == RankingModeV1::Hosted)
+        .then(OpenAiEvidenceRankerV1::from_environment);
     let mut case_runs = Vec::with_capacity(manifest.cases.len());
     for (index, case) in manifest.cases.iter().enumerate() {
         case_runs.push(run_case(
@@ -241,25 +281,49 @@ fn run() -> Result<ShadowReportV1, ShadowErrorV1> {
             case,
             manifest.repetitions,
             private,
+            hosted_ranker.as_mut(),
         )?);
     }
     Ok(aggregate_report(&manifest, case_runs))
 }
 
 fn validate_manifest(manifest: &ShadowManifestV1) -> Result<(), ShadowErrorV1> {
-    if manifest.schema_version != MANIFEST_VERSION_V1
+    if manifest.schema_version != MANIFEST_VERSION_V2
         || manifest.cases.is_empty()
         || manifest.cases.len() > MAX_CASES_V1
         || !(MIN_REPETITIONS_V1..=MAX_REPETITIONS_V1).contains(&manifest.repetitions)
     {
         return Err(ShadowErrorV1::ManifestInvalid);
     }
-    if !manifest.local_processing_only
-        || manifest.hosted_egress
-        || manifest.content_telemetry
-        || manifest.retention != RetentionV1::MemoryOnly
-    {
+    if manifest.content_telemetry || manifest.retention != RetentionV1::MemoryOnly {
         return Err(ShadowErrorV1::AuthorizationInvalid);
+    }
+    match manifest.ranking_mode {
+        RankingModeV1::Deterministic => {
+            if !manifest.local_processing_only
+                || manifest.hosted_egress
+                || manifest.hosted_egress_authorization.is_some()
+                || manifest
+                    .cases
+                    .iter()
+                    .any(|case| case.hosted_egress_approved)
+            {
+                return Err(ShadowErrorV1::AuthorizationInvalid);
+            }
+        }
+        RankingModeV1::Hosted => {
+            if manifest.local_processing_only
+                || !manifest.hosted_egress
+                || manifest.hosted_egress_authorization
+                    != Some(HostedEgressAuthorizationV1::OperatorApprovedOpenaiResponsesV1)
+                || manifest
+                    .cases
+                    .iter()
+                    .any(|case| !case.hosted_egress_approved)
+            {
+                return Err(ShadowErrorV1::AuthorizationInvalid);
+            }
+        }
     }
     for case in &manifest.cases {
         if case.required_evidence_files.is_empty()
@@ -278,6 +342,7 @@ fn run_case(
     case: &ShadowCaseV1,
     repetitions: u16,
     private: bool,
+    mut hosted_ranker: Option<&mut OpenAiEvidenceRankerV1>,
 ) -> Result<CaseRunV1, ShadowErrorV1> {
     let log = read_bounded_file(root, &case.log_file, MAX_STDIN_BYTES_V1, private)?;
     let question = read_bounded_file(root, &case.question_file, MAX_QUESTION_BYTES_V1, private)?;
@@ -304,19 +369,39 @@ fn run_case(
     let mut expansion_success_count = 0;
     let mut required_evidence_selected_count = 0;
     let mut integrity = true;
+    let mut hosted_provider_nanos = Vec::new();
+    let mut hosted_input_tokens = 0_u64;
+    let mut hosted_output_tokens = 0_u64;
+    let mut hosted_cost_microusd = 0_u64;
+    let mut hosted_ranking_diagnostics = Vec::new();
+    let mut hosted_provider_call_count = 0_u64;
+    let mut hosted_accepted_response_count = 0_u64;
+    let mut hosted_fallback_count = 0_u64;
 
     for _ in 0..repetitions {
         let mut identity_seed = [0u8; 32];
         getrandom::fill(&mut identity_seed).map_err(|_| ShadowErrorV1::RandomnessUnavailable)?;
         let now = unix_now()?;
         let started = Instant::now();
-        let session = match compile_explicit_stdin_retained_v1(
-            &log,
-            &question,
-            case.token_budget,
-            identity_seed,
-            now,
-        ) {
+        let compiled = if let Some(ranker) = hosted_ranker.as_deref_mut() {
+            compile_explicit_stdin_retained_with_ranker_v1(
+                &log,
+                &question,
+                case.token_budget,
+                identity_seed,
+                now,
+                ranker,
+            )
+        } else {
+            compile_explicit_stdin_retained_v1(
+                &log,
+                &question,
+                case.token_budget,
+                identity_seed,
+                now,
+            )
+        };
+        let session = match compiled {
             Ok(session) => session,
             Err(_) => {
                 product_failure_count += 1;
@@ -326,6 +411,34 @@ fn run_case(
             }
         };
         elapsed_nanos.push(nanos(started.elapsed().as_nanos()));
+        if let Some(diagnostics) = session.hosted_ranking_diagnostics() {
+            if diagnostics.validation_code() != "not_sent"
+                && !matches!(
+                    diagnostics.fallback_reason(),
+                    Some("disabled" | "missing_credential")
+                )
+            {
+                hosted_provider_call_count += 1;
+            }
+            if diagnostics.validation_code() == "accepted" {
+                hosted_accepted_response_count += 1;
+            }
+            if diagnostics.fallback_reason().is_some() {
+                hosted_fallback_count += 1;
+            }
+            if let Some(value) = diagnostics.elapsed_nanos() {
+                hosted_provider_nanos.push(value);
+            }
+            hosted_input_tokens =
+                hosted_input_tokens.saturating_add(diagnostics.input_tokens().unwrap_or_default());
+            hosted_output_tokens = hosted_output_tokens
+                .saturating_add(diagnostics.output_tokens().unwrap_or_default());
+            hosted_cost_microusd = hosted_cost_microusd
+                .saturating_add(diagnostics.cost_microusd().unwrap_or_default());
+            hosted_ranking_diagnostics.push(HostedRankingDiagnosticRecordV1::from_diagnostics(
+                diagnostics,
+            ));
+        }
         match session.outcome() {
             StdinBriefOutcomeV1::NeedsMore(needs_more) => {
                 needs_more_attempt_count += 1;
@@ -444,8 +557,17 @@ fn run_case(
             p95_end_to_end_nanos: percentile(&elapsed_nanos, 95),
             all_integrity_checks_passed: integrity
                 && expansion_attempt_count == expansion_success_count,
+            hosted_ranking_diagnostic_count: hosted_ranking_diagnostics.len() as u64,
+            hosted_provider_call_count,
+            hosted_accepted_response_count,
+            hosted_fallback_count,
         },
         elapsed_nanos,
+        hosted_provider_nanos,
+        hosted_input_tokens,
+        hosted_output_tokens,
+        hosted_cost_microusd,
+        hosted_ranking_diagnostics,
     })
 }
 
@@ -462,6 +584,14 @@ fn aggregate_report(manifest: &ShadowManifestV1, case_runs: Vec<CaseRunV1>) -> S
     let mut requirements = 0;
     let mut selected = 0;
     let mut integrity = true;
+    let mut hosted_provider_nanos = Vec::new();
+    let mut hosted_input_tokens = 0_u64;
+    let mut hosted_output_tokens = 0_u64;
+    let mut hosted_cost_microusd = 0_u64;
+    let mut hosted_ranking_diagnostics = Vec::new();
+    let mut hosted_provider_calls = 0_u64;
+    let mut hosted_accepted = 0_u64;
+    let mut hosted_fallbacks = 0_u64;
     for run in case_runs {
         let case = run.report;
         rendered += case.rendered_attempt_count;
@@ -474,20 +604,48 @@ fn aggregate_report(manifest: &ShadowManifestV1, case_runs: Vec<CaseRunV1>) -> S
         requirements += case.required_evidence_count;
         selected += case.required_evidence_selected_count;
         integrity &= case.all_integrity_checks_passed;
+        hosted_provider_calls += case.hosted_provider_call_count;
+        hosted_accepted += case.hosted_accepted_response_count;
+        hosted_fallbacks += case.hosted_fallback_count;
         elapsed.extend(run.elapsed_nanos);
+        hosted_provider_nanos.extend(run.hosted_provider_nanos);
+        hosted_input_tokens = hosted_input_tokens.saturating_add(run.hosted_input_tokens);
+        hosted_output_tokens = hosted_output_tokens.saturating_add(run.hosted_output_tokens);
+        hosted_cost_microusd = hosted_cost_microusd.saturating_add(run.hosted_cost_microusd);
+        hosted_ranking_diagnostics.extend(run.hosted_ranking_diagnostics);
         cases.push(case);
     }
     let attempt_count = cases.iter().map(|case| case.attempt_count).sum();
     let recall = ratio_micros(selected, requirements);
     let quality = failures == 0 && needs_more == 0 && recall == 1_000_000;
+    let hosted_requested = manifest.ranking_mode == RankingModeV1::Hosted;
+    let hosted_execution = !hosted_requested
+        || (hosted_provider_calls > 0
+            && hosted_accepted == hosted_ranking_diagnostics.len() as u64
+            && hosted_fallbacks == 0);
     ShadowReportV1 {
-        schema_version: REPORT_VERSION_V1,
+        schema_version: REPORT_VERSION_V2,
         qualification_eligible: false,
-        mode: "deterministic_memory_only_no_egress_v1",
+        mode: if hosted_requested {
+            "hosted_memory_only_explicit_egress_v1"
+        } else {
+            "deterministic_memory_only_no_egress_v1"
+        },
+        ranking_mode: manifest.ranking_mode,
         data_classification: manifest.data_classification,
-        local_processing_only: true,
-        memory_only: true,
-        hosted_egress_attempted: false,
+        local_processing_only: !hosted_requested,
+        application_memory_only: true,
+        hosted_egress_attempted: hosted_provider_calls > 0,
+        hosted_ranking_diagnostic_count: hosted_ranking_diagnostics.len() as u64,
+        hosted_provider_call_count: hosted_provider_calls,
+        hosted_accepted_response_count: hosted_accepted,
+        hosted_fallback_count: hosted_fallbacks,
+        hosted_input_tokens,
+        hosted_output_tokens,
+        hosted_cost_microusd,
+        p50_hosted_provider_nanos: percentile(&hosted_provider_nanos, 50),
+        p95_hosted_provider_nanos: percentile(&hosted_provider_nanos, 95),
+        hosted_execution_gate_passed: hosted_execution,
         content_fields_emitted: false,
         case_count: cases.len(),
         repetitions: manifest.repetitions,
@@ -506,8 +664,9 @@ fn aggregate_report(manifest: &ShadowManifestV1, case_runs: Vec<CaseRunV1>) -> S
         p95_end_to_end_nanos: percentile(&elapsed, 95),
         all_integrity_checks_passed: integrity,
         quality_gate_passed: quality,
-        pilot_passed: integrity && quality,
+        pilot_passed: integrity && quality && hosted_execution,
         cases,
+        hosted_ranking_diagnostics,
     }
 }
 
@@ -631,10 +790,12 @@ mod tests {
 
     fn valid_manifest() -> ShadowManifestV1 {
         ShadowManifestV1 {
-            schema_version: MANIFEST_VERSION_V1,
+            schema_version: MANIFEST_VERSION_V2,
             data_classification: DataClassificationV1::SyntheticC0,
             local_processing_only: true,
+            ranking_mode: RankingModeV1::Deterministic,
             hosted_egress: false,
+            hosted_egress_authorization: None,
             content_telemetry: false,
             retention: RetentionV1::MemoryOnly,
             repetitions: MIN_REPETITIONS_V1,
@@ -644,6 +805,7 @@ mod tests {
                 required_evidence_files: vec![PathBuf::from("required.txt")],
                 token_budget: 4_000,
                 protected_slice: false,
+                hosted_egress_approved: false,
             }],
         }
     }
@@ -663,7 +825,7 @@ mod tests {
     }
 
     #[test]
-    fn manifest_refuses_any_egress_or_content_telemetry() {
+    fn hosted_manifest_requires_consistent_explicit_authorization() {
         let mut manifest = valid_manifest();
         assert!(validate_manifest(&manifest).is_ok());
 
@@ -673,7 +835,18 @@ mod tests {
             Err(ShadowErrorV1::AuthorizationInvalid)
         ));
 
-        manifest.hosted_egress = false;
+        manifest.ranking_mode = RankingModeV1::Hosted;
+        manifest.local_processing_only = false;
+        manifest.hosted_egress_authorization =
+            Some(HostedEgressAuthorizationV1::OperatorApprovedOpenaiResponsesV1);
+        assert!(matches!(
+            validate_manifest(&manifest),
+            Err(ShadowErrorV1::AuthorizationInvalid)
+        ));
+
+        manifest.cases[0].hosted_egress_approved = true;
+        assert!(validate_manifest(&manifest).is_ok());
+
         manifest.content_telemetry = true;
         assert!(matches!(
             validate_manifest(&manifest),

@@ -1,8 +1,10 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "data_classification": "synthetic_c0",
   "local_processing_only": true,
+  "ranking_mode": "deterministic",
   "hosted_egress": false,
+  "hosted_egress_authorization": null,
   "content_telemetry": false,
   "retention": "memory_only",
   "repetitions": 3,
@@ -12,7 +14,8 @@
       "question_file": "question.txt",
       "required_evidence_files": ["required-timeout.txt"],
       "token_budget": 20000,
-      "protected_slice": true
+      "protected_slice": true,
+      "hosted_egress_approved": false
     }
   ]
 }

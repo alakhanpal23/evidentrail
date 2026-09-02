@@ -4,6 +4,10 @@
 **Effective date:** 2026-09-01  
 **Status:** active, narrowly scoped project-owner authorization
 
+This authorization governs the frozen synthetic benchmark. Separately approved,
+case-scoped governed-incident testing is recorded in
+[`HOSTED_PRODUCTION_SHADOW_AUTHORIZATION.md`](HOSTED_PRODUCTION_SHADOW_AUTHORIZATION.md).
+
 ## Authorized use
 
 - Purpose: internal shadow testing and explicit opt-in beta evaluation of the
