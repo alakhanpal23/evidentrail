@@ -56,7 +56,11 @@ fn run() -> Result<(CommandReportV1, bool), &'static str> {
     {
         return Err("shadow_mode_not_enabled");
     }
-    let mode = env::args().nth(1).unwrap_or_else(|| "pilot".to_owned());
+    // Mode is deliberately mandatory: a truncated command must never default
+    // to an 18-call paid pilot.
+    let mode = env::args()
+        .nth(1)
+        .ok_or("usage_pilot_qualify_or_characterize")?;
     if mode != "pilot" && mode != "qualify" && mode != "characterize" {
         return Err("usage_pilot_qualify_or_characterize");
     }
