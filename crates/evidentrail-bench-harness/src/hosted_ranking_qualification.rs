@@ -10,9 +10,11 @@ use std::fmt;
 use std::time::Instant;
 
 use evidentrail_cli::{
-    StdinBriefOutcomeV1, StdinBriefSessionV1, compile_explicit_stdin_retained_v1,
+    HOSTED_RANKING_CHARACTERIZATION_DEADLINE_V1, HOSTED_RANKING_DEADLINE_V1, StdinBriefOutcomeV1,
+    StdinBriefSessionV1, compile_explicit_stdin_retained_v1,
     compile_explicit_stdin_retained_with_evaluation_ranker_v1,
     compile_explicit_stdin_retained_with_shadow_consumer_v1,
+    hosted_ranking_characterization_configuration_digest_v1,
     hosted_ranking_configuration_digest_v1, hosted_ranking_provider_digest_v1,
 };
 use evidentrail_core::{ExpansionRelationV1, UnixTimestampNanos};
@@ -47,6 +49,7 @@ pub const HOSTED_RANKING_P95_END_TO_END_NANOS_CEILING_V1: u64 = 1_000_000_000;
 pub const HOSTED_RANKING_P95_COST_MICROUSD_CEILING_V1: u64 = 10_000;
 pub const HOSTED_RANKING_PROTECTED_SLICE_REGRESSION_MICROS_V1: i64 = 10_000;
 pub const HOSTED_RANKING_BOOTSTRAP_RESAMPLES_V1: usize = 10_000;
+pub const HOSTED_RANKING_CHARACTERIZATION_CALL_COUNT_V1: u32 = 3;
 
 const CORPUS_DOMAIN_V1: &[u8] = b"evidentrail/hosted-ranking/synthetic-corpus/v1\0";
 const MANIFEST_DOMAIN_V1: &[u8] = b"evidentrail/hosted-ranking/qualification-manifest/v1\0";
@@ -247,6 +250,41 @@ impl HostedRankingQualificationReportV1 {
     }
 }
 
+/// Contentless output from the deliberately non-qualifying, longer-deadline
+/// latency characterization. It cannot be interpreted as an admission result.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct HostedRankingLatencyCharacterizationReportV1 {
+    schema_version: u16,
+    purpose: &'static str,
+    qualification_eligible: bool,
+    qualification_passed: bool,
+    case_digest_hex: String,
+    provider_digest_hex: String,
+    configuration_digest_hex: String,
+    production_deadline_nanos: u64,
+    measurement_deadline_nanos: u64,
+    call_count: u32,
+    accepted_count: u64,
+    reported_cost_microusd: u64,
+    p50_provider_nanos: Option<u64>,
+    p95_provider_nanos: Option<u64>,
+    p50_end_to_end_nanos: Option<u64>,
+    p95_end_to_end_nanos: Option<u64>,
+    observed_latency_band: &'static str,
+    observed_within_production_deadline: bool,
+    all_integrity_checks_passed: bool,
+    fallbacks: BTreeMap<&'static str, u64>,
+    attempts: Vec<HostedRankingAttemptDiagnosticV1>,
+}
+
+impl HostedRankingLatencyCharacterizationReportV1 {
+    #[must_use]
+    pub fn completed(&self) -> bool {
+        self.accepted_count == u64::from(HOSTED_RANKING_CHARACTERIZATION_CALL_COUNT_V1)
+            && self.all_integrity_checks_passed
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum HostedRankingQualificationErrorV1 {
     CostGuard,
@@ -392,6 +430,113 @@ pub fn run_hosted_ranking_qualification_phase_with_reader_v1<
     reader: &mut D,
 ) -> Result<HostedRankingQualificationReportV1, HostedRankingQualificationErrorV1> {
     run_phase_v1(phase, ranker, Some(reader))
+}
+
+/// Measure whether the same frozen hosted request returns in roughly one
+/// second or several seconds. This always uses a distinct configuration
+/// identity and is never eligible to satisfy a qualification gate.
+pub fn run_hosted_ranking_latency_characterization_v1<R: EvidenceRankerV1>(
+    ranker: &mut R,
+) -> Result<HostedRankingLatencyCharacterizationReportV1, HostedRankingQualificationErrorV1> {
+    let guarded_cost = u64::from(HOSTED_RANKING_CHARACTERIZATION_CALL_COUNT_V1)
+        .checked_mul(HOSTED_RANKING_COST_PER_ATTEMPT_GUARD_MICROUSD_V1)
+        .ok_or(HostedRankingQualificationErrorV1::Arithmetic)?;
+    if guarded_cost > HOSTED_RANKING_PILOT_COST_CAP_MICROUSD_V1 {
+        return Err(HostedRankingQualificationErrorV1::CostGuard);
+    }
+
+    let case = build_case_v1(HostedRankingBenchmarkPhaseV1::Pilot, 0)?;
+    let mut attempts = Vec::with_capacity(HOSTED_RANKING_CHARACTERIZATION_CALL_COUNT_V1 as usize);
+    for repetition in 0..HOSTED_RANKING_CHARACTERIZATION_CALL_COUNT_V1 {
+        attempts.push(run_attempt_v1::<R, ClosedDiagnosisReaderV1>(
+            &case,
+            repetition,
+            attempt_seed_v1(HostedRankingBenchmarkPhaseV1::Pilot, 0, repetition),
+            ranker,
+            None,
+        )?);
+    }
+
+    let accepted_count = attempts
+        .iter()
+        .filter(|attempt| {
+            attempt.diagnostic.validation_code == "accepted"
+                && attempt.diagnostic.fallback_reason.is_none()
+        })
+        .count() as u64;
+    let provider_nanos = attempts
+        .iter()
+        .filter_map(|attempt| attempt.diagnostic.provider_nanos)
+        .collect::<Vec<_>>();
+    let end_to_end_nanos = attempts
+        .iter()
+        .map(|attempt| attempt.diagnostic.end_to_end_nanos)
+        .collect::<Vec<_>>();
+    let p95_end_to_end_nanos = percentile_u64_v1(&end_to_end_nanos, 95);
+    let all_accepted = accepted_count == u64::from(HOSTED_RANKING_CHARACTERIZATION_CALL_COUNT_V1);
+    let production_deadline_nanos =
+        u64::try_from(HOSTED_RANKING_DEADLINE_V1.as_nanos()).unwrap_or(u64::MAX);
+    let mut fallbacks = BTreeMap::new();
+    for code in attempts
+        .iter()
+        .filter_map(|attempt| attempt.diagnostic.fallback_reason)
+    {
+        *fallbacks.entry(code).or_insert(0) += 1;
+    }
+    let reported_cost_microusd = attempts
+        .iter()
+        .filter_map(|attempt| attempt.diagnostic.cost_microusd)
+        .sum();
+    let all_integrity_checks_passed = attempts.iter().all(|attempt| {
+        attempt.diagnostic.all_integrity_checks_passed && attempt.diagnostic.shadow_bytes_identical
+    });
+
+    Ok(HostedRankingLatencyCharacterizationReportV1 {
+        schema_version: HOSTED_RANKING_QUALIFICATION_SCHEMA_VERSION_V1,
+        purpose: "latency_measurement_only",
+        qualification_eligible: false,
+        qualification_passed: false,
+        case_digest_hex: hex_v1(case.digest.as_bytes()),
+        provider_digest_hex: hex_v1(&hosted_ranking_provider_digest_v1()),
+        configuration_digest_hex: hex_v1(&hosted_ranking_characterization_configuration_digest_v1()),
+        production_deadline_nanos,
+        measurement_deadline_nanos: u64::try_from(
+            HOSTED_RANKING_CHARACTERIZATION_DEADLINE_V1.as_nanos(),
+        )
+        .unwrap_or(u64::MAX),
+        call_count: HOSTED_RANKING_CHARACTERIZATION_CALL_COUNT_V1,
+        accepted_count,
+        reported_cost_microusd,
+        p50_provider_nanos: percentile_u64_v1(&provider_nanos, 50),
+        p95_provider_nanos: percentile_u64_v1(&provider_nanos, 95),
+        p50_end_to_end_nanos: percentile_u64_v1(&end_to_end_nanos, 50),
+        p95_end_to_end_nanos,
+        observed_latency_band: characterization_latency_band_v1(p95_end_to_end_nanos, all_accepted),
+        observed_within_production_deadline: all_accepted
+            && p95_end_to_end_nanos.is_some_and(|value| value < production_deadline_nanos),
+        all_integrity_checks_passed,
+        fallbacks,
+        attempts: attempts
+            .into_iter()
+            .map(|attempt| attempt.diagnostic)
+            .collect(),
+    })
+}
+
+fn characterization_latency_band_v1(
+    p95_end_to_end_nanos: Option<u64>,
+    all_accepted: bool,
+) -> &'static str {
+    if !all_accepted {
+        return "over_5s_or_failed";
+    }
+    match p95_end_to_end_nanos.unwrap_or(u64::MAX) {
+        0..800_000_000 => "under_800ms",
+        800_000_000..1_000_000_000 => "800ms_to_1s",
+        1_000_000_000..2_000_000_000 => "1s_to_2s",
+        2_000_000_000..5_000_000_000 => "2s_to_5s",
+        _ => "at_or_over_5s",
+    }
 }
 
 struct ClosedDiagnosisReaderV1;
@@ -1744,6 +1889,37 @@ mod tests {
         assert!(!report.valid_response_gate());
         assert!(!report.qualification_passed());
         assert_eq!(report.fallbacks.get("timeout"), Some(&18));
+    }
+
+    #[test]
+    fn latency_characterization_is_small_contentless_and_never_qualifies() {
+        let mut ranker = SemanticRankerV1;
+        let report = run_hosted_ranking_latency_characterization_v1(&mut ranker).unwrap();
+        assert!(report.completed());
+        assert_eq!(report.call_count, 3);
+        assert_eq!(report.accepted_count, 3);
+        assert!(!report.qualification_eligible);
+        assert!(!report.qualification_passed);
+        assert!(report.all_integrity_checks_passed);
+        assert_ne!(
+            report.configuration_digest_hex,
+            hex_v1(&hosted_ranking_configuration_digest_v1())
+        );
+        let encoded = serde_json::to_string(&report).unwrap();
+        assert!(!encoded.contains("cause_code="));
+        assert!(!encoded.contains("synthetic heartbeat"));
+        assert!(!encoded.contains("ranked_block_ids"));
+    }
+
+    #[test]
+    fn latency_characterization_reports_failures_without_claiming_a_timing_pass() {
+        let mut ranker = TimeoutRankerV1;
+        let report = run_hosted_ranking_latency_characterization_v1(&mut ranker).unwrap();
+        assert!(!report.completed());
+        assert_eq!(report.fallbacks.get("timeout"), Some(&3));
+        assert_eq!(report.observed_latency_band, "over_5s_or_failed");
+        assert!(!report.observed_within_production_deadline);
+        assert!(!report.qualification_passed);
     }
 
     #[test]

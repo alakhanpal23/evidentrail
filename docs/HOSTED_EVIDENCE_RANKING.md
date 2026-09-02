@@ -124,6 +124,26 @@ The freeze is:
 | Protected slice and verified diagnosis | no regression beyond one percentage point |
 | Phase spend guards | $1 pilot; $10 scored; current worst-case guards are $0.18 and $3.60 |
 
+### Non-qualifying latency characterization
+
+When the 800 ms pilot returns only timeouts, `characterize` makes exactly three
+calls against one approved synthetic case through one persistent client. It
+uses the same pinned model, request schema, prompt, candidate randomization,
+three ranking consumers, shadow comparison, and contentless report contract,
+but a five-second measurement-only request timeout. Its configuration digest
+is deliberately distinct. The report always sets `qualification_eligible` and
+`qualification_passed` to `false`, so it cannot weaken or replace the production
+deadline. The guarded maximum is $0.03 (three calls at $0.01 each).
+
+```sh
+target/release/evidentrail-hosted-ranking-bench characterize > /tmp/evidentrail-hosted-characterization.json
+```
+
+This answers only whether successful responses arrive below 800 ms, between
+800 ms and one second, between one and two seconds, between two and five
+seconds, or still fail at five seconds. Exit status `0` means all three calls
+returned structurally valid rankings; it is not a qualification pass.
+
 Every scored arm must pass byte, citation/expansion, ID, mandatory-evidence,
 and budget integrity. Malformed response, duplicate ID, foreign ID,
 prompt-injection, duplicate-record, and malformed-byte challenges are frozen in

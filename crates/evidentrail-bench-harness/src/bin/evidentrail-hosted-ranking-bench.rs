@@ -2,8 +2,9 @@ use std::env;
 use std::process::ExitCode;
 
 use evidentrail_bench_harness::{
-    HostedRankingBenchmarkPhaseV1, HostedRankingQualificationReportV1,
-    OpenAiHostedDiagnosisReaderV1, run_hosted_ranking_qualification_phase_v1,
+    HostedRankingBenchmarkPhaseV1, HostedRankingLatencyCharacterizationReportV1,
+    HostedRankingQualificationReportV1, OpenAiHostedDiagnosisReaderV1,
+    run_hosted_ranking_latency_characterization_v1, run_hosted_ranking_qualification_phase_v1,
     run_hosted_ranking_qualification_phase_with_reader_v1,
 };
 use evidentrail_cli::OpenAiEvidenceRankerV1;
@@ -16,6 +17,13 @@ struct RunReportV1 {
     scored_skipped_reason: Option<&'static str>,
     pilot: HostedRankingQualificationReportV1,
     scored: Option<HostedRankingQualificationReportV1>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum CommandReportV1 {
+    Qualification(Box<RunReportV1>),
+    Characterization(Box<HostedRankingLatencyCharacterizationReportV1>),
 }
 
 fn main() -> ExitCode {
@@ -37,7 +45,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<(RunReportV1, bool), &'static str> {
+fn run() -> Result<(CommandReportV1, bool), &'static str> {
     if env::var_os("EVIDENTRAIL_SYNTHETIC_HOSTED_BENCHMARK").as_deref()
         != Some(std::ffi::OsStr::new("1"))
     {
@@ -49,8 +57,18 @@ fn run() -> Result<(RunReportV1, bool), &'static str> {
         return Err("shadow_mode_not_enabled");
     }
     let mode = env::args().nth(1).unwrap_or_else(|| "pilot".to_owned());
-    if mode != "pilot" && mode != "qualify" {
-        return Err("usage_pilot_or_qualify");
+    if mode != "pilot" && mode != "qualify" && mode != "characterize" {
+        return Err("usage_pilot_qualify_or_characterize");
+    }
+    if mode == "characterize" {
+        let mut ranker = OpenAiEvidenceRankerV1::for_nonqualifying_latency_characterization_v1();
+        let report = run_hosted_ranking_latency_characterization_v1(&mut ranker)
+            .map_err(|error| error.code())?;
+        let completed = report.completed();
+        return Ok((
+            CommandReportV1::Characterization(Box::new(report)),
+            completed,
+        ));
     }
     let mut ranker = OpenAiEvidenceRankerV1::from_environment();
     let pilot = run_hosted_ranking_qualification_phase_v1(
@@ -61,25 +79,25 @@ fn run() -> Result<(RunReportV1, bool), &'static str> {
     if mode == "pilot" {
         let success = pilot.operational_pilot_passed();
         return Ok((
-            RunReportV1 {
+            CommandReportV1::Qualification(Box::new(RunReportV1 {
                 schema_version: 1,
                 mode: "pilot",
                 scored_skipped_reason: Some("pilot_only"),
                 pilot,
                 scored: None,
-            },
+            })),
             success,
         ));
     }
     if !pilot.operational_pilot_passed() {
         return Ok((
-            RunReportV1 {
+            CommandReportV1::Qualification(Box::new(RunReportV1 {
                 schema_version: 1,
                 mode: "qualify",
                 scored_skipped_reason: Some("pilot_operational_gate_failed"),
                 pilot,
                 scored: None,
-            },
+            })),
             false,
         ));
     }
@@ -92,13 +110,13 @@ fn run() -> Result<(RunReportV1, bool), &'static str> {
     .map_err(|error| error.code())?;
     let success = scored.qualification_passed();
     Ok((
-        RunReportV1 {
+        CommandReportV1::Qualification(Box::new(RunReportV1 {
             schema_version: 1,
             mode: "qualify",
             scored_skipped_reason: None,
             pilot,
             scored: Some(scored),
-        },
+        })),
         success,
     ))
 }

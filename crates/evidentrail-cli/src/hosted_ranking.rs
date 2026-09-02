@@ -18,6 +18,9 @@ use zeroize::Zeroizing;
 /// benchmark rerun and release review.
 pub const PINNED_HOSTED_RANKING_MODEL_V1: &str = "gpt-5.6-luna";
 pub const HOSTED_RANKING_DEADLINE_V1: Duration = Duration::from_millis(800);
+/// Evaluation-only deadline for measuring the latency distribution after the
+/// production deadline has already disqualified a configuration.
+pub const HOSTED_RANKING_CHARACTERIZATION_DEADLINE_V1: Duration = Duration::from_secs(5);
 
 const OPENAI_RESPONSES_ENDPOINT_V1: &str = "https://api.openai.com/v1/responses";
 const MAX_HOSTED_PROVIDER_ENVELOPE_BYTES_V1: usize = 64 * 1024;
@@ -84,6 +87,7 @@ pub struct OpenAiEvidenceRankerV1 {
     api_key: Option<Zeroizing<String>>,
     endpoint: String,
     disabled: bool,
+    configuration_digest: [u8; 32],
 }
 
 impl OpenAiEvidenceRankerV1 {
@@ -106,6 +110,33 @@ impl OpenAiEvidenceRankerV1 {
             api_key,
             endpoint: OPENAI_RESPONSES_ENDPOINT_V1.to_owned(),
             disabled,
+            configuration_digest: hosted_ranking_configuration_digest_v1(),
+        }
+    }
+
+    /// Build an evaluation-only adapter with a longer measurement deadline.
+    /// No CLI or MCP product surface can select this adapter, and its distinct
+    /// configuration digest is ineligible for qualification.
+    #[must_use]
+    pub fn for_nonqualifying_latency_characterization_v1() -> Self {
+        let disabled =
+            env::var_os("EVIDENTRAIL_HOSTED_RANKING_DISABLED").is_some_and(|value| value == "1");
+        let api_key = env::var("OPENAI_API_KEY")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .map(Zeroizing::new);
+        let client = Client::builder()
+            .connect_timeout(HOSTED_RANKING_CHARACTERIZATION_DEADLINE_V1)
+            .timeout(HOSTED_RANKING_CHARACTERIZATION_DEADLINE_V1)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .ok();
+        Self {
+            client,
+            api_key,
+            endpoint: OPENAI_RESPONSES_ENDPOINT_V1.to_owned(),
+            disabled,
+            configuration_digest: hosted_ranking_characterization_configuration_digest_v1(),
         }
     }
 
@@ -121,6 +152,7 @@ impl OpenAiEvidenceRankerV1 {
             api_key: Some(Zeroizing::new(api_key.to_owned())),
             endpoint,
             disabled: false,
+            configuration_digest: hosted_ranking_configuration_digest_v1(),
         }
     }
 }
@@ -132,6 +164,10 @@ impl std::fmt::Debug for OpenAiEvidenceRankerV1 {
             .field("model", &PINNED_HOSTED_RANKING_MODEL_V1)
             .field("credential_present", &self.api_key.is_some())
             .field("disabled", &self.disabled)
+            .field(
+                "qualification_eligible_configuration",
+                &(self.configuration_digest == hosted_ranking_configuration_digest_v1()),
+            )
             .finish()
     }
 }
@@ -201,7 +237,7 @@ impl EvidenceRankerV1 for OpenAiEvidenceRankerV1 {
         Ok(EvidenceRankerOutputV1::new(
             response_json,
             hosted_ranking_provider_digest_v1(),
-            hosted_ranking_configuration_digest_v1(),
+            self.configuration_digest,
             u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
             input_tokens,
             output_tokens,
@@ -315,6 +351,16 @@ pub fn hosted_ranking_provider_digest_v1() -> [u8; 32] {
     Sha256::digest(PROVIDER_IDENTITY_V1).into()
 }
 
+#[must_use]
+pub fn hosted_ranking_characterization_configuration_digest_v1() -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"evidentrail/openai-evidence-ranker/latency-characterization/v1\0");
+    hasher.update(hosted_ranking_configuration_digest_v1());
+    hasher
+        .update(b"qualification_eligible=false;deadline_ms=5000;purpose=latency_measurement_only");
+    hasher.finalize().into()
+}
+
 fn map_request_error_v1(error: reqwest::Error) -> EvidenceRankerFailureV1 {
     if error.is_timeout() {
         EvidenceRankerFailureV1::Timeout
@@ -398,6 +444,10 @@ mod tests {
         assert_eq!(
             hosted_ranking_configuration_digest_v1(),
             hosted_ranking_configuration_digest_v1()
+        );
+        assert_ne!(
+            hosted_ranking_configuration_digest_v1(),
+            hosted_ranking_characterization_configuration_digest_v1()
         );
     }
 
