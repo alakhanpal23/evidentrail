@@ -105,14 +105,16 @@ fn observe_host() -> HostFactsV1 {
 fn compiled_architecture() -> Option<LocalFileArchitectureV1> {
     #[cfg(target_arch = "aarch64")]
     {
-        return Some(LocalFileArchitectureV1::Aarch64);
+        Some(LocalFileArchitectureV1::Aarch64)
     }
     #[cfg(target_arch = "x86_64")]
     {
-        return Some(LocalFileArchitectureV1::X86_64);
+        Some(LocalFileArchitectureV1::X86_64)
     }
-    #[allow(unreachable_code)]
-    None
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
+        None
+    }
 }
 
 fn run_cell(fixture: &MatrixFixtureV1, host: &HostFactsV1, cell: Cell) -> CellResult {

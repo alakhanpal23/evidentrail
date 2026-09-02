@@ -18,18 +18,19 @@ use std::io::Read;
 use evidentrail_compile::ThreeLaneNeedsMoreV1;
 use evidentrail_core::{
     AcknowledgedCounts, AcquisitionSequence, AdapterIdentity, AdapterOutcome, AttemptCounts,
-    CompletenessProof, DeterministicPolicy, EnvelopeOrdering, EnvelopeSink, FetchBoundaries,
-    FetchCompleteness, FetchCompletion, FetchIdentity, FetchTiming, LaneKey, LaneSequence,
-    LedgerBuilder, PlanDigest, PlanId, PolicyAuthorization, RawEnvelopeIdentityV1, RawEnvelopeV1,
-    RecordBytes, RecordState, RetrievalId, SourceIdentityDigest, SourceMember, SourceStream,
-    UnixTimestampNanos, derive_source_exact_event_id_v1,
+    CompletenessProof, DeterministicPolicy, EnvelopeOrdering, EnvelopeSink, EventLedger,
+    FetchBoundaries, FetchCompleteness, FetchCompletion, FetchIdentity, FetchTiming, LaneKey,
+    LaneSequence, LedgerBuilder, PlanDigest, PlanId, PolicyAuthorization, RawEnvelopeIdentityV1,
+    RawEnvelopeV1, RecordBytes, RecordState, RetrievalId, SourceIdentityDigest, SourceMember,
+    SourceStream, UnixTimestampNanos, derive_source_exact_event_id_v1,
 };
 #[cfg(unix)]
 use evidentrail_product::AuthenticatedEncryptedRetentionV1;
 use evidentrail_product::{
     CompiledProductResultV1, DeterministicProductDecisionV1, EvidenceRankerV1,
-    HostedRankingDiagnosticsV1, MemoryProductV1, RankingConsumerV1, RenderedProductResultV1,
-    StreamingAnalysisContextV3, StreamingProductV3, streaming_product_build_context_v3,
+    HostedRankingDiagnosticsV1, MemoryProductV1, ProductError, RankingConsumerV1,
+    RenderedProductResultV1, StreamingAnalysisContextV3, StreamingProductV3,
+    streaming_product_build_context_v3,
 };
 #[cfg(unix)]
 use evidentrail_product::{DurableProductErrorV2, DurableProductV2};
@@ -1114,27 +1115,6 @@ pub fn compile_explicit_stdin_v1(
         .map(StdinBriefSessionV1::into_outcome)
 }
 
-/// Compile explicit input with one optional hosted-ranking attempt after the
-/// deterministic passthrough and `needs_more` gates.
-pub fn compile_explicit_stdin_with_ranker_v1<R: EvidenceRankerV1>(
-    input: &[u8],
-    question: &[u8],
-    token_budget: u64,
-    identity_seed: [u8; 32],
-    now: UnixTimestampNanos,
-    ranker: &mut R,
-) -> Result<StdinBriefOutcomeV1, StdinBriefErrorV1> {
-    compile_explicit_stdin_retained_with_ranker_v1(
-        input,
-        question,
-        token_budget,
-        identity_seed,
-        now,
-        ranker,
-    )
-    .map(StdinBriefSessionV1::into_outcome)
-}
-
 /// Compile explicit input while retaining the exact memory-only result for
 /// result-scoped expansion in a resident CLI/MCP service.
 ///
@@ -1148,18 +1128,39 @@ pub fn compile_explicit_stdin_retained_v1(
     identity_seed: [u8; 32],
     now: UnixTimestampNanos,
 ) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
-    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
+    compile_memory_session_v1(
+        input,
+        question,
+        token_budget,
+        identity_seed,
+        now,
+        |product, result_id, ledger| {
+            product.create_deterministic_result_v1(result_id, question, ledger, now, token_budget)
+        },
+    )
+}
+
+fn compile_memory_session_v1(
+    input: &[u8],
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+    compile: impl FnOnce(
+        &mut MemoryProductV1,
+        ResultId,
+        EventLedger,
+    ) -> Result<DeterministicProductDecisionV1, ProductError>,
+) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
     let PreparedExplicitStdinV1 {
         result_id,
         ledger,
         record_count,
         source_byte_count,
-    } = prepared;
+    } = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
     let mut product = MemoryProductV1::new();
-    let decision = product
-        .create_deterministic_result_v1(result_id, question, ledger, now, token_budget)
+    let decision = compile(&mut product, result_id, ledger)
         .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
-
     let (outcome, retention_state) =
         retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
     Ok(StdinBriefSessionV1 {
@@ -1170,7 +1171,8 @@ pub fn compile_explicit_stdin_retained_v1(
     })
 }
 
-/// Retained-session form of [`compile_explicit_stdin_with_ranker_v1`].
+/// Retained-session form of explicit input with one optional hosted-ranking
+/// attempt after the deterministic passthrough and `needs_more` gates.
 pub fn compile_explicit_stdin_retained_with_ranker_v1<R: EvidenceRankerV1>(
     input: &[u8],
     question: &[u8],
@@ -1179,25 +1181,23 @@ pub fn compile_explicit_stdin_retained_with_ranker_v1<R: EvidenceRankerV1>(
     now: UnixTimestampNanos,
     ranker: &mut R,
 ) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
-    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
-    let PreparedExplicitStdinV1 {
-        result_id,
-        ledger,
-        record_count,
-        source_byte_count,
-    } = prepared;
-    let mut product = MemoryProductV1::new();
-    let decision = product
-        .create_hosted_ranked_result_v1(result_id, question, ledger, now, token_budget, ranker)
-        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
-    let (outcome, retention_state) =
-        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
-    Ok(StdinBriefSessionV1 {
-        product,
-        outcome,
-        created_at: now,
-        retention_state,
-    })
+    compile_memory_session_v1(
+        input,
+        question,
+        token_budget,
+        identity_seed,
+        now,
+        |product, result_id, ledger| {
+            product.create_hosted_ranked_result_v1(
+                result_id,
+                question,
+                ledger,
+                now,
+                token_budget,
+                ranker,
+            )
+        },
+    )
 }
 
 /// Retained-session hosted ranking that contacts the ranker only when the
@@ -1210,32 +1210,23 @@ pub fn compile_explicit_stdin_retained_with_contended_ranker_v1<R: EvidenceRanke
     now: UnixTimestampNanos,
     ranker: &mut R,
 ) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
-    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
-    let PreparedExplicitStdinV1 {
-        result_id,
-        ledger,
-        record_count,
-        source_byte_count,
-    } = prepared;
-    let mut product = MemoryProductV1::new();
-    let decision = product
-        .create_contended_hosted_ranked_result_v1(
-            result_id,
-            question,
-            ledger,
-            now,
-            token_budget,
-            ranker,
-        )
-        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
-    let (outcome, retention_state) =
-        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
-    Ok(StdinBriefSessionV1 {
-        product,
-        outcome,
-        created_at: now,
-        retention_state,
-    })
+    compile_memory_session_v1(
+        input,
+        question,
+        token_budget,
+        identity_seed,
+        now,
+        |product, result_id, ledger| {
+            product.create_contended_hosted_ranked_result_v1(
+                result_id,
+                question,
+                ledger,
+                now,
+                token_budget,
+                ranker,
+            )
+        },
+    )
 }
 
 /// Retained internal-shadow form of hosted ranking. It performs the same one
@@ -1248,25 +1239,23 @@ pub fn compile_explicit_stdin_retained_with_shadow_ranker_v1<R: EvidenceRankerV1
     now: UnixTimestampNanos,
     ranker: &mut R,
 ) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
-    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
-    let PreparedExplicitStdinV1 {
-        result_id,
-        ledger,
-        record_count,
-        source_byte_count,
-    } = prepared;
-    let mut product = MemoryProductV1::new();
-    let decision = product
-        .create_shadow_ranked_result_v1(result_id, question, ledger, now, token_budget, ranker)
-        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
-    let (outcome, retention_state) =
-        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
-    Ok(StdinBriefSessionV1 {
-        product,
-        outcome,
-        created_at: now,
-        retention_state,
-    })
+    compile_memory_session_v1(
+        input,
+        question,
+        token_budget,
+        identity_seed,
+        now,
+        |product, result_id, ledger| {
+            product.create_shadow_ranked_result_v1(
+                result_id,
+                question,
+                ledger,
+                now,
+                token_budget,
+                ranker,
+            )
+        },
+    )
 }
 
 /// Internal-shadow form of contention-gated hosted ranking.
@@ -1278,32 +1267,23 @@ pub fn compile_explicit_stdin_retained_with_contended_shadow_ranker_v1<R: Eviden
     now: UnixTimestampNanos,
     ranker: &mut R,
 ) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
-    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
-    let PreparedExplicitStdinV1 {
-        result_id,
-        ledger,
-        record_count,
-        source_byte_count,
-    } = prepared;
-    let mut product = MemoryProductV1::new();
-    let decision = product
-        .create_contended_shadow_ranked_result_v1(
-            result_id,
-            question,
-            ledger,
-            now,
-            token_budget,
-            ranker,
-        )
-        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
-    let (outcome, retention_state) =
-        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
-    Ok(StdinBriefSessionV1 {
-        product,
-        outcome,
-        created_at: now,
-        retention_state,
-    })
+    compile_memory_session_v1(
+        input,
+        question,
+        token_budget,
+        identity_seed,
+        now,
+        |product, result_id, ledger| {
+            product.create_contended_shadow_ranked_result_v1(
+                result_id,
+                question,
+                ledger,
+                now,
+                token_budget,
+                ranker,
+            )
+        },
+    )
 }
 
 /// Benchmark-only retained evaluation of one ranking consumer. This is not a
@@ -1319,33 +1299,24 @@ pub fn compile_explicit_stdin_retained_with_evaluation_ranker_v1<R: EvidenceRank
     ranker: &mut R,
     consumer: RankingConsumerV1,
 ) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
-    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
-    let PreparedExplicitStdinV1 {
-        result_id,
-        ledger,
-        record_count,
-        source_byte_count,
-    } = prepared;
-    let mut product = MemoryProductV1::new();
-    let decision = product
-        .create_evaluation_ranked_result_v1(
-            result_id,
-            question,
-            ledger,
-            now,
-            token_budget,
-            ranker,
-            consumer,
-        )
-        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
-    let (outcome, retention_state) =
-        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
-    Ok(StdinBriefSessionV1 {
-        product,
-        outcome,
-        created_at: now,
-        retention_state,
-    })
+    compile_memory_session_v1(
+        input,
+        question,
+        token_budget,
+        identity_seed,
+        now,
+        |product, result_id, ledger| {
+            product.create_evaluation_ranked_result_v1(
+                result_id,
+                question,
+                ledger,
+                now,
+                token_budget,
+                ranker,
+                consumer,
+            )
+        },
+    )
 }
 
 /// Benchmark-only shadow evaluation for an explicitly selected consumer.
@@ -1359,33 +1330,24 @@ pub fn compile_explicit_stdin_retained_with_shadow_consumer_v1<R: EvidenceRanker
     ranker: &mut R,
     consumer: RankingConsumerV1,
 ) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
-    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
-    let PreparedExplicitStdinV1 {
-        result_id,
-        ledger,
-        record_count,
-        source_byte_count,
-    } = prepared;
-    let mut product = MemoryProductV1::new();
-    let decision = product
-        .create_shadow_ranked_result_for_consumer_v1(
-            result_id,
-            question,
-            ledger,
-            now,
-            token_budget,
-            ranker,
-            consumer,
-        )
-        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
-    let (outcome, retention_state) =
-        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
-    Ok(StdinBriefSessionV1 {
-        product,
-        outcome,
-        created_at: now,
-        retention_state,
-    })
+    compile_memory_session_v1(
+        input,
+        question,
+        token_budget,
+        identity_seed,
+        now,
+        |product, result_id, ledger| {
+            product.create_shadow_ranked_result_for_consumer_v1(
+                result_id,
+                question,
+                ledger,
+                now,
+                token_budget,
+                ranker,
+                consumer,
+            )
+        },
+    )
 }
 
 /// Compile through the same deterministic product path as memory mode, but

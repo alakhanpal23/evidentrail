@@ -3,7 +3,7 @@ use evidentrail_core::{
     ExpansionLimitV1, ExpansionRelationV1, ExpansionRequestV1, ExpansionResponseV1, ResultStatusV1,
     ResultStoreError, UnixTimestampNanos, expand_retained_result_v1,
 };
-use evidentrail_schema::{BlockId, EventId, ExactnessBasis, PolicyDigest, TransformationReceiptId};
+use evidentrail_schema::{BlockId, EventId, ExactnessBasis};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -342,9 +342,6 @@ fn map_store_error(error: ResultStoreError) -> WireErrorV1 {
         _ => WireErrorV1::SemanticallyInvalid,
     }
 }
-
-#[allow(dead_code)]
-fn _identity_types(_: PolicyDigest, _: TransformationReceiptId) {}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ResultStatusArtifactV1 {
