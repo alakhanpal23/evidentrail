@@ -164,6 +164,9 @@ write_live_decision() {
 run_preflight() (
   export EVIDENTRAIL_HOSTED_RANKING_DISABLED=1
   unset OPENAI_API_KEY
+  unset EVIDENTRAIL_HOSTED_RANKING_SHADOW
+  unset EVIDENTRAIL_SYNTHETIC_HOSTED_BENCHMARK
+  unset EVIDENTRAIL_STREAMING_V3
 
   require_clean_checkout
   cargo fmt --all -- --check > "$RUN_DIR/fmt.log" 2>&1
