@@ -146,6 +146,11 @@ approved synthetic characterization returned valid rankings but took
 deadline. No hosted accuracy improvement has yet been established. See the
 [hosted ranking contract](docs/HOSTED_EVIDENCE_RANKING.md) and
 [selective-ranking release gates](docs/SELECTIVE_HOSTED_RANKING_RELEASE_PLAN.md).
+The qualification program includes an optional three-call, evaluation-only
+screen of the dated `gpt-5.4-nano-2026-03-17` snapshot at the same 800 ms
+deadline. That model is documented for speed-sensitive ranking workloads, but
+the screen cannot repin or admit it; a full frozen quality and outcome bakeoff
+would still be required.
 
 ## MCP for agent tool loops
 
@@ -193,6 +198,23 @@ feasibility, expansion, and downstream diagnosis contracts. The streaming V3
 path has validation fixtures up to 1,000,000 records / 1 GiB behind its rollout
 gate.
 
+The frozen matched-budget value benchmark is directly reproducible:
+
+```sh
+scripts/production-qualification.sh value
+```
+
+It writes private, contentless `product-value.json`, `executable-value.json`, and
+`value-decision.json` reports outside the repository. On the current frozen
+eight-incident corpus, Evidentrail preserves 100% of required evidence with 8/8
+perfect cases. At the same per-case source-byte ceiling, raw truncation preserves
+23.75% (0/8 perfect), grep/head-tail 52.5% (3/8), quota hybrid 61.25% (3/8),
+and BM25F-style retrieval 23.75% (1/8). On three separate executable synthetic
+incidents, Evidentrail artifacts under a 7,000-byte per-case ceiling produce 3/3 verified fixture-agent
+repairs with valid source citations and reduce 61,927 source bytes to 10,122
+artifact bytes; raw prefix produces 0/3 verified repairs. These are synthetic
+conformance results, not real-incident or hosted-model population claims.
+
 Those results are engineering evidence, not a population-level claim about all
 production incidents. Hosted ranking still requires a passing frozen
 multi-provider benchmark and approved realistic shadow operation. Current
@@ -211,7 +233,9 @@ The staged [production qualification program](docs/PRODUCTION_QUALIFICATION.md)
 runs the full no-egress contract/resource preflight, a 21-call live pilot, an
 up-to-381-call scored hosted evaluation, and a 100-call production-path soak.
 Each paid stage requires an explicit cost ceiling and later stages stop when an
-earlier production gate fails.
+earlier production gate fails. Every live report now joins the deterministic
+value evidence, hosted incremental-value gates, and production-path smoke into
+one `live-decision.json` admission verdict.
 
 ## Development
 

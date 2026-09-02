@@ -10,6 +10,7 @@ mod compact_agent_view_admission;
 mod constrained_matched_case;
 mod constrained_producer_universe;
 mod domain;
+mod executable_value;
 mod fidelity_bridge;
 mod first_party_log_brief;
 mod first_party_subprocess;
@@ -28,6 +29,7 @@ mod peak_rss_observer;
 mod performance_trials;
 mod pinned_matched_case;
 mod process;
+mod product_value;
 mod public_case_input;
 mod qualification;
 mod reader;
@@ -81,6 +83,10 @@ pub use domain::{
     PublicSubprocessInvocationV1, StdinArtifactClassV1, StdinArtifactV1,
     artifact_digest_for_bytes_v1, artifact_digest_for_file_v1,
 };
+pub use executable_value::{
+    EXECUTABLE_VALUE_REPORT_SCHEMA_VERSION_V1, ExecutableValueArmSummaryV1,
+    ExecutableValueReportErrorV1, ExecutableValueReportV1, run_executable_value_report_v1,
+};
 pub use fidelity_bridge::{
     CanonicalTokenCountProvenanceV1, LegacyDrainFidelityBridgeErrorV1,
     LegacyDrainFullMembershipRepresentationReceiptV1,
@@ -119,7 +125,8 @@ pub use hosted_ranking_qualification::{
     HostedRankingBenchmarkPhaseV1, HostedRankingConsumerSummaryV1,
     HostedRankingLatencyCharacterizationReportV1, HostedRankingQualificationErrorV1,
     HostedRankingQualificationReportV1, HostedRankingSyntheticFamilyV1,
-    run_hosted_ranking_latency_characterization_v1, run_hosted_ranking_qualification_phase_v1,
+    run_hosted_ranking_latency_challenger_v1, run_hosted_ranking_latency_characterization_v1,
+    run_hosted_ranking_qualification_phase_v1,
     run_hosted_ranking_qualification_phase_with_reader_v1,
 };
 pub use hosted_reader_compression::{
@@ -226,6 +233,10 @@ pub use pinned_matched_case::{
 pub use process::{
     CapturedStreamV1, ExitCategoryV1, HarnessTerminationCauseV1, StdinDeliveryV1,
     StreamCaptureStateV1, SubprocessExecutionReceiptV1, execute_public_subprocess_v1,
+};
+pub use product_value::{
+    PRODUCT_VALUE_REPORT_SCHEMA_VERSION_V1, ProductValueArmSummaryV1, ProductValueGateSummaryV1,
+    ProductValueReportErrorV1, ProductValueReportV1, build_product_value_report_v1,
 };
 pub use public_case_input::{
     CANONICAL_PUBLIC_CASE_ARTIFACT_CONTRACT_VERSION_V1,

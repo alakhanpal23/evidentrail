@@ -4,7 +4,8 @@ use std::process::ExitCode;
 use evidentrail_bench_harness::{
     HostedRankingBenchmarkPhaseV1, HostedRankingLatencyCharacterizationReportV1,
     HostedRankingQualificationReportV1, OpenAiHostedDiagnosisReaderV1,
-    run_hosted_ranking_latency_characterization_v1, run_hosted_ranking_qualification_phase_v1,
+    run_hosted_ranking_latency_challenger_v1, run_hosted_ranking_latency_characterization_v1,
+    run_hosted_ranking_qualification_phase_v1,
     run_hosted_ranking_qualification_phase_with_reader_v1,
 };
 use evidentrail_cli::OpenAiEvidenceRankerV1;
@@ -60,15 +61,26 @@ fn run() -> Result<(CommandReportV1, bool), &'static str> {
     // to an 18-call paid pilot.
     let mode = env::args()
         .nth(1)
-        .ok_or("usage_pilot_qualify_or_characterize")?;
-    if mode != "pilot" && mode != "qualify" && mode != "characterize" {
-        return Err("usage_pilot_qualify_or_characterize");
+        .ok_or("usage_pilot_qualify_characterize_or_challenge_latency")?;
+    if mode != "pilot" && mode != "qualify" && mode != "characterize" && mode != "challenge-latency"
+    {
+        return Err("usage_pilot_qualify_characterize_or_challenge_latency");
     }
     if mode == "characterize" {
         let mut ranker = OpenAiEvidenceRankerV1::for_nonqualifying_latency_characterization_v1();
         let report = run_hosted_ranking_latency_characterization_v1(&mut ranker)
             .map_err(|error| error.code())?;
         let completed = report.completed();
+        return Ok((
+            CommandReportV1::Characterization(Box::new(report)),
+            completed,
+        ));
+    }
+    if mode == "challenge-latency" {
+        let mut ranker = OpenAiEvidenceRankerV1::for_nonqualifying_latency_challenger_v1();
+        let report =
+            run_hosted_ranking_latency_challenger_v1(&mut ranker).map_err(|error| error.code())?;
+        let completed = report.completed() && report.observed_within_production_deadline();
         return Ok((
             CommandReportV1::Characterization(Box::new(report)),
             completed,

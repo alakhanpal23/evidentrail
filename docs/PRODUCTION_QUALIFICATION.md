@@ -13,7 +13,9 @@ files supplied outside the repository.
 
 | Stage | Provider calls | Maximum cost guard | What it establishes |
 | --- | ---: | ---: | --- |
+| `value` | 0 | $0 | Frozen eight-incident matched-budget evidence recall against raw, grep/head-tail, quota hybrid, BM25F, and the exact oracle; plus three executable incidents through a deterministic fixture agent and independent repair verifier |
 | `preflight` | 0 | $0 | Formatting, Clippy, all workspace targets/features, Rustdoc, wire schemas, feature partitions, RustSec audit, deterministic production shadow, 10K/100K memory probes, 10K/100K/1M repository probes, and the ignored one-million-record evidence gate |
+| `live-latency-challenge` | 3 | $0.03 | Non-qualifying go/no-go latency screen of dated `gpt-5.4-nano-2026-03-17` at the unchanged 800 ms deadline; this cannot repin or admit a model |
 | `live-pilot` | 21 | $0.21 | 18 frozen ranking calls over six fault families plus three calls through the public production selector |
 | `live-qualify` | Up to 381 | $3.81 | The pilot, then 72 randomized ranking calls on 24 untouched cases, replay through all three consumers, and up to 288 hosted diagnosis calls, plus the production selector smoke |
 | `live-soak` | 100 | $1.00 | Repeated production bounded-affinity selection through one persistent client |
@@ -24,6 +26,10 @@ They are authorization ceilings, not provider billing statements. Reports
 include the token-derived cost observed in successful responses. The current
 pinned price inputs are $0.20 per million input tokens and $1.20 per million
 output tokens.
+
+The latency challenger uses the frozen standard prices for its dated model
+snapshot: $0.20 per million input tokens and $1.25 per million output tokens.
+It does not use account-dependent Fast/Priority processing.
 
 ## Safety behavior
 
@@ -41,6 +47,20 @@ output tokens.
   silently loosen the gate.
 
 ## Run the no-cost preflight
+
+For the fast, decision-oriented value comparison only:
+
+```sh
+cd /Users/arjun/.superset/projects/evidentrail
+scripts/production-qualification.sh value
+```
+
+This produces three private reports: `product-value.json` for matched-budget
+required-evidence recall, `executable-value.json` for verified repair and
+citation outcomes, and `value-decision.json` for the bounded interpretation.
+No provider credential is read and no network call is made.
+
+For the complete offline safety, scale, and value preflight:
 
 ```sh
 cd /Users/arjun/.superset/projects/evidentrail
@@ -67,6 +87,18 @@ The `$4.81` value is the program's conservative authorization guard, not a
 prediction that the run will cost that amount. To limit the first paid step to
 21 calls, use `live-pilot` with a `210000` micro-USD ceiling instead.
 
+Because the current pinned candidate previously missed 800 ms on every pilot
+call, the cost-efficient next experiment is the three-call latency challenger:
+
+```sh
+export EVIDENTRAIL_LIVE_TEST_APPROVAL=I_APPROVE_OPENAI_RESPONSES_CHARGES_AND_SYNTHETIC_EGRESS
+export EVIDENTRAIL_LIVE_TEST_BUDGET_MICROUSD=30000
+scripts/production-qualification.sh live-latency-challenge
+```
+
+Even a passing result is non-qualifying. It only authorizes engineering work on
+a frozen full challenger bakeoff; it never changes the production model.
+
 ## Interpret the outcome
 
 Exit `0` means every applicable gate in the selected stage passed. Exit `2`
@@ -74,8 +106,12 @@ means a gate failed or a required authorization was absent. Expected report
 files include:
 
 - `preflight-summary.json`;
+- `product-value.json`, `executable-value.json`, and `value-decision.json`;
 - `hosted-ranking-pilot.json` or `hosted-ranking-qualification.json`;
+- `hosted-latency-challenger.json` and `latency-challenger-decision.json` for
+  the optional three-call screen;
 - `hosted-production-smoke.json`;
+- `live-decision.json` for a single fail-closed admission verdict;
 - `hosted-production-soak.json` when the soak was admitted;
 - contentless command logs and exit codes.
 
@@ -85,6 +121,14 @@ cost at or below $0.01, a positive paired recall lower confidence bound, no
 protected-slice regression beyond one percentage point, and non-inferior
 verified diagnosis. If the operational pilot repeats the previously observed
 800 ms timeouts, the program stops before the scored and soak stages.
+
+The deterministic and hosted claims are deliberately separate. Passing the
+value stage establishes only synthetic matched-budget evidence and executable
+outcome conformance for the deterministic product. `live-decision.json` marks
+hosted incremental value true only when the untouched scored set passes the
+positive paired-recall bound, downstream diagnosis, validity, latency, cost,
+and integrity gates. Real-incident external validity remains false until an
+independently labeled governed shadow corpus is supplied and passes.
 
 ## Remaining environment-specific gates
 

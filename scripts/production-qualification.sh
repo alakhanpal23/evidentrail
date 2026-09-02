@@ -2,6 +2,7 @@
 set -euo pipefail
 
 readonly APPROVAL_SENTINEL="I_APPROVE_OPENAI_RESPONSES_CHARGES_AND_SYNTHETIC_EGRESS"
+readonly LATENCY_CHALLENGE_GUARD_MICROUSD=30000
 readonly PILOT_GUARD_MICROUSD=210000
 readonly QUALIFY_GUARD_MICROUSD=3810000
 readonly SOAK_GUARD_MICROUSD=1000000
@@ -9,9 +10,11 @@ readonly ALL_GUARD_MICROUSD=4810000
 
 usage() {
   cat >&2 <<'EOF'
-usage: scripts/production-qualification.sh <preflight|live-pilot|live-qualify|live-soak|all>
+usage: scripts/production-qualification.sh <value|preflight|live-latency-challenge|live-pilot|live-qualify|live-soak|all>
 
+value          no-cost matched-budget product-value report
 preflight      offline product, contract, security, scale, and release checks
+live-latency-challenge  3-call dated model screen at the unchanged 800 ms deadline
 live-pilot     18-call benchmark pilot plus 3-call production-path smoke
 live-qualify   gated pilot, then up to 72 ranking and 288 diagnosis calls, plus smoke
 live-soak      100 production-path ranking attempts through one persistent client
@@ -27,7 +30,7 @@ EOF
 [[ $# -eq 1 ]] || usage
 readonly MODE="$1"
 case "$MODE" in
-  preflight|live-pilot|live-qualify|live-soak|all) ;;
+  value|preflight|live-latency-challenge|live-pilot|live-qualify|live-soak|all) ;;
   *) usage ;;
 esac
 
@@ -113,6 +116,44 @@ build_live_binaries() {
     > "$RUN_DIR/build-production-shadow.log" 2>&1
   cargo build --release -p evidentrail-bench-harness --bin evidentrail-hosted-ranking-bench \
     > "$RUN_DIR/build-hosted-benchmark.log" 2>&1
+  build_value_binaries
+}
+
+build_value_binaries() {
+  cargo build --release -p evidentrail-bench-harness \
+    --bin evidentrail-product-value-bench \
+    --bin evidentrail-executable-value-bench \
+    --bin evidentrail-bench-harness-helper \
+    > "$RUN_DIR/build-product-value.log" 2>&1
+}
+
+run_product_value_reports() {
+  target/release/evidentrail-product-value-bench > "$RUN_DIR/product-value.json"
+  target/release/evidentrail-executable-value-bench > "$RUN_DIR/executable-value.json"
+  jq empty "$RUN_DIR/product-value.json"
+  jq empty "$RUN_DIR/executable-value.json"
+  jq -n \
+    --slurpfile selection "$RUN_DIR/product-value.json" \
+    --slurpfile outcome "$RUN_DIR/executable-value.json" \
+    '{schema_version:1,scope:"synthetic_product_value_v1",deterministic_selection_value_passed:($selection[0].gates.all_arms_use_full_selected_source_byte_budget and $selection[0].gates.deterministic_matches_exact_oracle_recall and $selection[0].gates.deterministic_beats_every_cheap_baseline_recall and $selection[0].gates.deterministic_perfect_on_every_case),executable_outcome_value_passed:($outcome[0].producer_byte_repeatability_gate and $outcome[0].evidentrail_all_repairs_verified and $outcome[0].evidentrail_all_citations_valid and $outcome[0].evidentrail_all_vds_at_budget),hosted_incremental_value_established:false,real_incident_external_validity_established:false,product_decision:"deterministic_product_value_supported_hosted_and_real_incident_claims_pending"}' \
+    > "$RUN_DIR/value-decision.json"
+}
+
+write_live_decision() {
+  local benchmark_report="$1"
+  local production_smoke_status="$2"
+  jq -n \
+    --slurpfile selection "$RUN_DIR/product-value.json" \
+    --slurpfile outcome "$RUN_DIR/executable-value.json" \
+    --slurpfile hosted "$benchmark_report" \
+    --argjson smoke_status "$production_smoke_status" \
+    '($selection[0].gates.deterministic_beats_every_cheap_baseline_recall and $selection[0].gates.deterministic_matches_exact_oracle_recall and $selection[0].gates.deterministic_perfect_on_every_case) as $selection_passed |
+     ($outcome[0].producer_byte_repeatability_gate and $outcome[0].evidentrail_all_repairs_verified and $outcome[0].evidentrail_all_citations_valid and $outcome[0].evidentrail_all_vds_at_budget) as $outcome_passed |
+     ($hosted[0].pilot.integrity_gate and $hosted[0].pilot.adversarial_preflight_gate and $hosted[0].pilot.valid_response_gate and $hosted[0].pilot.latency_gate and $hosted[0].pilot.cost_gate) as $operations_passed |
+     ($hosted[0].scored.qualification_passed // false) as $incremental_value_passed |
+     ($smoke_status == 0) as $smoke_passed |
+     {schema_version:1,scope:"synthetic_hosted_admission_v1",deterministic_selection_value_passed:$selection_passed,executable_outcome_value_passed:$outcome_passed,hosted_operational_pilot_passed:$operations_passed,hosted_incremental_value_established:$incremental_value_passed,production_path_smoke_passed:$smoke_passed,admission_decision:(if ($selection_passed and $outcome_passed and $operations_passed and $incremental_value_passed and $smoke_passed) then "eligible_for_governed_shadow_review" else "deterministic_only_hosted_not_admitted" end),claim_limit:"synthetic_conformance_only_real_incident_shadow_still_required"}' \
+    > "$RUN_DIR/live-decision.json"
 }
 
 run_preflight() (
@@ -162,6 +203,7 @@ run_preflight() (
     2> "$RUN_DIR/performance-repository-1m.log"
 
   build_live_binaries
+  run_product_value_reports
   target/release/evidentrail-production-shadow \
     "$REPO_ROOT/fixtures/production-shadow-example" manifest.json \
     > "$RUN_DIR/deterministic-production-shadow.json"
@@ -183,10 +225,34 @@ run_product_smoke() {
   return "$status"
 }
 
+run_live_latency_challenge() {
+  require_live_authorization "$LATENCY_CHALLENGE_GUARD_MICROUSD"
+  require_clean_checkout
+  build_live_binaries
+  run_product_value_reports
+  unset EVIDENTRAIL_HOSTED_RANKING_DISABLED
+  export EVIDENTRAIL_SYNTHETIC_HOSTED_BENCHMARK=1
+  export EVIDENTRAIL_HOSTED_RANKING_SHADOW=1
+
+  set +e
+  target/release/evidentrail-hosted-ranking-bench challenge-latency \
+    > "$RUN_DIR/hosted-latency-challenger.json"
+  local status=$?
+  set -e
+  jq empty "$RUN_DIR/hosted-latency-challenger.json"
+  record_exit "hosted_latency_challenger" "$status"
+  jq \
+    '{schema_version:1,qualification_eligible:false,all_calls_accepted:(.accepted_count == .call_count),within_production_deadline:.observed_within_production_deadline,integrity_passed:.all_integrity_checks_passed,next_step:(if (.accepted_count == .call_count and .observed_within_production_deadline and .all_integrity_checks_passed) then "build_frozen_full_challenger_bakeoff" else "do_not_spend_on_full_challenger_bakeoff" end)}' \
+    "$RUN_DIR/hosted-latency-challenger.json" \
+    > "$RUN_DIR/latency-challenger-decision.json"
+  return "$status"
+}
+
 run_live_pilot() {
   require_live_authorization "$PILOT_GUARD_MICROUSD"
   require_clean_checkout
   build_live_binaries
+  run_product_value_reports
   unset EVIDENTRAIL_HOSTED_RANKING_DISABLED
   export EVIDENTRAIL_SYNTHETIC_HOSTED_BENCHMARK=1
   export EVIDENTRAIL_HOSTED_RANKING_SHADOW=1
@@ -201,6 +267,7 @@ run_live_pilot() {
 
   local product_status=0
   run_product_smoke || product_status=$?
+  write_live_decision "$RUN_DIR/hosted-ranking-pilot.json" "$product_status"
   if (( benchmark_status == 0 && product_status == 0 )); then
     return 0
   fi
@@ -211,6 +278,7 @@ run_live_qualify() {
   require_live_authorization "$QUALIFY_GUARD_MICROUSD"
   require_clean_checkout
   build_live_binaries
+  run_product_value_reports
   unset EVIDENTRAIL_HOSTED_RANKING_DISABLED
   export EVIDENTRAIL_SYNTHETIC_HOSTED_BENCHMARK=1
   export EVIDENTRAIL_HOSTED_RANKING_SHADOW=1
@@ -225,6 +293,7 @@ run_live_qualify() {
 
   local product_status=0
   run_product_smoke || product_status=$?
+  write_live_decision "$RUN_DIR/hosted-ranking-qualification.json" "$product_status"
   if (( benchmark_status == 0 && product_status == 0 )); then
     return 0
   fi
@@ -250,9 +319,18 @@ run_live_soak() {
 
 write_run_metadata
 case "$MODE" in
+  value)
+    require_clean_checkout
+    build_value_binaries
+    run_product_value_reports
+    record_exit "product_value" 0
+    ;;
   preflight)
     run_preflight
     record_exit "preflight" 0
+    ;;
+  live-latency-challenge)
+    run_live_latency_challenge
     ;;
   live-pilot)
     run_live_pilot

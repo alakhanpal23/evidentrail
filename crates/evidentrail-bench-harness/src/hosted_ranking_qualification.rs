@@ -15,7 +15,8 @@ use evidentrail_cli::{
     compile_explicit_stdin_retained_with_evaluation_ranker_v1,
     compile_explicit_stdin_retained_with_shadow_consumer_v1,
     hosted_ranking_characterization_configuration_digest_v1,
-    hosted_ranking_configuration_digest_v1, hosted_ranking_provider_digest_v1,
+    hosted_ranking_configuration_digest_v1,
+    hosted_ranking_latency_challenger_configuration_digest_v1, hosted_ranking_provider_digest_v1,
 };
 use evidentrail_core::{ExpansionRelationV1, UnixTimestampNanos};
 use evidentrail_evidence::escape_evidence_bytes;
@@ -283,6 +284,11 @@ impl HostedRankingLatencyCharacterizationReportV1 {
         self.accepted_count == u64::from(HOSTED_RANKING_CHARACTERIZATION_CALL_COUNT_V1)
             && self.all_integrity_checks_passed
     }
+
+    #[must_use]
+    pub const fn observed_within_production_deadline(&self) -> bool {
+        self.observed_within_production_deadline
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -438,6 +444,33 @@ pub fn run_hosted_ranking_qualification_phase_with_reader_v1<
 pub fn run_hosted_ranking_latency_characterization_v1<R: EvidenceRankerV1>(
     ranker: &mut R,
 ) -> Result<HostedRankingLatencyCharacterizationReportV1, HostedRankingQualificationErrorV1> {
+    run_latency_characterization_v1(
+        ranker,
+        "latency_measurement_only",
+        hosted_ranking_characterization_configuration_digest_v1(),
+        HOSTED_RANKING_CHARACTERIZATION_DEADLINE_V1,
+    )
+}
+
+/// Test one dated alternative model at the unchanged production deadline.
+/// This is a small go/no-go screen only; success cannot admit or repin it.
+pub fn run_hosted_ranking_latency_challenger_v1<R: EvidenceRankerV1>(
+    ranker: &mut R,
+) -> Result<HostedRankingLatencyCharacterizationReportV1, HostedRankingQualificationErrorV1> {
+    run_latency_characterization_v1(
+        ranker,
+        "dated_model_latency_challenger_only",
+        hosted_ranking_latency_challenger_configuration_digest_v1(),
+        HOSTED_RANKING_DEADLINE_V1,
+    )
+}
+
+fn run_latency_characterization_v1<R: EvidenceRankerV1>(
+    ranker: &mut R,
+    purpose: &'static str,
+    configuration_digest: [u8; 32],
+    measurement_deadline: std::time::Duration,
+) -> Result<HostedRankingLatencyCharacterizationReportV1, HostedRankingQualificationErrorV1> {
     let guarded_cost = u64::from(HOSTED_RANKING_CHARACTERIZATION_CALL_COUNT_V1)
         .checked_mul(HOSTED_RANKING_COST_PER_ATTEMPT_GUARD_MICROUSD_V1)
         .ok_or(HostedRankingQualificationErrorV1::Arithmetic)?;
@@ -493,17 +526,15 @@ pub fn run_hosted_ranking_latency_characterization_v1<R: EvidenceRankerV1>(
 
     Ok(HostedRankingLatencyCharacterizationReportV1 {
         schema_version: HOSTED_RANKING_QUALIFICATION_SCHEMA_VERSION_V1,
-        purpose: "latency_measurement_only",
+        purpose,
         qualification_eligible: false,
         qualification_passed: false,
         case_digest_hex: hex_v1(case.digest.as_bytes()),
         provider_digest_hex: hex_v1(&hosted_ranking_provider_digest_v1()),
-        configuration_digest_hex: hex_v1(&hosted_ranking_characterization_configuration_digest_v1()),
+        configuration_digest_hex: hex_v1(&configuration_digest),
         production_deadline_nanos,
-        measurement_deadline_nanos: u64::try_from(
-            HOSTED_RANKING_CHARACTERIZATION_DEADLINE_V1.as_nanos(),
-        )
-        .unwrap_or(u64::MAX),
+        measurement_deadline_nanos: u64::try_from(measurement_deadline.as_nanos())
+            .unwrap_or(u64::MAX),
         call_count: HOSTED_RANKING_CHARACTERIZATION_CALL_COUNT_V1,
         accepted_count,
         reported_cost_microusd,
@@ -511,7 +542,11 @@ pub fn run_hosted_ranking_latency_characterization_v1<R: EvidenceRankerV1>(
         p95_provider_nanos: percentile_u64_v1(&provider_nanos, 95),
         p50_end_to_end_nanos: percentile_u64_v1(&end_to_end_nanos, 50),
         p95_end_to_end_nanos,
-        observed_latency_band: characterization_latency_band_v1(p95_end_to_end_nanos, all_accepted),
+        observed_latency_band: characterization_latency_band_v1(
+            p95_end_to_end_nanos,
+            all_accepted,
+            measurement_deadline,
+        ),
         observed_within_production_deadline: all_accepted
             && p95_end_to_end_nanos.is_some_and(|value| value < production_deadline_nanos),
         all_integrity_checks_passed,
@@ -526,9 +561,14 @@ pub fn run_hosted_ranking_latency_characterization_v1<R: EvidenceRankerV1>(
 fn characterization_latency_band_v1(
     p95_end_to_end_nanos: Option<u64>,
     all_accepted: bool,
+    measurement_deadline: std::time::Duration,
 ) -> &'static str {
     if !all_accepted {
-        return "over_5s_or_failed";
+        return if measurement_deadline <= HOSTED_RANKING_DEADLINE_V1 {
+            "failed_or_at_or_over_800ms"
+        } else {
+            "over_5s_or_failed"
+        };
     }
     match p95_end_to_end_nanos.unwrap_or(u64::MAX) {
         0..800_000_000 => "under_800ms",
@@ -1920,6 +1960,22 @@ mod tests {
         assert_eq!(report.observed_latency_band, "over_5s_or_failed");
         assert!(!report.observed_within_production_deadline);
         assert!(!report.qualification_passed);
+    }
+
+    #[test]
+    fn latency_challenger_keeps_production_deadline_and_never_qualifies() {
+        let mut ranker = SemanticRankerV1;
+        let report = run_hosted_ranking_latency_challenger_v1(&mut ranker).unwrap();
+        assert!(report.completed());
+        assert!(report.observed_within_production_deadline());
+        assert_eq!(report.measurement_deadline_nanos, 800_000_000);
+        assert_eq!(report.purpose, "dated_model_latency_challenger_only");
+        assert!(!report.qualification_eligible);
+        assert!(!report.qualification_passed);
+        assert_eq!(
+            report.configuration_digest_hex,
+            hex_v1(&hosted_ranking_latency_challenger_configuration_digest_v1())
+        );
     }
 
     #[test]
