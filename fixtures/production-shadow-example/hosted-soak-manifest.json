@@ -1,0 +1,93 @@
+{
+  "schema_version": 2,
+  "data_classification": "synthetic_c0",
+  "local_processing_only": false,
+  "ranking_mode": "hosted",
+  "hosted_egress": true,
+  "hosted_egress_authorization": "operator_approved_openai_responses_v1",
+  "content_telemetry": false,
+  "retention": "memory_only",
+  "repetitions": 10,
+  "cases": [
+    {
+      "log_file": "synthetic-hosted-incident.log",
+      "question_file": "hosted-question.txt",
+      "required_evidence_files": ["required-hosted-timeout.txt"],
+      "token_budget": 4000,
+      "protected_slice": false,
+      "hosted_egress_approved": true
+    },
+    {
+      "log_file": "synthetic-hosted-incident.log",
+      "question_file": "hosted-question.txt",
+      "required_evidence_files": ["required-hosted-timeout.txt"],
+      "token_budget": 4000,
+      "protected_slice": false,
+      "hosted_egress_approved": true
+    },
+    {
+      "log_file": "synthetic-hosted-incident.log",
+      "question_file": "hosted-question.txt",
+      "required_evidence_files": ["required-hosted-timeout.txt"],
+      "token_budget": 4000,
+      "protected_slice": true,
+      "hosted_egress_approved": true
+    },
+    {
+      "log_file": "synthetic-hosted-incident.log",
+      "question_file": "hosted-question.txt",
+      "required_evidence_files": ["required-hosted-timeout.txt"],
+      "token_budget": 4000,
+      "protected_slice": false,
+      "hosted_egress_approved": true
+    },
+    {
+      "log_file": "synthetic-hosted-incident.log",
+      "question_file": "hosted-question.txt",
+      "required_evidence_files": ["required-hosted-timeout.txt"],
+      "token_budget": 4000,
+      "protected_slice": false,
+      "hosted_egress_approved": true
+    },
+    {
+      "log_file": "synthetic-hosted-incident.log",
+      "question_file": "hosted-question.txt",
+      "required_evidence_files": ["required-hosted-timeout.txt"],
+      "token_budget": 4000,
+      "protected_slice": true,
+      "hosted_egress_approved": true
+    },
+    {
+      "log_file": "synthetic-hosted-incident.log",
+      "question_file": "hosted-question.txt",
+      "required_evidence_files": ["required-hosted-timeout.txt"],
+      "token_budget": 4000,
+      "protected_slice": false,
+      "hosted_egress_approved": true
+    },
+    {
+      "log_file": "synthetic-hosted-incident.log",
+      "question_file": "hosted-question.txt",
+      "required_evidence_files": ["required-hosted-timeout.txt"],
+      "token_budget": 4000,
+      "protected_slice": false,
+      "hosted_egress_approved": true
+    },
+    {
+      "log_file": "synthetic-hosted-incident.log",
+      "question_file": "hosted-question.txt",
+      "required_evidence_files": ["required-hosted-timeout.txt"],
+      "token_budget": 4000,
+      "protected_slice": true,
+      "hosted_egress_approved": true
+    },
+    {
+      "log_file": "synthetic-hosted-incident.log",
+      "question_file": "hosted-question.txt",
+      "required_evidence_files": ["required-hosted-timeout.txt"],
+      "token_budget": 4000,
+      "protected_slice": false,
+      "hosted_egress_approved": true
+    }
+  ]
+}

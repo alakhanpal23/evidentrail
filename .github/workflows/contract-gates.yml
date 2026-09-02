@@ -23,6 +23,7 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           components: rustfmt, clippy
       - run: cargo fmt --all -- --check
+      - run: bash -n scripts/production-qualification.sh
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-targets
       - run: cargo run -p evidentrail-wire --all-features --bin evidentrail-wire-schema -- --check

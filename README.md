@@ -207,6 +207,12 @@ deterministic by default and can exercise the real pinned OpenAI ranking path
 only through explicit manifest- and case-level egress approval. Real incident
 material must remain outside this repository and ordinary CI.
 
+The staged [production qualification program](docs/PRODUCTION_QUALIFICATION.md)
+runs the full no-egress contract/resource preflight, a 21-call live pilot, an
+up-to-381-call scored hosted evaluation, and a 100-call production-path soak.
+Each paid stage requires an explicit cost ceiling and later stages stop when an
+earlier production gate fails.
+
 ## Development
 
 ```sh
