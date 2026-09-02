@@ -60,6 +60,23 @@ There is no retry. Disabled operation, missing credentials, timeouts, rate
 limits, policy denials, provider failures, invalid output, and assisted-selector
 failure immediately return the already computed deterministic result.
 
+### Deterministic selective escalation
+
+`hosted_if_contended` is the preferred explicit opt-in policy. It is evaluated
+only after exact passthrough, complete proposal preparation, deterministic
+budget feasibility, and deterministic selection. The model is contacted only
+when the at-most-32 model-visible optional candidates include at least one
+packet excluded from the deterministic selection. This is the smallest honest
+condition under which reordering could improve optional evidence membership.
+
+The gate does not call logs “nondeterministic,” estimate correctness, infer a
+root cause, or interpret model confidence. If fewer than two optional
+candidates exist, or every model-visible optional candidate is already
+selected, the product emits a contentless `not_sent` diagnostic with
+`insufficient_optional_candidates` or `selection_not_contended`. Explicit
+egress consent is still required on every request; this mode is never an
+automatic default.
+
 Diagnostics contain only provider/configuration digests, elapsed time, token
 counts, estimated cost, validation/fallback codes, and a digest of accepted
 block IDs. Prompts, responses, credentials, provider request IDs, raw IDs, and
@@ -69,8 +86,10 @@ to stderr; MCP includes it as an optional `hosted_ranking` output object.
 ## Surfaces and release status
 
 - CLI: `evidentrail brief ... --llm-rank` (memory retention only)
-- MCP memory mode: `evidentrail_logs` with `ranking_mode: "hosted"`; omitted
-  means `deterministic` (authenticated/durable retention remains deterministic)
+- CLI selective escalation: `--llm-rank-if-contended` (preferred beta mode)
+- MCP memory mode: `evidentrail_logs` with `ranking_mode: "hosted"` or
+  `"hosted_if_contended"`; omitted means `deterministic`
+  (authenticated/durable retention remains deterministic)
 - Kill switch: `EVIDENTRAIL_HOSTED_RANKING_DISABLED=1`
 - Internal shadow switch: `EVIDENTRAIL_HOSTED_RANKING_SHADOW=1` together with
   explicit hosted opt-in; the call and validation run, but deterministic bytes
@@ -84,6 +103,19 @@ The multi-vendor frozen benchmark, approval for every other provider or data
 class, organizational privacy review, shadow run, and every
 quality/latency/validity/cost gate remain required before any production
 admission or model/configuration change.
+
+The current model/configuration is not eligible for rollout: the approved
+synthetic pilot timed out on all 18 calls at 800 ms, while the separate
+three-call measurement-only characterization returned valid rankings at
+1.501–2.236 seconds end-to-end. Selective escalation reduces unnecessary
+egress; it does not repair that latency failure or establish an accuracy gain.
+
+Before beta admission, the frozen benchmark must add the selective-escalation
+arm and report its eligible-call rate, avoided-call rate, false-negative
+opportunities, conditional and overall required-evidence recall deltas,
+proposal-change rate, downstream verified diagnosis, latency, and cost. A
+qualified pinned model, untouched synthetic results, approved realistic shadow
+traffic, and separately authorized real-log egress remain mandatory.
 
 ## Frozen synthetic live qualification
 

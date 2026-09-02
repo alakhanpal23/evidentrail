@@ -53,6 +53,19 @@ OPENAI_API_KEY=... cargo run -p evidentrail-cli --bin evidentrail -- brief \
   --token-budget 20000 --llm-rank < app.log
 ```
 
+Prefer deterministic selective escalation when hosted egress is authorized:
+
+```sh
+OPENAI_API_KEY=... cargo run -p evidentrail-cli --bin evidentrail -- brief \
+  --question "why did request REQ-7 fail?" \
+  --token-budget 20000 --llm-rank-if-contended < app.log
+```
+
+This mode calls the ranker only when budget packing excluded at least one
+model-visible optional evidence block. It is an auditable opportunity gate,
+not an LLM confidence claim. Passthrough, `needs_more`, non-contended results,
+and all hosted failures remain deterministic without egress or retry.
+
 The model can reorder at most 32 intact optional blocks. It cannot rewrite
 evidence, add citations, remove mandatory evidence, or decide completeness.
 Missing credentials, the kill switch (`EVIDENTRAIL_HOSTED_RANKING_DISABLED=1`),

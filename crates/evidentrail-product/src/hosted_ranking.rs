@@ -345,6 +345,27 @@ pub enum RankingConsumerV1 {
     BoundedFourthAffinity,
 }
 
+/// Deterministic application policy controlling whether an explicitly enabled
+/// hosted ranker may be contacted after passthrough and feasibility gates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostedRankingEscalationPolicyV1 {
+    /// Attempt ranking whenever at least two optional candidates are eligible.
+    AlwaysEligible,
+    /// Attempt ranking only when a model-visible optional candidate was
+    /// excluded from the deterministic selection by bounded packing.
+    SelectionContended,
+}
+
+#[must_use]
+pub(crate) fn selection_is_contended_v1(
+    model_visible_optional_packet_ids: &[PacketIdV1],
+    selected_packet_ids: &BTreeSet<PacketIdV1>,
+) -> bool {
+    model_visible_optional_packet_ids
+        .iter()
+        .any(|packet_id| !selected_packet_ids.contains(packet_id))
+}
+
 /// Deterministically consume one validated permutation. RRF uses the submitted
 /// order as the deterministic rank and a fixed `k=60`.
 #[must_use]
@@ -630,6 +651,17 @@ mod tests {
             EvidenceRankingCandidateV1::new("B2".to_owned(), packet(2), "b".to_owned()),
             EvidenceRankingCandidateV1::new("B3".to_owned(), packet(3), "c".to_owned()),
         ]
+    }
+
+    #[test]
+    fn contention_requires_a_model_visible_excluded_optional_packet() {
+        let candidates = [packet(1), packet(2), packet(3)];
+        let all_selected = candidates.into_iter().collect::<BTreeSet<_>>();
+        assert!(!selection_is_contended_v1(&candidates, &all_selected));
+
+        let partially_selected = [packet(1), packet(3)].into_iter().collect::<BTreeSet<_>>();
+        assert!(selection_is_contended_v1(&candidates, &partially_selected));
+        assert!(!selection_is_contended_v1(&[], &BTreeSet::new()));
     }
 
     #[test]

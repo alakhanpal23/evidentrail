@@ -12,8 +12,9 @@
 - Data: generated synthetic fixtures and other inputs that the operator has
   affirmatively verified contain no sensitive, personal, customer, secret,
   proprietary, or production-derived content.
-- Invocation: only an explicit `--llm-rank` or MCP `ranking_mode: "hosted"`
-  request. Deterministic mode remains the default.
+- Invocation: only an explicit `--llm-rank`, `--llm-rank-if-contended`, or MCP
+  `ranking_mode: "hosted"`/`"hosted_if_contended"` request. Deterministic mode
+  remains the default.
 - Application retention: no prompt or response persistence; only the closed
   contentless diagnostic record may be emitted.
 - Training: not authorized.

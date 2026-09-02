@@ -25,7 +25,7 @@ pub use encrypted_retention::{
 pub use hosted_ranking::{
     EVIDENCE_RANKING_SCHEMA_VERSION_V1, EvidenceRankerFailureV1, EvidenceRankerOutputV1,
     EvidenceRankerV1, EvidenceRankingCandidateV1, EvidenceRankingRequestV1,
-    HostedRankingDiagnosticsV1, MAX_HOSTED_RANKING_CANDIDATES_V1,
+    HostedRankingDiagnosticsV1, HostedRankingEscalationPolicyV1, MAX_HOSTED_RANKING_CANDIDATES_V1,
     MAX_HOSTED_RANKING_ESCAPED_INPUT_BYTES_V1, MAX_HOSTED_RANKING_RESPONSE_BYTES_V1,
     RankingConsumerV1, RankingValidationErrorV1, ValidatedEvidenceRankingV1,
     consume_evidence_ranking_v1, ranking_priorities_v1, validate_evidence_ranking_response_v1,
@@ -833,7 +833,7 @@ fn assisted_selection_v1(
     Box<CertifiedThreeLaneSelectionV1>,
     Option<HostedRankingDiagnosticsV1>,
 ) {
-    let application_code = attempt.application.code();
+    let application_code = attempt.application.code(attempt.escalation_policy);
     let mandatory = prepared
         .mandatory()
         .iter()
@@ -854,7 +854,32 @@ fn assisted_selection_v1(
     }
     deterministic_ids.truncate(MAX_HOSTED_RANKING_CANDIDATES_V1);
     if deterministic_ids.len() < 2 {
-        return (deterministic, None);
+        let diagnostics = (attempt.escalation_policy
+            == HostedRankingEscalationPolicyV1::SelectionContended)
+            .then(|| {
+                HostedRankingDiagnosticsV1::not_sent(
+                    application_code,
+                    "insufficient_optional_candidates",
+                )
+            });
+        return (deterministic, diagnostics);
+    }
+    if attempt.escalation_policy == HostedRankingEscalationPolicyV1::SelectionContended {
+        let selected = deterministic
+            .selection()
+            .packets()
+            .iter()
+            .map(|packet| packet.packet().id())
+            .collect::<std::collections::BTreeSet<_>>();
+        if !hosted_ranking::selection_is_contended_v1(&deterministic_ids, &selected) {
+            return (
+                deterministic,
+                Some(HostedRankingDiagnosticsV1::not_sent(
+                    application_code,
+                    "selection_not_contended",
+                )),
+            );
+        }
     }
 
     let escaped_question = escape_evidence_bytes(question_bytes);
@@ -996,14 +1021,21 @@ struct HostedRankingAttemptV1<'a> {
     ranker: &'a mut dyn EvidenceRankerV1,
     application: HostedRankingApplicationV1,
     consumer: RankingConsumerV1,
+    escalation_policy: HostedRankingEscalationPolicyV1,
 }
 
 impl HostedRankingApplicationV1 {
-    const fn code(self) -> &'static str {
-        match self {
-            Self::Apply => "apply",
-            Self::Shadow => "shadow",
-            Self::Evaluation => "evaluation",
+    const fn code(self, policy: HostedRankingEscalationPolicyV1) -> &'static str {
+        match (self, policy) {
+            (Self::Apply, HostedRankingEscalationPolicyV1::AlwaysEligible) => "apply",
+            (Self::Apply, HostedRankingEscalationPolicyV1::SelectionContended) => {
+                "apply_if_contended"
+            }
+            (Self::Shadow, HostedRankingEscalationPolicyV1::AlwaysEligible) => "shadow",
+            (Self::Shadow, HostedRankingEscalationPolicyV1::SelectionContended) => {
+                "shadow_if_contended"
+            }
+            (Self::Evaluation, _) => "evaluation",
         }
     }
 }
@@ -1095,7 +1127,33 @@ impl MemoryProductV1 {
                 ranker,
                 application: HostedRankingApplicationV1::Apply,
                 consumer: RankingConsumerV1::BoundedFourthAffinity,
+                escalation_policy: HostedRankingEscalationPolicyV1::AlwaysEligible,
             }),
+        )
+    }
+
+    /// Run hosted ranking only when deterministic budget packing excluded at
+    /// least one model-visible optional candidate. This policy is itself
+    /// deterministic and does not treat model confidence as product evidence.
+    pub fn create_contended_hosted_ranked_result_v1<R: EvidenceRankerV1>(
+        &mut self,
+        result_id: ResultId,
+        question_bytes: &[u8],
+        ledger: EventLedger,
+        now: UnixTimestampNanos,
+        total_token_limit: u64,
+        ranker: &mut R,
+    ) -> Result<DeterministicProductDecisionV1, ProductError> {
+        self.create_ranked_result_for_application_v1(
+            result_id,
+            question_bytes,
+            ledger,
+            now,
+            total_token_limit,
+            ranker,
+            HostedRankingApplicationV1::Apply,
+            RankingConsumerV1::BoundedFourthAffinity,
+            HostedRankingEscalationPolicyV1::SelectionContended,
         )
     }
 
@@ -1137,7 +1195,32 @@ impl MemoryProductV1 {
                 ranker,
                 application: HostedRankingApplicationV1::Shadow,
                 consumer: RankingConsumerV1::BoundedFourthAffinity,
+                escalation_policy: HostedRankingEscalationPolicyV1::AlwaysEligible,
             }),
+        )
+    }
+
+    /// Shadow the contention-gated hosted path while always publishing the
+    /// deterministic selection bytes.
+    pub fn create_contended_shadow_ranked_result_v1<R: EvidenceRankerV1>(
+        &mut self,
+        result_id: ResultId,
+        question_bytes: &[u8],
+        ledger: EventLedger,
+        now: UnixTimestampNanos,
+        total_token_limit: u64,
+        ranker: &mut R,
+    ) -> Result<DeterministicProductDecisionV1, ProductError> {
+        self.create_ranked_result_for_application_v1(
+            result_id,
+            question_bytes,
+            ledger,
+            now,
+            total_token_limit,
+            ranker,
+            HostedRankingApplicationV1::Shadow,
+            RankingConsumerV1::BoundedFourthAffinity,
+            HostedRankingEscalationPolicyV1::SelectionContended,
         )
     }
 
@@ -1165,6 +1248,7 @@ impl MemoryProductV1 {
             ranker,
             HostedRankingApplicationV1::Evaluation,
             consumer,
+            HostedRankingEscalationPolicyV1::AlwaysEligible,
         )
     }
 
@@ -1190,6 +1274,7 @@ impl MemoryProductV1 {
             ranker,
             HostedRankingApplicationV1::Shadow,
             consumer,
+            HostedRankingEscalationPolicyV1::AlwaysEligible,
         )
     }
 
@@ -1204,6 +1289,7 @@ impl MemoryProductV1 {
         ranker: &mut R,
         application: HostedRankingApplicationV1,
         consumer: RankingConsumerV1,
+        escalation_policy: HostedRankingEscalationPolicyV1,
     ) -> Result<DeterministicProductDecisionV1, ProductError> {
         TotalTokenBudgetV1::new(total_token_limit).map_err(ProductError::TokenBudget)?;
         let tokenizer = Utf8ByteTokenizerV1::new();
@@ -1231,6 +1317,7 @@ impl MemoryProductV1 {
                 ranker,
                 application,
                 consumer,
+                escalation_policy,
             }),
         )
     }

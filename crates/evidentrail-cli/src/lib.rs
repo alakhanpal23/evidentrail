@@ -1200,6 +1200,44 @@ pub fn compile_explicit_stdin_retained_with_ranker_v1<R: EvidenceRankerV1>(
     })
 }
 
+/// Retained-session hosted ranking that contacts the ranker only when the
+/// deterministic budget excludes a model-visible optional candidate.
+pub fn compile_explicit_stdin_retained_with_contended_ranker_v1<R: EvidenceRankerV1>(
+    input: &[u8],
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+    ranker: &mut R,
+) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
+    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
+    let PreparedExplicitStdinV1 {
+        result_id,
+        ledger,
+        record_count,
+        source_byte_count,
+    } = prepared;
+    let mut product = MemoryProductV1::new();
+    let decision = product
+        .create_contended_hosted_ranked_result_v1(
+            result_id,
+            question,
+            ledger,
+            now,
+            token_budget,
+            ranker,
+        )
+        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
+    let (outcome, retention_state) =
+        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
+    Ok(StdinBriefSessionV1 {
+        product,
+        outcome,
+        created_at: now,
+        retention_state,
+    })
+}
+
 /// Retained internal-shadow form of hosted ranking. It performs the same one
 /// eligible call and validation but always publishes deterministic selection.
 pub fn compile_explicit_stdin_retained_with_shadow_ranker_v1<R: EvidenceRankerV1>(
@@ -1220,6 +1258,43 @@ pub fn compile_explicit_stdin_retained_with_shadow_ranker_v1<R: EvidenceRankerV1
     let mut product = MemoryProductV1::new();
     let decision = product
         .create_shadow_ranked_result_v1(result_id, question, ledger, now, token_budget, ranker)
+        .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
+    let (outcome, retention_state) =
+        retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;
+    Ok(StdinBriefSessionV1 {
+        product,
+        outcome,
+        created_at: now,
+        retention_state,
+    })
+}
+
+/// Internal-shadow form of contention-gated hosted ranking.
+pub fn compile_explicit_stdin_retained_with_contended_shadow_ranker_v1<R: EvidenceRankerV1>(
+    input: &[u8],
+    question: &[u8],
+    token_budget: u64,
+    identity_seed: [u8; 32],
+    now: UnixTimestampNanos,
+    ranker: &mut R,
+) -> Result<StdinBriefSessionV1, StdinBriefErrorV1> {
+    let prepared = prepare_explicit_stdin_v1(input, question, token_budget, identity_seed, now)?;
+    let PreparedExplicitStdinV1 {
+        result_id,
+        ledger,
+        record_count,
+        source_byte_count,
+    } = prepared;
+    let mut product = MemoryProductV1::new();
+    let decision = product
+        .create_contended_shadow_ranked_result_v1(
+            result_id,
+            question,
+            ledger,
+            now,
+            token_budget,
+            ranker,
+        )
         .map_err(|_| StdinBriefErrorV1::ProductExecution)?;
     let (outcome, retention_state) =
         retained_outcome_v1(decision, result_id, record_count, source_byte_count)?;

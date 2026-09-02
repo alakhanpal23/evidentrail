@@ -346,6 +346,31 @@ fn hosted_assistance_is_post_feasibility_and_every_failure_is_exact_fallback() {
 }
 
 #[test]
+fn contention_gated_hosted_assistance_calls_only_after_an_optional_exclusion() {
+    let now = UnixTimestampNanos::new(100);
+    let source = complete_ledger(96, two_candidate_oversized_records());
+    let mut ranker = FailingRanker::default();
+    let mut product = MemoryProductV1::new();
+    let decision = product
+        .create_contended_hosted_ranked_result_v1(
+            result(96),
+            b"timeout",
+            source,
+            now,
+            10_000,
+            &mut ranker,
+        )
+        .unwrap();
+    let DeterministicProductDecisionV1::Compiled(compiled) = decision else {
+        panic!("fixture must compile");
+    };
+    assert_eq!(ranker.calls.get(), 1);
+    let diagnostics = compiled.hosted_ranking_diagnostics().unwrap();
+    assert_eq!(diagnostics.application_code(), "apply_if_contended");
+    assert_eq!(diagnostics.fallback_reason(), Some("timeout"));
+}
+
+#[test]
 fn hosted_egress_cap_is_checked_before_the_ranker_and_falls_back_exactly() {
     let now = UnixTimestampNanos::new(101);
     let source = complete_ledger(93, hosted_request_oversized_records());

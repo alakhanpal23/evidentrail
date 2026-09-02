@@ -19,6 +19,8 @@ use evidentrail_authority::{CanonicalUnixPathV1, InternalPathPolicyV1, InternalP
 use evidentrail_cli::{
     DEFAULT_TOKEN_BUDGET_V1, HostedRankingDiagnosticRecordV1, MAX_QUESTION_BYTES_V1,
     MAX_STDIN_BYTES_V1, OpenAiEvidenceRankerV1, StdinBriefOutcomeV1,
+    compile_explicit_stdin_retained_with_contended_ranker_v1,
+    compile_explicit_stdin_retained_with_contended_shadow_ranker_v1,
     compile_explicit_stdin_retained_with_ranker_v1,
     compile_explicit_stdin_retained_with_shadow_ranker_v1, compile_explicit_stdin_v1,
     compile_explicit_stream_v3, run_mcp_stdio_v1,
@@ -43,7 +45,7 @@ use evidentrail_store::{
     DurableRepositoryErrorV2, DurableResultRepositoryV2, MacOsKeychainAuthorityV2,
 };
 
-const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank] < logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nBrief reads only explicit standard input and retention defaults to memory. --llm-rank is\nan explicit memory-mode beta opt-in to one hosted evidence-ordering call; deterministic\ncompression remains the fallback and default. Streaming V3 is available behind the\ninternal EVIDENTRAIL_STREAMING_V3=1 rollout gate; durable brief retention always uses V3\nand is explicit, requires the platform external authority, and fails closed when that\nauthority is locked or unavailable. Doctor inspects metadata for exactly one explicit\nfile; it never reads file contents, approves a source, or mints host certification. The\nproduct does not discover files, crawl a workspace, or inspect ambient logs. Use\n--question-file when the question should not appear in the process argument list. The\npinned tokenizer conservatively counts one rendered UTF-8 byte as one budget unit; this\nis not a model-token count.\n";
+const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank | --llm-rank-if-contended] < logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nBrief reads only explicit standard input and retention defaults to memory. --llm-rank is\nan explicit memory-mode beta opt-in to one hosted evidence-ordering call. The safer\n--llm-rank-if-contended mode calls only when deterministic packing excluded at least one\nmodel-visible optional block. Deterministic compression remains the fallback and default.\nStreaming V3 is available behind the internal EVIDENTRAIL_STREAMING_V3=1 rollout gate;\ndurable brief retention always uses V3 and is explicit, requires the platform external\nauthority, and fails closed when that authority is locked or unavailable. Doctor inspects\nmetadata for exactly one explicit file; it never reads file contents, approves a source,\nor mints host certification. The product does not discover files, crawl a workspace, or\ninspect ambient logs. Use --question-file when the question should not appear in the\nprocess argument list. The pinned tokenizer conservatively counts one rendered UTF-8 byte\nas one budget unit; this is not a model-token count.\n";
 
 const DOCTOR_SUCCESS_CODE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_FILE_METADATA_OK";
 const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str =
@@ -53,7 +55,15 @@ struct BriefOptions {
     question: Vec<u8>,
     token_budget: u64,
     retention: McpRetentionSelectionV1,
-    llm_rank: bool,
+    ranking_mode: CliRankingModeV1,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum CliRankingModeV1 {
+    #[default]
+    Deterministic,
+    Hosted,
+    HostedIfContended,
 }
 
 struct DoctorOptions {
@@ -203,7 +213,7 @@ fn parse_args(
     let mut saw_token_budget = false;
     let mut retention = McpRetentionSelectionV1::Memory;
     let mut saw_retention = false;
-    let mut llm_rank = false;
+    let mut ranking_mode = CliRankingModeV1::Deterministic;
     while let Some(argument) = args.next() {
         if argument == "--question" {
             let value = args
@@ -249,10 +259,15 @@ fn parse_args(
                 return Err(CliFailure::usage("EVIDENTRAIL_CLI_INVALID_RETENTION"));
             };
         } else if argument == "--llm-rank" {
-            if llm_rank {
+            if ranking_mode != CliRankingModeV1::Deterministic {
                 return Err(CliFailure::usage("EVIDENTRAIL_CLI_DUPLICATE_OPTION"));
             }
-            llm_rank = true;
+            ranking_mode = CliRankingModeV1::Hosted;
+        } else if argument == "--llm-rank-if-contended" {
+            if ranking_mode != CliRankingModeV1::Deterministic {
+                return Err(CliFailure::usage("EVIDENTRAIL_CLI_DUPLICATE_OPTION"));
+            }
+            ranking_mode = CliRankingModeV1::HostedIfContended;
         } else if argument == "--help" || argument == "-h" {
             return Ok(ParseDecision::Help);
         } else {
@@ -290,7 +305,7 @@ fn parse_args(
         question,
         token_budget,
         retention,
-        llm_rank,
+        ranking_mode,
     }))
 }
 
@@ -611,13 +626,17 @@ fn run_brief(options: BriefOptions) -> Result<ExitCode, CliFailure> {
     getrandom::fill(&mut identity_seed)
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_RANDOMNESS_FAILURE"))?;
     let now = unix_now_v1()?;
-    if options.llm_rank && options.retention == McpRetentionSelectionV1::Durable {
+    if options.ranking_mode != CliRankingModeV1::Deterministic
+        && options.retention == McpRetentionSelectionV1::Durable
+    {
         return Err(CliFailure::usage(
             "EVIDENTRAIL_CLI_HOSTED_RANKING_REQUIRES_MEMORY_RETENTION",
         ));
     }
     let outcome = match options.retention {
-        McpRetentionSelectionV1::Memory if options.llm_rank => {
+        McpRetentionSelectionV1::Memory
+            if options.ranking_mode != CliRankingModeV1::Deterministic =>
+        {
             let input = match read_bounded(io::stdin().lock(), MAX_STDIN_BYTES_V1) {
                 Ok(input) => input,
                 Err(BoundedReadFailure::Io) => {
@@ -628,24 +647,48 @@ fn run_brief(options: BriefOptions) -> Result<ExitCode, CliFailure> {
                 }
             };
             let mut ranker = OpenAiEvidenceRankerV1::from_environment();
-            let session = if hosted_ranking_shadow_enabled() {
-                compile_explicit_stdin_retained_with_shadow_ranker_v1(
-                    &input,
-                    &options.question,
-                    options.token_budget,
-                    identity_seed,
-                    now,
-                    &mut ranker,
-                )
-            } else {
-                compile_explicit_stdin_retained_with_ranker_v1(
-                    &input,
-                    &options.question,
-                    options.token_budget,
-                    identity_seed,
-                    now,
-                    &mut ranker,
-                )
+            let session = match (options.ranking_mode, hosted_ranking_shadow_enabled()) {
+                (CliRankingModeV1::Hosted, true) => {
+                    compile_explicit_stdin_retained_with_shadow_ranker_v1(
+                        &input,
+                        &options.question,
+                        options.token_budget,
+                        identity_seed,
+                        now,
+                        &mut ranker,
+                    )
+                }
+                (CliRankingModeV1::Hosted, false) => {
+                    compile_explicit_stdin_retained_with_ranker_v1(
+                        &input,
+                        &options.question,
+                        options.token_budget,
+                        identity_seed,
+                        now,
+                        &mut ranker,
+                    )
+                }
+                (CliRankingModeV1::HostedIfContended, true) => {
+                    compile_explicit_stdin_retained_with_contended_shadow_ranker_v1(
+                        &input,
+                        &options.question,
+                        options.token_budget,
+                        identity_seed,
+                        now,
+                        &mut ranker,
+                    )
+                }
+                (CliRankingModeV1::HostedIfContended, false) => {
+                    compile_explicit_stdin_retained_with_contended_ranker_v1(
+                        &input,
+                        &options.question,
+                        options.token_budget,
+                        identity_seed,
+                        now,
+                        &mut ranker,
+                    )
+                }
+                (CliRankingModeV1::Deterministic, _) => unreachable!("guarded match arm"),
             }
             .map_err(|error| CliFailure::runtime(error.code()))?;
             if let Some(diagnostics) = session.hosted_ranking_diagnostics() {
@@ -879,7 +922,7 @@ mod tests {
         match parse_args(["brief".into(), "--question".into(), "why?".into()]) {
             Ok(ParseDecision::Run(options)) => {
                 assert_eq!(options.retention, McpRetentionSelectionV1::Memory);
-                assert!(!options.llm_rank);
+                assert_eq!(options.ranking_mode, CliRankingModeV1::Deterministic);
             }
             _ => panic!("expected brief decision"),
         }
@@ -889,9 +932,35 @@ mod tests {
             "why?".into(),
             "--llm-rank".into(),
         ]) {
-            Ok(ParseDecision::Run(options)) => assert!(options.llm_rank),
+            Ok(ParseDecision::Run(options)) => {
+                assert_eq!(options.ranking_mode, CliRankingModeV1::Hosted);
+            }
             _ => panic!("expected hosted-ranking brief decision"),
         }
+        match parse_args([
+            "brief".into(),
+            "--question".into(),
+            "why?".into(),
+            "--llm-rank-if-contended".into(),
+        ]) {
+            Ok(ParseDecision::Run(options)) => {
+                assert_eq!(options.ranking_mode, CliRankingModeV1::HostedIfContended);
+            }
+            _ => panic!("expected contention-gated hosted-ranking brief decision"),
+        }
+        assert_eq!(
+            parse_args([
+                "brief".into(),
+                "--question".into(),
+                "why?".into(),
+                "--llm-rank".into(),
+                "--llm-rank-if-contended".into(),
+            ])
+            .err()
+            .unwrap()
+            .code,
+            "EVIDENTRAIL_CLI_DUPLICATE_OPTION"
+        );
         match parse_args([
             "brief".into(),
             "--question".into(),
