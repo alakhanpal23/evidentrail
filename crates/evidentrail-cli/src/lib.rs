@@ -62,12 +62,13 @@ pub use hosted_ranking::{
     FROZEN_INPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
     FROZEN_OUTPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
     HOSTED_RANKING_CHARACTERIZATION_DEADLINE_V1, HOSTED_RANKING_DEADLINE_V1,
-    HOSTED_RANKING_LATENCY_CHALLENGER_MODEL_V1, HostedRankingDiagnosticRecordV1,
-    LATENCY_CHALLENGER_INPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
+    HOSTED_RANKING_LATENCY_CHALLENGER_MODEL_V1, HOSTED_RANKING_MEASUREMENT_DEADLINE_V2,
+    HostedRankingDiagnosticRecordV1, LATENCY_CHALLENGER_INPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
     LATENCY_CHALLENGER_OUTPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1, OpenAiEvidenceRankerV1,
     PINNED_HOSTED_RANKING_MODEL_V1, hosted_ranking_characterization_configuration_digest_v1,
     hosted_ranking_configuration_digest_v1,
-    hosted_ranking_latency_challenger_configuration_digest_v1, hosted_ranking_provider_digest_v1,
+    hosted_ranking_latency_challenger_configuration_digest_v1,
+    hosted_ranking_measurement_configuration_digest_v2, hosted_ranking_provider_digest_v1,
 };
 #[cfg(unix)]
 pub use mcp::{

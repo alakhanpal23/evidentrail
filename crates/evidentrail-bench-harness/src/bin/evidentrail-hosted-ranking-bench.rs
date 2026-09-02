@@ -5,7 +5,7 @@ use evidentrail_bench_harness::{
     HostedRankingBenchmarkPhaseV1, HostedRankingLatencyCharacterizationReportV1,
     HostedRankingQualificationReportV1, OpenAiHostedDiagnosisReaderV1,
     run_hosted_ranking_latency_challenger_v1, run_hosted_ranking_latency_characterization_v1,
-    run_hosted_ranking_qualification_phase_v1,
+    run_hosted_ranking_measurement_pilot_v2, run_hosted_ranking_qualification_phase_v1,
     run_hosted_ranking_qualification_phase_with_reader_v1,
 };
 use evidentrail_cli::OpenAiEvidenceRankerV1;
@@ -61,10 +61,30 @@ fn run() -> Result<(CommandReportV1, bool), &'static str> {
     // to an 18-call paid pilot.
     let mode = env::args()
         .nth(1)
-        .ok_or("usage_pilot_qualify_characterize_or_challenge_latency")?;
-    if mode != "pilot" && mode != "qualify" && mode != "characterize" && mode != "challenge-latency"
+        .ok_or("usage_measure_pilot_qualify_characterize_or_challenge_latency")?;
+    if mode != "measure"
+        && mode != "pilot"
+        && mode != "qualify"
+        && mode != "characterize"
+        && mode != "challenge-latency"
     {
-        return Err("usage_pilot_qualify_characterize_or_challenge_latency");
+        return Err("usage_measure_pilot_qualify_characterize_or_challenge_latency");
+    }
+    if mode == "measure" {
+        let mut ranker = OpenAiEvidenceRankerV1::for_evaluation_measurement_v2();
+        let pilot =
+            run_hosted_ranking_measurement_pilot_v2(&mut ranker).map_err(|error| error.code())?;
+        let success = pilot.measurement_completed();
+        return Ok((
+            CommandReportV1::Qualification(Box::new(RunReportV1 {
+                schema_version: 1,
+                mode: "measure",
+                scored_skipped_reason: Some("measurement_only_no_admission"),
+                pilot,
+                scored: None,
+            })),
+            success,
+        ));
     }
     if mode == "characterize" {
         let mut ranker = OpenAiEvidenceRankerV1::for_nonqualifying_latency_characterization_v1();

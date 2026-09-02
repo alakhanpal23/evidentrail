@@ -16,6 +16,7 @@ files supplied outside the repository.
 | `value` | 0 | $0 | Frozen eight-incident matched-budget evidence recall against raw, grep/head-tail, quota hybrid, BM25F, and the exact oracle; plus three executable incidents through a deterministic fixture agent and independent repair verifier |
 | `preflight` | 0 | $0 | Formatting, Clippy, all workspace targets/features, Rustdoc, wire schemas, feature partitions, RustSec audit, deterministic production shadow, 10K/100K memory probes, 10K/100K/1M repository probes, and the ignored one-million-record evidence gate |
 | `live-latency-challenge` | 3 | $0.03 | Non-qualifying go/no-go latency screen of dated `gpt-5.4-nano-2026-03-17` at the unchanged 800 ms deadline; this cannot repin or admit a model |
+| `live-ranking-measure` | 18 | $0.18 | Repeated six-family ranking measurement with three randomized repetitions, all three consumers, and a 15-second per-call hang ceiling; records p50/p95/p99 without granting admission |
 | `live-demo-pilot` | 18 | $0.18 | Evaluation-contract screen over three incidents and three matched arms with two repetitions; all 18 structured responses must validate before a full demo is justified |
 | `live-demo` | 180 | $1.80 | Three executable synthetic incidents × three matched 7,000-byte arms × 20 repetitions through one persistent GPT-5.4 nano reader, using a balanced randomized crossover schedule and paired outcome bounds |
 | `live-pilot` | 21 | $0.21 | 18 frozen ranking calls over six fault families plus three calls through the public production selector |
@@ -45,6 +46,9 @@ It does not use account-dependent Fast/Priority processing.
 - No prompt, response, question, log, evidence bytes, or provider request ID is
   serialized by the live benchmark reports.
 - Calls are sequential through persistent clients. There is no retry.
+- `live-ranking-measure` treats the preregistered one-second latency gate as an
+  observation. It succeeds only on structural validity, integrity,
+  adversarial, and cost gates and always leaves production admission false.
 - The evaluation-only live reader uses a 15-second deadline, locally
   canonicalizes set-like output fields, and scores a frozen semantic cause
   contract separately from exact private-label spelling.
@@ -140,7 +144,19 @@ prediction that the run will cost that amount. To limit the first paid step to
 21 calls, use `live-pilot` with a `210000` micro-USD ceiling instead.
 
 Because the current pinned candidate previously missed 800 ms on every pilot
-call, the cost-efficient next experiment is the three-call latency challenger:
+call, measure the actual repeated ranking distribution before choosing a
+product SLO:
+
+```sh
+export EVIDENTRAIL_LIVE_TEST_APPROVAL=I_APPROVE_OPENAI_RESPONSES_CHARGES_AND_SYNTHETIC_EGRESS
+export EVIDENTRAIL_LIVE_TEST_BUDGET_MICROUSD=180000
+scripts/production-qualification.sh live-ranking-measure
+```
+
+This makes 18 calls with a 15-second safety ceiling, not an admission target.
+The contentless decision reports p50/p95/p99, validity, cost, fallbacks, and
+whether the old one-second SLO would have passed. An optional three-call dated
+model challenger remains available:
 
 ```sh
 export EVIDENTRAIL_LIVE_TEST_APPROVAL=I_APPROVE_OPENAI_RESPONSES_CHARGES_AND_SYNTHETIC_EGRESS
@@ -162,6 +178,8 @@ files include:
 - `hosted-ranking-pilot.json` or `hosted-ranking-qualification.json`;
 - `hosted-latency-challenger.json` and `latency-challenger-decision.json` for
   the optional three-call screen;
+- `hosted-ranking-measurement.json` and
+  `hosted-ranking-measurement-decision.json` for the repeated measurement;
 - `live-product-demo.json` and `live-demo-decision.json` for the 180-call paired
   live-reader comparison;
 - `live-product-demo-pilot.json` and `live-demo-pilot-decision.json` for the

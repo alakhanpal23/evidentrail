@@ -16,7 +16,8 @@ use evidentrail_cli::{
     compile_explicit_stdin_retained_with_shadow_consumer_v1,
     hosted_ranking_characterization_configuration_digest_v1,
     hosted_ranking_configuration_digest_v1,
-    hosted_ranking_latency_challenger_configuration_digest_v1, hosted_ranking_provider_digest_v1,
+    hosted_ranking_latency_challenger_configuration_digest_v1,
+    hosted_ranking_measurement_configuration_digest_v2, hosted_ranking_provider_digest_v1,
 };
 use evidentrail_core::{ExpansionRelationV1, UnixTimestampNanos};
 use evidentrail_evidence::escape_evidence_bytes;
@@ -249,6 +250,16 @@ impl HostedRankingQualificationReportV1 {
             && self.latency_gate
             && self.cost_gate
     }
+
+    /// Evaluation completion ignores the preregistered one-second production
+    /// SLO while retaining integrity, validity, adversarial, and cost gates.
+    #[must_use]
+    pub const fn measurement_completed(&self) -> bool {
+        self.integrity_gate
+            && self.adversarial_preflight_gate
+            && self.valid_response_gate
+            && self.cost_gate
+    }
 }
 
 /// Contentless output from the deliberately non-qualifying, longer-deadline
@@ -349,6 +360,24 @@ struct AttemptMeasurementV1 {
     diagnoses: Option<DiagnosisAttemptMeasurementV1>,
 }
 
+#[derive(Clone, Copy)]
+struct RankingRunPolicyV1 {
+    qualification_scope: &'static str,
+    configuration_digest: [u8; 32],
+    qualification_eligible: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ReportContextV1 {
+    phase: HostedRankingBenchmarkPhaseV1,
+    corpus_digest: ArtifactDigest,
+    manifest_digest: ArtifactDigest,
+    adversarial_preflight_gate: bool,
+    provider_calls: u64,
+    diagnosis_provider_calls: u64,
+    policy: RankingRunPolicyV1,
+}
+
 struct DiagnosisArmMeasurementV1 {
     valid: bool,
     successful: bool,
@@ -421,7 +450,34 @@ pub fn run_hosted_ranking_qualification_phase_v1<R: EvidenceRankerV1>(
     phase: HostedRankingBenchmarkPhaseV1,
     ranker: &mut R,
 ) -> Result<HostedRankingQualificationReportV1, HostedRankingQualificationErrorV1> {
-    run_phase_v1::<R, ClosedDiagnosisReaderV1>(phase, ranker, None)
+    run_phase_v1::<R, ClosedDiagnosisReaderV1>(
+        phase,
+        ranker,
+        None,
+        RankingRunPolicyV1 {
+            qualification_scope: "synthetic_conformance_only_no_population_claim_v1",
+            configuration_digest: hosted_ranking_configuration_digest_v1(),
+            qualification_eligible: true,
+        },
+    )
+}
+
+/// Run the repeated pilot corpus with a bounded measurement-only adapter. The
+/// one-second latency gate is still reported, but cannot prevent collection of
+/// quality, validity, cost, and observed-latency evidence or admit production.
+pub fn run_hosted_ranking_measurement_pilot_v2<R: EvidenceRankerV1>(
+    ranker: &mut R,
+) -> Result<HostedRankingQualificationReportV1, HostedRankingQualificationErrorV1> {
+    run_phase_v1::<R, ClosedDiagnosisReaderV1>(
+        HostedRankingBenchmarkPhaseV1::Pilot,
+        ranker,
+        None,
+        RankingRunPolicyV1 {
+            qualification_scope: "synthetic_measurement_only_no_admission_v2",
+            configuration_digest: hosted_ranking_measurement_configuration_digest_v2(),
+            qualification_eligible: false,
+        },
+    )
 }
 
 /// Run a frozen phase with the downstream hosted-reader outcome contract.
@@ -435,7 +491,16 @@ pub fn run_hosted_ranking_qualification_phase_with_reader_v1<
     ranker: &mut R,
     reader: &mut D,
 ) -> Result<HostedRankingQualificationReportV1, HostedRankingQualificationErrorV1> {
-    run_phase_v1(phase, ranker, Some(reader))
+    run_phase_v1(
+        phase,
+        ranker,
+        Some(reader),
+        RankingRunPolicyV1 {
+            qualification_scope: "synthetic_conformance_only_no_population_claim_v1",
+            configuration_digest: hosted_ranking_configuration_digest_v1(),
+            qualification_eligible: true,
+        },
+    )
 }
 
 /// Measure whether the same frozen hosted request returns in roughly one
@@ -487,6 +552,7 @@ fn run_latency_characterization_v1<R: EvidenceRankerV1>(
             attempt_seed_v1(HostedRankingBenchmarkPhaseV1::Pilot, 0, repetition),
             ranker,
             None,
+            configuration_digest,
         )?);
     }
 
@@ -596,10 +662,16 @@ fn run_phase_v1<R: EvidenceRankerV1, D: HostedDiagnosisReaderV1>(
     phase: HostedRankingBenchmarkPhaseV1,
     ranker: &mut R,
     mut reader: Option<&mut D>,
+    policy: RankingRunPolicyV1,
 ) -> Result<HostedRankingQualificationReportV1, HostedRankingQualificationErrorV1> {
     let corpus = frozen_corpus_v1(phase)?;
     let corpus_digest = corpus_digest_v1(phase, &corpus);
-    let manifest_digest = qualification_manifest_digest_v1(phase, corpus_digest);
+    let manifest_digest = qualification_manifest_digest_v1(
+        phase,
+        corpus_digest,
+        policy.configuration_digest,
+        policy.qualification_scope,
+    );
     let adversarial_preflight_gate = adversarial_preflight_v1()?;
     let mut attempts = Vec::with_capacity(
         corpus
@@ -634,7 +706,14 @@ fn run_phase_v1<R: EvidenceRankerV1, D: HostedDiagnosisReaderV1>(
                 return Err(HostedRankingQualificationErrorV1::CostGuard);
             }
             let seed = attempt_seed_v1(phase, case_index, repetition);
-            let attempt = run_attempt_v1(case, repetition, seed, ranker, reader.as_deref_mut())?;
+            let attempt = run_attempt_v1(
+                case,
+                repetition,
+                seed,
+                ranker,
+                reader.as_deref_mut(),
+                policy.configuration_digest,
+            )?;
             provider_calls = next_calls;
             diagnosis_provider_calls = diagnosis_provider_calls
                 .checked_add(attempt.diagnostic.diagnosis_provider_call_count)
@@ -643,12 +722,15 @@ fn run_phase_v1<R: EvidenceRankerV1, D: HostedDiagnosisReaderV1>(
         }
     }
     Ok(evaluate_report_v1(
-        phase,
-        corpus_digest,
-        manifest_digest,
-        adversarial_preflight_gate,
-        provider_calls,
-        diagnosis_provider_calls,
+        ReportContextV1 {
+            phase,
+            corpus_digest,
+            manifest_digest,
+            adversarial_preflight_gate,
+            provider_calls,
+            diagnosis_provider_calls,
+            policy,
+        },
         attempts,
     ))
 }
@@ -659,6 +741,7 @@ fn run_attempt_v1<R: EvidenceRankerV1, D: HostedDiagnosisReaderV1>(
     randomization_seed: u64,
     ranker: &mut R,
     reader: Option<&mut D>,
+    expected_configuration_digest: [u8; 32],
 ) -> Result<AttemptMeasurementV1, HostedRankingQualificationErrorV1> {
     let identity_seed = identity_seed_v1(case.digest, repetition);
     let now = UnixTimestampNanos::new(FIXED_NOW_V1 + i128::from(repetition));
@@ -764,7 +847,15 @@ fn run_attempt_v1<R: EvidenceRankerV1, D: HostedDiagnosisReaderV1>(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let all_integrity = deterministic.integrity && consumers.iter().all(|arm| arm.integrity);
+    let ranker_identity_integrity = diagnostics
+        .provider_digest()
+        .is_none_or(|digest| digest == hosted_ranking_provider_digest_v1())
+        && diagnostics
+            .configuration_digest()
+            .is_none_or(|digest| digest == expected_configuration_digest);
+    let all_integrity = ranker_identity_integrity
+        && deterministic.integrity
+        && consumers.iter().all(|arm| arm.integrity);
     Ok(AttemptMeasurementV1 {
         diagnostic: HostedRankingAttemptDiagnosticV1 {
             case_digest_hex: hex_v1(case.digest.as_bytes()),
@@ -948,14 +1039,18 @@ fn validate_expansions_v1(
 }
 
 fn evaluate_report_v1(
-    phase: HostedRankingBenchmarkPhaseV1,
-    corpus_digest: ArtifactDigest,
-    manifest_digest: ArtifactDigest,
-    adversarial_preflight_gate: bool,
-    provider_calls: u64,
-    diagnosis_provider_calls: u64,
+    context: ReportContextV1,
     attempts: Vec<AttemptMeasurementV1>,
 ) -> HostedRankingQualificationReportV1 {
+    let ReportContextV1 {
+        phase,
+        corpus_digest,
+        manifest_digest,
+        adversarial_preflight_gate,
+        provider_calls,
+        diagnosis_provider_calls,
+        policy,
+    } = context;
     let valid_count = attempts
         .iter()
         .filter(|attempt| {
@@ -1216,7 +1311,8 @@ fn evaluate_report_v1(
             *fallbacks.entry(reason).or_insert(0) += 1;
         }
     }
-    let qualification_passed = integrity_gate
+    let qualification_passed = policy.qualification_eligible
+        && integrity_gate
         && adversarial_preflight_gate
         && valid_response_gate
         && latency_gate
@@ -1229,11 +1325,11 @@ fn evaluate_report_v1(
     HostedRankingQualificationReportV1 {
         schema_version: HOSTED_RANKING_QUALIFICATION_SCHEMA_VERSION_V1,
         phase,
-        qualification_scope: "synthetic_conformance_only_no_population_claim_v1",
+        qualification_scope: policy.qualification_scope,
         qualification_manifest_digest_hex: hex_v1(manifest_digest.as_bytes()),
         corpus_digest_hex: hex_v1(corpus_digest.as_bytes()),
         provider_digest_hex: hex_v1(&hosted_ranking_provider_digest_v1()),
-        configuration_digest_hex: hex_v1(&hosted_ranking_configuration_digest_v1()),
+        configuration_digest_hex: hex_v1(&policy.configuration_digest),
         case_count: phase.case_count(),
         repeats: HOSTED_RANKING_QUALIFICATION_REPEATS_V1,
         provider_call_count: provider_calls,
@@ -1536,12 +1632,15 @@ fn corpus_digest_v1(
 fn qualification_manifest_digest_v1(
     phase: HostedRankingBenchmarkPhaseV1,
     corpus_digest: ArtifactDigest,
+    ranking_configuration_digest: [u8; 32],
+    qualification_scope: &'static str,
 ) -> ArtifactDigest {
     let mut hasher = Sha256::new();
     hasher.update(MANIFEST_DOMAIN_V1);
     hasher.update(phase.code().as_bytes());
     hasher.update(corpus_digest.as_bytes());
-    hasher.update(hosted_ranking_configuration_digest_v1());
+    hasher.update(ranking_configuration_digest);
+    hasher.update(qualification_scope.as_bytes());
     hasher.update(hosted_diagnosis_configuration_digest_v1());
     for value in [
         u64::from(HOSTED_RANKING_QUALIFICATION_SCHEMA_VERSION_V1),
@@ -1772,7 +1871,9 @@ mod tests {
         }
     }
 
-    struct SemanticRankerV1;
+    struct SemanticRankerV1 {
+        configuration_digest: [u8; 32],
+    }
 
     impl EvidenceRankerV1 for SemanticRankerV1 {
         fn rank(
@@ -1812,7 +1913,7 @@ mod tests {
             Ok(EvidenceRankerOutputV1::new(
                 response,
                 hosted_ranking_provider_digest_v1(),
-                hosted_ranking_configuration_digest_v1(),
+                self.configuration_digest,
                 10_000_000,
                 Some(2_000),
                 Some(100),
@@ -1850,7 +1951,9 @@ mod tests {
 
     #[test]
     fn one_response_drives_three_consumers_and_shadow_remains_identical() {
-        let mut ranker = SemanticRankerV1;
+        let mut ranker = SemanticRankerV1 {
+            configuration_digest: hosted_ranking_configuration_digest_v1(),
+        };
         let report = run_hosted_ranking_qualification_phase_v1(
             HostedRankingBenchmarkPhaseV1::Pilot,
             &mut ranker,
@@ -1884,7 +1987,9 @@ mod tests {
 
     #[test]
     fn hosted_reader_closes_diagnosis_gate_without_serializing_answers() {
-        let mut ranker = SemanticRankerV1;
+        let mut ranker = SemanticRankerV1 {
+            configuration_digest: hosted_ranking_configuration_digest_v1(),
+        };
         let mut reader = SemanticDiagnosisReaderV1;
         let report = run_hosted_ranking_qualification_phase_with_reader_v1(
             HostedRankingBenchmarkPhaseV1::Pilot,
@@ -1932,8 +2037,40 @@ mod tests {
     }
 
     #[test]
+    fn repeated_measurement_collects_results_without_granting_admission() {
+        let mut ranker = SemanticRankerV1 {
+            configuration_digest: hosted_ranking_measurement_configuration_digest_v2(),
+        };
+        let report = run_hosted_ranking_measurement_pilot_v2(&mut ranker).unwrap();
+        assert!(report.measurement_completed());
+        assert!(!report.qualification_passed());
+        assert_eq!(
+            report.qualification_scope,
+            "synthetic_measurement_only_no_admission_v2"
+        );
+        assert_eq!(
+            report.configuration_digest_hex,
+            hex_v1(&hosted_ranking_measurement_configuration_digest_v2())
+        );
+        assert_eq!(report.provider_call_count, 18);
+    }
+
+    #[test]
+    fn repeated_measurement_rejects_a_foreign_configuration_identity() {
+        let mut ranker = SemanticRankerV1 {
+            configuration_digest: hosted_ranking_configuration_digest_v1(),
+        };
+        let report = run_hosted_ranking_measurement_pilot_v2(&mut ranker).unwrap();
+        assert!(!report.measurement_completed());
+        assert!(!report.integrity_gate);
+        assert!(!report.qualification_passed());
+    }
+
+    #[test]
     fn latency_characterization_is_small_contentless_and_never_qualifies() {
-        let mut ranker = SemanticRankerV1;
+        let mut ranker = SemanticRankerV1 {
+            configuration_digest: hosted_ranking_characterization_configuration_digest_v1(),
+        };
         let report = run_hosted_ranking_latency_characterization_v1(&mut ranker).unwrap();
         assert!(report.completed());
         assert_eq!(report.call_count, 3);
@@ -1964,7 +2101,9 @@ mod tests {
 
     #[test]
     fn latency_challenger_keeps_production_deadline_and_never_qualifies() {
-        let mut ranker = SemanticRankerV1;
+        let mut ranker = SemanticRankerV1 {
+            configuration_digest: hosted_ranking_latency_challenger_configuration_digest_v1(),
+        };
         let report = run_hosted_ranking_latency_challenger_v1(&mut ranker).unwrap();
         assert!(report.completed());
         assert!(report.observed_within_production_deadline());

@@ -109,6 +109,10 @@ synthetic pilot timed out on all 18 calls at 800 ms, while the separate
 three-call measurement-only characterization returned valid rankings at
 1.501–2.236 seconds end-to-end. Selective escalation reduces unnecessary
 egress; it does not repair that latency failure or establish an accuracy gain.
+The repeated `live-ranking-measure` stage removes that censoring from the
+evaluation: it uses a 15-second safety ceiling across the complete 18-call
+pilot and reports the legacy one-second SLO as an observation, never as a
+condition for collecting quality evidence or as production admission.
 
 Before beta admission, the frozen benchmark must add the selective-escalation
 arm and report its eligible-call rate, avoided-call rate, false-negative
@@ -175,6 +179,23 @@ This answers only whether successful responses arrive below 800 ms, between
 800 ms and one second, between one and two seconds, between two and five
 seconds, or still fail at five seconds. Exit status `0` means all three calls
 returned structurally valid rankings; it is not a qualification pass.
+
+### Repeated ranking measurement
+
+The measurement-only v2 path exercises all six pilot families, three candidate
+permutations per case, and all three deterministic consumers through one
+persistent client. Its 15-second request ceiling prevents hung calls; it is not
+a latency target. The command exits successfully only when validity, integrity,
+adversarial, and cost checks pass. The report still records whether the legacy
+one-second SLO would have passed, while `qualification_passed` remains false.
+
+```sh
+scripts/production-qualification.sh live-ranking-measure
+```
+
+Use its p50/p95/p99 distribution to declare an interactive or asynchronous
+product SLO before changing the production adapter. Do not infer a production
+timeout from one best-case request.
 
 Every scored arm must pass byte, citation/expansion, ID, mandatory-evidence,
 and budget integrity. Malformed response, duplicate ID, foreign ID,

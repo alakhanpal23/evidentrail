@@ -127,7 +127,7 @@ pub use hosted_ranking_qualification::{
     HostedRankingLatencyCharacterizationReportV1, HostedRankingQualificationErrorV1,
     HostedRankingQualificationReportV1, HostedRankingSyntheticFamilyV1,
     run_hosted_ranking_latency_challenger_v1, run_hosted_ranking_latency_characterization_v1,
-    run_hosted_ranking_qualification_phase_v1,
+    run_hosted_ranking_measurement_pilot_v2, run_hosted_ranking_qualification_phase_v1,
     run_hosted_ranking_qualification_phase_with_reader_v1,
 };
 pub use hosted_reader_compression::{

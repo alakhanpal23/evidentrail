@@ -146,6 +146,10 @@ approved synthetic characterization returned valid rankings but took
 deadline. No hosted accuracy improvement has yet been established. See the
 [hosted ranking contract](docs/HOSTED_EVIDENCE_RANKING.md) and
 [selective-ranking release gates](docs/SELECTIVE_HOSTED_RANKING_RELEASE_PLAN.md).
+The `live-ranking-measure` stage therefore runs the full 18-call pilot corpus
+with a 15-second hang ceiling and treats latency as an observation: it can
+complete on validity, integrity, and cost without granting production
+admission. Its p50/p95/p99 results are the evidence used to set a product SLO.
 The qualification program includes an optional three-call, evaluation-only
 screen of the dated `gpt-5.4-nano-2026-03-17` snapshot at the same 800 ms
 deadline. That model is documented for speed-sensitive ranking workloads, but

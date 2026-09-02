@@ -24,6 +24,10 @@ pub const HOSTED_RANKING_DEADLINE_V1: Duration = Duration::from_millis(800);
 /// Evaluation-only deadline for measuring the latency distribution after the
 /// production deadline has already disqualified a configuration.
 pub const HOSTED_RANKING_CHARACTERIZATION_DEADLINE_V1: Duration = Duration::from_secs(5);
+/// Evaluation-only ceiling that prevents a hung provider request while leaving
+/// enough room to observe the useful latency distribution. This is not a
+/// product SLO and is not selectable from CLI or MCP product surfaces.
+pub const HOSTED_RANKING_MEASUREMENT_DEADLINE_V2: Duration = Duration::from_secs(15);
 
 const OPENAI_RESPONSES_ENDPOINT_V1: &str = "https://api.openai.com/v1/responses";
 const MAX_HOSTED_PROVIDER_ENVELOPE_BYTES_V1: usize = 64 * 1024;
@@ -155,6 +159,36 @@ impl OpenAiEvidenceRankerV1 {
             output_price_microusd_per_million_tokens:
                 FROZEN_OUTPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
             configuration_digest: hosted_ranking_characterization_configuration_digest_v1(),
+        }
+    }
+
+    /// Build the synthetic evaluation adapter used by the repeated ranking
+    /// measurement. Its configuration cannot qualify or alter production.
+    #[must_use]
+    pub fn for_evaluation_measurement_v2() -> Self {
+        let disabled =
+            env::var_os("EVIDENTRAIL_HOSTED_RANKING_DISABLED").is_some_and(|value| value == "1");
+        let api_key = env::var("OPENAI_API_KEY")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .map(Zeroizing::new);
+        let client = Client::builder()
+            .connect_timeout(HOSTED_RANKING_MEASUREMENT_DEADLINE_V2)
+            .timeout(HOSTED_RANKING_MEASUREMENT_DEADLINE_V2)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .ok();
+        Self {
+            client,
+            api_key,
+            endpoint: OPENAI_RESPONSES_ENDPOINT_V1.to_owned(),
+            disabled,
+            model: PINNED_HOSTED_RANKING_MODEL_V1,
+            input_price_microusd_per_million_tokens:
+                FROZEN_INPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
+            output_price_microusd_per_million_tokens:
+                FROZEN_OUTPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
+            configuration_digest: hosted_ranking_measurement_configuration_digest_v2(),
         }
     }
 
@@ -416,6 +450,22 @@ pub fn hosted_ranking_characterization_configuration_digest_v1() -> [u8; 32] {
 }
 
 #[must_use]
+pub fn hosted_ranking_measurement_configuration_digest_v2() -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"evidentrail/openai-evidence-ranker/measurement/v2\0");
+    for value in [
+        PINNED_HOSTED_RANKING_MODEL_V1.as_bytes(),
+        OPENAI_RESPONSES_ENDPOINT_V1.as_bytes(),
+        INSTRUCTIONS_V1.as_bytes(),
+        b"qualification_eligible=false;store=false;reasoning=none;tools=none;strict=true;max_output_tokens=512;deadline_ms=15000;max_candidates=32;escaped_input_bytes=40960;provider_envelope_bytes=65536;input_price_microusd_per_million=200000;output_price_microusd_per_million=1200000;purpose=repeated_latency_quality_measurement_only",
+    ] {
+        hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
+        hasher.update(value);
+    }
+    hasher.finalize().into()
+}
+
+#[must_use]
 pub fn hosted_ranking_latency_challenger_configuration_digest_v1() -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"evidentrail/openai-evidence-ranker/latency-challenger/v1\0");
@@ -522,6 +572,15 @@ mod tests {
         assert_ne!(
             hosted_ranking_configuration_digest_v1(),
             hosted_ranking_latency_challenger_configuration_digest_v1()
+        );
+        assert_ne!(
+            hosted_ranking_configuration_digest_v1(),
+            hosted_ranking_measurement_configuration_digest_v2()
+        );
+        let measurement = OpenAiEvidenceRankerV1::for_evaluation_measurement_v2();
+        assert_eq!(
+            measurement.configuration_digest,
+            hosted_ranking_measurement_configuration_digest_v2()
         );
         let challenger = OpenAiEvidenceRankerV1::for_nonqualifying_latency_challenger_v1();
         assert_eq!(challenger.model, HOSTED_RANKING_LATENCY_CHALLENGER_MODEL_V1);

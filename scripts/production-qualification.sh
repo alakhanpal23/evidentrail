@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly APPROVAL_SENTINEL="I_APPROVE_OPENAI_RESPONSES_CHARGES_AND_SYNTHETIC_EGRESS"
 readonly LATENCY_CHALLENGE_GUARD_MICROUSD=30000
+readonly LIVE_RANKING_MEASUREMENT_GUARD_MICROUSD=180000
 readonly LIVE_DEMO_PILOT_GUARD_MICROUSD=180000
 readonly LIVE_DEMO_GUARD_MICROUSD=1800000
 readonly PILOT_GUARD_MICROUSD=210000
@@ -13,11 +14,12 @@ readonly LIVE_CAMPAIGN_GUARD_MICROUSD=6640000
 
 usage() {
   cat >&2 <<'EOF'
-usage: scripts/production-qualification.sh <value|preflight|live-latency-challenge|live-demo-pilot|live-demo|live-pilot|live-qualify|live-soak|live-campaign|all>
+usage: scripts/production-qualification.sh <value|preflight|live-latency-challenge|live-ranking-measure|live-demo-pilot|live-demo|live-pilot|live-qualify|live-soak|live-campaign|all>
 
 value          no-cost matched-budget product-value report
 preflight      offline product, contract, security, scale, and release checks
 live-latency-challenge  3-call dated model screen at the unchanged 800 ms deadline
+live-ranking-measure  18-call ranking quality/latency measurement with a 15-second safety ceiling
 live-demo-pilot  18-call evaluation-contract pilot with a 15-second deadline
 live-demo      180-call paired live-reader product-value demonstration
 live-pilot     18-call benchmark pilot plus 3-call production-path smoke
@@ -36,7 +38,7 @@ EOF
 [[ $# -eq 1 ]] || usage
 readonly MODE="$1"
 case "$MODE" in
-  value|preflight|live-latency-challenge|live-demo-pilot|live-demo|live-pilot|live-qualify|live-soak|live-campaign|all) ;;
+  value|preflight|live-latency-challenge|live-ranking-measure|live-demo-pilot|live-demo|live-pilot|live-qualify|live-soak|live-campaign|all) ;;
   *) usage ;;
 esac
 
@@ -258,6 +260,31 @@ run_live_latency_challenge() {
   return "$status"
 }
 
+run_live_ranking_measurement() {
+  require_live_authorization "$LIVE_RANKING_MEASUREMENT_GUARD_MICROUSD"
+  require_clean_checkout
+  build_live_binaries
+  unset EVIDENTRAIL_HOSTED_RANKING_DISABLED
+  export EVIDENTRAIL_SYNTHETIC_HOSTED_BENCHMARK=1
+  export EVIDENTRAIL_HOSTED_RANKING_SHADOW=1
+
+  echo "LIVE_RANKING_MEASUREMENT_START calls=18 per_call_safety_ceiling_seconds=15"
+  set +e
+  target/release/evidentrail-hosted-ranking-bench measure \
+    > "$RUN_DIR/hosted-ranking-measurement.json"
+  local status=$?
+  set -e
+  jq empty "$RUN_DIR/hosted-ranking-measurement.json"
+  record_exit "hosted_ranking_measurement" "$status"
+  jq \
+    '{schema_version:1,scope:"synthetic_ranking_measurement_only_v2",ranking_attempt_count:.pilot.provider_call_count,valid_response_rate_micros:.pilot.valid_response_rate_micros,p50_end_to_end_nanos:.pilot.p50_end_to_end_nanos,p95_end_to_end_nanos:.pilot.p95_end_to_end_nanos,p99_end_to_end_nanos:.pilot.p99_end_to_end_nanos,p95_cost_microusd:.pilot.p95_cost_microusd,fallbacks:.pilot.fallbacks,integrity_gate:.pilot.integrity_gate,valid_response_gate:.pilot.valid_response_gate,cost_gate:.pilot.cost_gate,legacy_one_second_slo_observation:.pilot.latency_gate,measurement_accepted:(.pilot.integrity_gate and .pilot.adversarial_preflight_gate and .pilot.valid_response_gate and .pilot.cost_gate),production_admission:false,next_step:(if (.pilot.integrity_gate and .pilot.adversarial_preflight_gate and .pilot.valid_response_gate and .pilot.cost_gate) then "review_observed_latency_and_set_product_slo_before_admission" else "repair_validity_integrity_or_cost_before_more_spend" end)}' \
+    "$RUN_DIR/hosted-ranking-measurement.json" \
+    > "$RUN_DIR/hosted-ranking-measurement-decision.json"
+  jq . "$RUN_DIR/hosted-ranking-measurement-decision.json"
+  echo "LIVE_RANKING_MEASUREMENT_COMPLETE exit_status=$status"
+  return "$status"
+}
+
 run_live_pilot() {
   require_live_authorization "$PILOT_GUARD_MICROUSD"
   require_clean_checkout
@@ -427,6 +454,9 @@ case "$MODE" in
     ;;
   live-latency-challenge)
     run_live_latency_challenge
+    ;;
+  live-ranking-measure)
+    run_live_ranking_measurement
     ;;
   live-demo-pilot)
     run_live_demo_pilot
