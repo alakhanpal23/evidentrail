@@ -348,7 +348,7 @@ pub enum RankingConsumerV1 {
 /// Deterministic application policy controlling whether an explicitly enabled
 /// hosted ranker may be contacted after passthrough and feasibility gates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HostedRankingEscalationPolicyV1 {
+pub(crate) enum HostedRankingEscalationPolicyV1 {
     /// Attempt ranking whenever at least two optional candidates are eligible.
     AlwaysEligible,
     /// Attempt ranking only when a model-visible optional candidate was

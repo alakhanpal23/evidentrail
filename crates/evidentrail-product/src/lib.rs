@@ -22,10 +22,11 @@ pub use encrypted_retention::{
     AuthenticatedEncryptedRetentionErrorV1, AuthenticatedEncryptedRetentionV1,
     AuthenticatedRetentionExpansionV1, AuthenticatedRetentionPublicationV1,
 };
+use hosted_ranking::HostedRankingEscalationPolicyV1;
 pub use hosted_ranking::{
     EVIDENCE_RANKING_SCHEMA_VERSION_V1, EvidenceRankerFailureV1, EvidenceRankerOutputV1,
     EvidenceRankerV1, EvidenceRankingCandidateV1, EvidenceRankingRequestV1,
-    HostedRankingDiagnosticsV1, HostedRankingEscalationPolicyV1, MAX_HOSTED_RANKING_CANDIDATES_V1,
+    HostedRankingDiagnosticsV1, MAX_HOSTED_RANKING_CANDIDATES_V1,
     MAX_HOSTED_RANKING_ESCAPED_INPUT_BYTES_V1, MAX_HOSTED_RANKING_RESPONSE_BYTES_V1,
     RankingConsumerV1, RankingValidationErrorV1, ValidatedEvidenceRankingV1,
     consume_evidence_ranking_v1, ranking_priorities_v1, validate_evidence_ranking_response_v1,
@@ -1101,34 +1102,16 @@ impl MemoryProductV1 {
         total_token_limit: u64,
         ranker: &mut R,
     ) -> Result<DeterministicProductDecisionV1, ProductError> {
-        TotalTokenBudgetV1::new(total_token_limit).map_err(ProductError::TokenBudget)?;
-        let tokenizer = Utf8ByteTokenizerV1::new();
-        let initial = self.create_result(
+        self.create_ranked_result_for_application_v1(
             result_id,
             question_bytes,
             ledger,
             now,
             total_token_limit,
-            &tokenizer,
-        )?;
-        let required = match initial {
-            ProductResultDecisionV1::Rendered(rendered) => {
-                return Ok(DeterministicProductDecisionV1::Passthrough(rendered));
-            }
-            ProductResultDecisionV1::CompilationRequired(required) => required,
-        };
-        self.compile_retained_miss_v1(
-            result_id,
-            question_bytes,
-            *required,
-            now,
-            &tokenizer,
-            Some(HostedRankingAttemptV1 {
-                ranker,
-                application: HostedRankingApplicationV1::Apply,
-                consumer: RankingConsumerV1::BoundedFourthAffinity,
-                escalation_policy: HostedRankingEscalationPolicyV1::AlwaysEligible,
-            }),
+            ranker,
+            HostedRankingApplicationV1::Apply,
+            RankingConsumerV1::BoundedFourthAffinity,
+            HostedRankingEscalationPolicyV1::AlwaysEligible,
         )
     }
 
@@ -1169,34 +1152,16 @@ impl MemoryProductV1 {
         total_token_limit: u64,
         ranker: &mut R,
     ) -> Result<DeterministicProductDecisionV1, ProductError> {
-        TotalTokenBudgetV1::new(total_token_limit).map_err(ProductError::TokenBudget)?;
-        let tokenizer = Utf8ByteTokenizerV1::new();
-        let initial = self.create_result(
+        self.create_ranked_result_for_application_v1(
             result_id,
             question_bytes,
             ledger,
             now,
             total_token_limit,
-            &tokenizer,
-        )?;
-        let required = match initial {
-            ProductResultDecisionV1::Rendered(rendered) => {
-                return Ok(DeterministicProductDecisionV1::Passthrough(rendered));
-            }
-            ProductResultDecisionV1::CompilationRequired(required) => required,
-        };
-        self.compile_retained_miss_v1(
-            result_id,
-            question_bytes,
-            *required,
-            now,
-            &tokenizer,
-            Some(HostedRankingAttemptV1 {
-                ranker,
-                application: HostedRankingApplicationV1::Shadow,
-                consumer: RankingConsumerV1::BoundedFourthAffinity,
-                escalation_policy: HostedRankingEscalationPolicyV1::AlwaysEligible,
-            }),
+            ranker,
+            HostedRankingApplicationV1::Shadow,
+            RankingConsumerV1::BoundedFourthAffinity,
+            HostedRankingEscalationPolicyV1::AlwaysEligible,
         )
     }
 
