@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "data_classification": "synthetic_c0",
+  "local_processing_only": true,
+  "hosted_egress": false,
+  "content_telemetry": false,
+  "retention": "memory_only",
+  "repetitions": 3,
+  "cases": [
+    {
+      "log_file": "synthetic-incident.log",
+      "question_file": "question.txt",
+      "required_evidence_files": ["required-timeout.txt"],
+      "token_budget": 20000,
+      "protected_slice": true
+    }
+  ]
+}

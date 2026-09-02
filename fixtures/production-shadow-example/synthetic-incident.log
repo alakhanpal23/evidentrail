@@ -1,0 +1,5 @@
+2026-09-02T10:00:00Z INFO service=checkout request=req-synthetic-7 phase=start
+2026-09-02T10:00:01Z INFO service=checkout request=req-synthetic-7 dependency=inventory status=ok
+2026-09-02T10:00:02Z WARN service=checkout request=req-synthetic-7 dependency=payments latency_ms=4800
+2026-09-02T10:00:03Z ERROR service=checkout request=req-synthetic-7 payment timeout cause=pool_exhausted
+2026-09-02T10:00:03Z INFO service=checkout request=req-synthetic-7 rollback=completed

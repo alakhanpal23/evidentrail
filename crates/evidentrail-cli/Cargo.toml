@@ -35,3 +35,7 @@ workspace = true
 [[bin]]
 name = "evidentrail"
 path = "src/main.rs"
+
+[[bin]]
+name = "evidentrail-production-shadow"
+path = "src/bin/evidentrail-production-shadow.rs"

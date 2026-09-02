@@ -200,6 +200,11 @@ claims and open gaps are maintained in
 [implementation status](docs/IMPLEMENTATION_STATUS.md) and the
 [product roadmap](docs/PRODUCT_ROADMAP.md).
 
+Approved historical incidents can be evaluated locally with the deterministic,
+memory-only, contentless-reporting
+[`evidentrail-production-shadow`](docs/PRODUCTION_SHADOW_PILOT.md) runner. Real
+incident material must remain outside this repository and ordinary CI.
+
 ## Development
 
 ```sh
