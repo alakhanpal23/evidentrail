@@ -316,6 +316,8 @@ run_live_demo_pilot() {
   export EVIDENTRAIL_SYNTHETIC_HOSTED_BENCHMARK=1
   export EVIDENTRAIL_HOSTED_RANKING_SHADOW=1
 
+  echo "LIVE_DEMO_PILOT_START calls=18 per_call_deadline_seconds=15"
+
   set +e
   target/release/evidentrail-live-product-demo pilot \
     > "$RUN_DIR/live-product-demo-pilot.json"
@@ -327,6 +329,8 @@ run_live_demo_pilot() {
     '{schema_version:2,scope:"synthetic_live_evaluation_contract_pilot_v2",full_value_evaluation:.full_value_evaluation,reader_attempt_count:.reader_attempt_count,valid_response_counts:[.arms[].valid_response_count],fallbacks:.fallbacks,evaluation_contract_accepted:.gates.evaluation_contract_accepted,reported_cost_microusd:.reported_cost_microusd,next_step:(if .gates.evaluation_contract_accepted then "eligible_for_full_180_call_live_demo" else "repair_contract_before_more_spend" end)}' \
     "$RUN_DIR/live-product-demo-pilot.json" \
     > "$RUN_DIR/live-demo-pilot-decision.json"
+  jq . "$RUN_DIR/live-demo-pilot-decision.json"
+  echo "LIVE_DEMO_PILOT_COMPLETE exit_status=$status"
   return "$status"
 }
 
