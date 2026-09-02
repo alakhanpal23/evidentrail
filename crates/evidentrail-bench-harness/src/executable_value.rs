@@ -16,8 +16,8 @@ use crate::{
 };
 
 pub const EXECUTABLE_VALUE_REPORT_SCHEMA_VERSION_V1: u16 = 1;
-const ARM_BUDGET_V1: u64 = 7_000;
-const SCENARIOS_V1: [(&str, &[u8], i32, &str); 3] = [
+pub(crate) const ARM_BUDGET_V1: u64 = 7_000;
+pub(crate) const SCENARIOS_V1: [(&str, &[u8], i32, &str); 3] = [
     (
         "db-pool-zero",
         b"Why did the request exhaust the database pool after deploy?",
@@ -293,7 +293,7 @@ pub fn run_executable_value_report_v1(
     })
 }
 
-fn program_v1(
+pub(crate) fn program_v1(
     helper_path: &Path,
     working_directory: &Path,
     arguments: &[&str],
@@ -312,7 +312,7 @@ fn program_v1(
     .map_err(|_| ExecutableValueReportErrorV1::InvalidHelper)
 }
 
-fn available_v1(
+pub(crate) fn available_v1(
     arms: &[IncidentArmDecisionV1; 3],
     kind: IncidentArmKindV1,
 ) -> Result<&crate::IncidentMethodArtifactV1, ExecutableValueReportErrorV1> {

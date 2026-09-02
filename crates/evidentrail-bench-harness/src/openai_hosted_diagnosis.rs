@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 
 use evidentrail_cli::{
     FROZEN_INPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
-    FROZEN_OUTPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1, PINNED_HOSTED_RANKING_MODEL_V1,
+    FROZEN_OUTPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1, HOSTED_RANKING_LATENCY_CHALLENGER_MODEL_V1,
+    LATENCY_CHALLENGER_INPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
+    LATENCY_CHALLENGER_OUTPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1, PINNED_HOSTED_RANKING_MODEL_V1,
 };
 use reqwest::StatusCode;
 use reqwest::blocking::Client;
@@ -129,6 +131,10 @@ pub struct OpenAiHostedDiagnosisReaderV1 {
     api_key: Option<Zeroizing<String>>,
     endpoint: String,
     disabled: bool,
+    model: &'static str,
+    input_price_microusd_per_million_tokens: u64,
+    output_price_microusd_per_million_tokens: u64,
+    configuration_digest: [u8; 32],
 }
 
 impl OpenAiHostedDiagnosisReaderV1 {
@@ -151,7 +157,48 @@ impl OpenAiHostedDiagnosisReaderV1 {
             api_key,
             endpoint: OPENAI_RESPONSES_ENDPOINT_V1.to_owned(),
             disabled,
+            model: PINNED_HOSTED_RANKING_MODEL_V1,
+            input_price_microusd_per_million_tokens:
+                FROZEN_INPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
+            output_price_microusd_per_million_tokens:
+                FROZEN_OUTPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
+            configuration_digest: hosted_diagnosis_configuration_digest_v1(),
         }
+    }
+
+    /// Evaluation-only reader for the synthetic live product demonstration.
+    /// It is not reachable from product surfaces or admission paths.
+    #[must_use]
+    pub fn for_product_demo_v1() -> Self {
+        let disabled =
+            env::var_os("EVIDENTRAIL_HOSTED_RANKING_DISABLED").is_some_and(|value| value == "1");
+        let api_key = env::var("OPENAI_API_KEY")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .map(Zeroizing::new);
+        let client = Client::builder()
+            .connect_timeout(HOSTED_DIAGNOSIS_DEADLINE_V1)
+            .timeout(HOSTED_DIAGNOSIS_DEADLINE_V1)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .ok();
+        Self {
+            client,
+            api_key,
+            endpoint: OPENAI_RESPONSES_ENDPOINT_V1.to_owned(),
+            disabled,
+            model: HOSTED_RANKING_LATENCY_CHALLENGER_MODEL_V1,
+            input_price_microusd_per_million_tokens:
+                LATENCY_CHALLENGER_INPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
+            output_price_microusd_per_million_tokens:
+                LATENCY_CHALLENGER_OUTPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
+            configuration_digest: hosted_product_demo_configuration_digest_v1(),
+        }
+    }
+
+    #[must_use]
+    pub const fn configuration_digest(&self) -> [u8; 32] {
+        self.configuration_digest
     }
 
     #[cfg(test)]
@@ -166,6 +213,12 @@ impl OpenAiHostedDiagnosisReaderV1 {
             api_key: Some(Zeroizing::new(api_key.to_owned())),
             endpoint,
             disabled: false,
+            model: PINNED_HOSTED_RANKING_MODEL_V1,
+            input_price_microusd_per_million_tokens:
+                FROZEN_INPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
+            output_price_microusd_per_million_tokens:
+                FROZEN_OUTPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1,
+            configuration_digest: hosted_diagnosis_configuration_digest_v1(),
         }
     }
 }
@@ -174,9 +227,10 @@ impl fmt::Debug for OpenAiHostedDiagnosisReaderV1 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("OpenAiHostedDiagnosisReaderV1")
-            .field("model", &PINNED_HOSTED_RANKING_MODEL_V1)
+            .field("model", &self.model)
             .field("credential_present", &self.api_key.is_some())
             .field("disabled", &self.disabled)
+            .field("configuration_identity_present", &true)
             .finish()
     }
 }
@@ -209,7 +263,7 @@ impl HostedDiagnosisReaderV1 for OpenAiHostedDiagnosisReaderV1 {
             "question": {"untrusted_data": question},
             "schema_version": 1,
         });
-        let body = request_body_v1(user.to_string(), evidence_alias_count);
+        let body = request_body_v1(user.to_string(), evidence_alias_count, self.model);
         let started = Instant::now();
         let response = client
             .post(&self.endpoint)
@@ -249,9 +303,14 @@ impl HostedDiagnosisReaderV1 for OpenAiHostedDiagnosisReaderV1 {
         let output_tokens = provider
             .pointer("/usage/output_tokens")
             .and_then(Value::as_u64);
-        let cost_microusd = input_tokens
-            .zip(output_tokens)
-            .and_then(|(input, output)| cost_microusd_v1(input, output));
+        let cost_microusd = input_tokens.zip(output_tokens).and_then(|(input, output)| {
+            cost_microusd_v1(
+                input,
+                output,
+                self.input_price_microusd_per_million_tokens,
+                self.output_price_microusd_per_million_tokens,
+            )
+        });
         Ok(HostedDiagnosisOutputV1 {
             answer,
             elapsed_nanos: u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
@@ -262,7 +321,12 @@ impl HostedDiagnosisReaderV1 for OpenAiHostedDiagnosisReaderV1 {
     }
 }
 
-fn request_body_v1(user: String, evidence_alias_count: usize) -> Value {
+fn request_body_v1(user: String, evidence_alias_count: usize, model: &str) -> Value {
+    let citation_schema = if evidence_alias_count == 0 {
+        json!({"items": {"type": "integer"}, "maxItems": 0, "type": "array"})
+    } else {
+        json!({"items": {"maximum": evidence_alias_count, "minimum": 1, "type": "integer"}, "type": "array"})
+    };
     json!({
         "input": [{
             "content": [{"text": user, "type": "input_text"}],
@@ -270,7 +334,7 @@ fn request_body_v1(user: String, evidence_alias_count: usize) -> Value {
         }],
         "instructions": std::str::from_utf8(HOSTED_READER_SYSTEM_MESSAGE_V1).unwrap_or(""),
         "max_output_tokens": 512,
-        "model": PINNED_HOSTED_RANKING_MODEL_V1,
+        "model": model,
         "reasoning": {"effort": "none"},
         "store": false,
         "text": {"format": {
@@ -284,7 +348,7 @@ fn request_body_v1(user: String, evidence_alias_count: usize) -> Value {
                     "cause_code": {"type": ["string", "null"]},
                     "cause_granularity": {"enum": ["unspecified", "root_cause", "contributing_cause", "symptom"], "type": "string"},
                     "diagnosis": {"type": ["string", "null"]},
-                    "citation_handles": {"items": {"maximum": evidence_alias_count, "minimum": 1, "type": "integer"}, "type": "array"},
+                    "citation_handles": citation_schema,
                     "claim_codes": {"items": {"type": "string"}, "type": "array"},
                     "uncertainty_micros": {"maximum": 1_000_000, "minimum": 0, "type": "integer"},
                     "tool_actions": {"items": {"type": "string"}, "maxItems": 0, "type": "array"}
@@ -330,12 +394,17 @@ fn extract_single_output_text_v1(provider: &Value) -> Option<&str> {
     output_text
 }
 
-fn cost_microusd_v1(input: u64, output: u64) -> Option<u64> {
+fn cost_microusd_v1(
+    input: u64,
+    output: u64,
+    input_price_microusd_per_million_tokens: u64,
+    output_price_microusd_per_million_tokens: u64,
+) -> Option<u64> {
     input
-        .checked_mul(FROZEN_INPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1)
+        .checked_mul(input_price_microusd_per_million_tokens)
         .and_then(|input_cost| {
             output
-                .checked_mul(FROZEN_OUTPUT_PRICE_MICROUSD_PER_MILLION_TOKENS_V1)
+                .checked_mul(output_price_microusd_per_million_tokens)
                 .and_then(|output_cost| input_cost.checked_add(output_cost))
         })
         .and_then(|millionths| millionths.checked_add(999_999))
@@ -368,6 +437,22 @@ pub fn hosted_diagnosis_configuration_digest_v1() -> [u8; 32] {
         OPENAI_RESPONSES_ENDPOINT_V1.as_bytes(),
         HOSTED_READER_SYSTEM_MESSAGE_V1,
         b"store=false;reasoning=none;tools=none;strict=true;max_output_tokens=512;deadline_ms=5000;provider_envelope_bytes=65536;answer_bytes=16384;input_price_microusd_per_million=200000;output_price_microusd_per_million=1200000",
+    ] {
+        hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
+        hasher.update(value);
+    }
+    hasher.finalize().into()
+}
+
+#[must_use]
+pub fn hosted_product_demo_configuration_digest_v1() -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"evidentrail/openai-hosted-diagnosis/product-demo/v1\0");
+    for value in [
+        HOSTED_RANKING_LATENCY_CHALLENGER_MODEL_V1.as_bytes(),
+        OPENAI_RESPONSES_ENDPOINT_V1.as_bytes(),
+        HOSTED_READER_SYSTEM_MESSAGE_V1,
+        b"qualification_eligible=false;synthetic_only=true;store=false;reasoning=none;tools=none;strict=true;max_output_tokens=512;deadline_ms=5000;provider_envelope_bytes=65536;answer_bytes=16384;input_price_microusd_per_million=200000;output_price_microusd_per_million=1250000",
     ] {
         hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
         hasher.update(value);
@@ -445,5 +530,28 @@ mod tests {
         assert!(!format!("{reader:?}").contains("secret-test-key"));
         assert!(!format!("{output:?}").contains("db_pool_exhausted"));
         server.join().unwrap();
+    }
+
+    #[test]
+    fn zero_alias_reader_schema_requires_empty_citations() {
+        let body = request_body_v1(
+            "{}".to_owned(),
+            0,
+            HOSTED_RANKING_LATENCY_CHALLENGER_MODEL_V1,
+        );
+        assert_eq!(
+            body["text"]["format"]["schema"]["properties"]["citation_handles"]["maxItems"],
+            0
+        );
+        assert_eq!(body["model"], HOSTED_RANKING_LATENCY_CHALLENGER_MODEL_V1);
+        let demo = OpenAiHostedDiagnosisReaderV1::for_product_demo_v1();
+        assert_eq!(
+            demo.configuration_digest(),
+            hosted_product_demo_configuration_digest_v1()
+        );
+        assert_ne!(
+            demo.configuration_digest(),
+            hosted_diagnosis_configuration_digest_v1()
+        );
     }
 }

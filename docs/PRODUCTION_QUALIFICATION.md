@@ -16,9 +16,11 @@ files supplied outside the repository.
 | `value` | 0 | $0 | Frozen eight-incident matched-budget evidence recall against raw, grep/head-tail, quota hybrid, BM25F, and the exact oracle; plus three executable incidents through a deterministic fixture agent and independent repair verifier |
 | `preflight` | 0 | $0 | Formatting, Clippy, all workspace targets/features, Rustdoc, wire schemas, feature partitions, RustSec audit, deterministic production shadow, 10K/100K memory probes, 10K/100K/1M repository probes, and the ignored one-million-record evidence gate |
 | `live-latency-challenge` | 3 | $0.03 | Non-qualifying go/no-go latency screen of dated `gpt-5.4-nano-2026-03-17` at the unchanged 800 ms deadline; this cannot repin or admit a model |
+| `live-demo` | 180 | $1.80 | Three executable synthetic incidents × three matched 7,000-byte arms × 20 repetitions through one persistent GPT-5.4 nano reader, using a balanced randomized crossover schedule and paired outcome bounds |
 | `live-pilot` | 21 | $0.21 | 18 frozen ranking calls over six fault families plus three calls through the public production selector |
 | `live-qualify` | Up to 381 | $3.81 | The pilot, then 72 randomized ranking calls on 24 untouched cases, replay through all three consumers, and up to 288 hosted diagnosis calls, plus the production selector smoke |
 | `live-soak` | 100 | $1.00 | Repeated production bounded-affinity selection through one persistent client |
+| `live-campaign` | Up to 664 | $6.64 | Preflight, latency challenger, 180-call product demo, full ranker qualification, and a 100-call soak only if qualification passes |
 | `all` | Up to 481 | $4.81 | Preflight, full live qualification, then soak only if qualification passes |
 
 The guards use the existing conservative ceiling of $0.01 per hosted call.
@@ -42,7 +44,12 @@ It does not use account-dependent Fast/Priority processing.
 - No prompt, response, question, log, evidence bytes, or provider request ID is
   serialized by the live benchmark reports.
 - Calls are sequential through persistent clients. There is no retry.
+- `live-demo` randomizes arm order with a balanced crossover schedule and keeps
+  the same incident, question, artifact ceiling, reader, and decoding contract
+  across all three arms.
 - `all` never starts the 100-call soak unless the scored qualification passes.
+- `live-campaign` also skips its soak when ranker qualification fails; a demo
+  result cannot override an admission failure.
 - The model deadline remains 800 ms. A timeout is a failure, not a reason to
   silently loosen the gate.
 
@@ -69,6 +76,36 @@ scripts/production-qualification.sh preflight
 
 The command prints a protected `REPORT_DIR`. Preflight includes the expensive
 one-million-record test and may take several minutes.
+
+## Run the live product-value demonstration
+
+This is the most direct answer to “does the compressed evidence help a real
+LLM diagnose the incident?” It compares Evidentrail, grep/head-tail, and raw
+prefix artifacts under the same 7,000-byte ceiling. It makes exactly 180 reader
+attempts and writes only aggregate metrics and contentless attempt diagnostics:
+
+```sh
+cd /Users/arjun/.superset/projects/evidentrail
+export EVIDENTRAIL_LIVE_TEST_APPROVAL=I_APPROVE_OPENAI_RESPONSES_CHARGES_AND_SYNTHETIC_EGRESS
+export EVIDENTRAIL_LIVE_TEST_BUDGET_MICROUSD=1800000
+scripts/production-qualification.sh live-demo
+```
+
+The conservative authorization guard is $1.80. The report uses the frozen
+`gpt-5.4-nano-2026-03-17` snapshot with strict structured output, no tools, no
+retention, no retry, and a five-second evaluation deadline. It is deliberately
+separate from the 800 ms hosted-ranker production deadline.
+
+For the maximum staged campaign:
+
+```sh
+export EVIDENTRAIL_LIVE_TEST_BUDGET_MICROUSD=6640000
+scripts/production-qualification.sh live-campaign
+```
+
+This permits at most 664 calls under a $6.64 guard. It still stops weak paths:
+the ranker qualification stops after its pilot, and the 100-call soak starts
+only after the full scored qualification passes.
 
 ## Run the complete live program
 
@@ -110,6 +147,9 @@ files include:
 - `hosted-ranking-pilot.json` or `hosted-ranking-qualification.json`;
 - `hosted-latency-challenger.json` and `latency-challenger-decision.json` for
   the optional three-call screen;
+- `live-product-demo.json` and `live-demo-decision.json` for the 180-call paired
+  live-reader comparison;
+- `live-campaign-decision.json` for the combined staged campaign;
 - `hosted-production-smoke.json`;
 - `live-decision.json` for a single fail-closed admission verdict;
 - `hosted-production-soak.json` when the soak was admitted;

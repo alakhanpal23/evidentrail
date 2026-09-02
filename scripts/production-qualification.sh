@@ -3,21 +3,25 @@ set -euo pipefail
 
 readonly APPROVAL_SENTINEL="I_APPROVE_OPENAI_RESPONSES_CHARGES_AND_SYNTHETIC_EGRESS"
 readonly LATENCY_CHALLENGE_GUARD_MICROUSD=30000
+readonly LIVE_DEMO_GUARD_MICROUSD=1800000
 readonly PILOT_GUARD_MICROUSD=210000
 readonly QUALIFY_GUARD_MICROUSD=3810000
 readonly SOAK_GUARD_MICROUSD=1000000
 readonly ALL_GUARD_MICROUSD=4810000
+readonly LIVE_CAMPAIGN_GUARD_MICROUSD=6640000
 
 usage() {
   cat >&2 <<'EOF'
-usage: scripts/production-qualification.sh <value|preflight|live-latency-challenge|live-pilot|live-qualify|live-soak|all>
+usage: scripts/production-qualification.sh <value|preflight|live-latency-challenge|live-demo|live-pilot|live-qualify|live-soak|live-campaign|all>
 
 value          no-cost matched-budget product-value report
 preflight      offline product, contract, security, scale, and release checks
 live-latency-challenge  3-call dated model screen at the unchanged 800 ms deadline
+live-demo      180-call paired live-reader product-value demonstration
 live-pilot     18-call benchmark pilot plus 3-call production-path smoke
 live-qualify   gated pilot, then up to 72 ranking and 288 diagnosis calls, plus smoke
 live-soak      100 production-path ranking attempts through one persistent client
+live-campaign  full 664-call maximum staged campaign; soak only after qualification
 all            preflight, live-qualify, then soak only if qualification passes
 
 Every live mode requires OPENAI_API_KEY plus:
@@ -30,7 +34,7 @@ EOF
 [[ $# -eq 1 ]] || usage
 readonly MODE="$1"
 case "$MODE" in
-  value|preflight|live-latency-challenge|live-pilot|live-qualify|live-soak|all) ;;
+  value|preflight|live-latency-challenge|live-demo|live-pilot|live-qualify|live-soak|live-campaign|all) ;;
   *) usage ;;
 esac
 
@@ -115,6 +119,7 @@ build_live_binaries() {
   cargo build --release -p evidentrail-cli --bin evidentrail-production-shadow \
     > "$RUN_DIR/build-production-shadow.log" 2>&1
   cargo build --release -p evidentrail-bench-harness --bin evidentrail-hosted-ranking-bench \
+    --bin evidentrail-live-product-demo \
     > "$RUN_DIR/build-hosted-benchmark.log" 2>&1
   build_value_binaries
 }
@@ -274,6 +279,30 @@ run_live_pilot() {
   return 2
 }
 
+run_live_demo() {
+  require_live_authorization "$LIVE_DEMO_GUARD_MICROUSD"
+  require_clean_checkout
+  build_live_binaries
+  run_product_value_reports
+  unset EVIDENTRAIL_HOSTED_RANKING_DISABLED
+  export EVIDENTRAIL_SYNTHETIC_HOSTED_BENCHMARK=1
+  export EVIDENTRAIL_HOSTED_RANKING_SHADOW=1
+
+  set +e
+  target/release/evidentrail-live-product-demo \
+    > "$RUN_DIR/live-product-demo.json"
+  local status=$?
+  set -e
+  jq empty "$RUN_DIR/live-product-demo.json"
+  record_exit "live_product_demo" "$status"
+  jq -n \
+    --slurpfile deterministic "$RUN_DIR/value-decision.json" \
+    --slurpfile live "$RUN_DIR/live-product-demo.json" \
+    '{schema_version:1,scope:"synthetic_live_product_value_v1",deterministic_value_supported:$deterministic[0].deterministic_selection_value_passed,live_reader_value_supported:$live[0].gates.live_value_indication_supported,reader_attempt_count:$live[0].reader_attempt_count,reported_cost_microusd:$live[0].reported_cost_microusd,decision:(if ($deterministic[0].deterministic_selection_value_passed and $live[0].gates.live_value_indication_supported) then "synthetic_live_product_value_supported" else "live_product_value_not_established" end),claim_limit:"synthetic_only_not_real_incident_external_validity"}' \
+    > "$RUN_DIR/live-demo-decision.json"
+  return "$status"
+}
+
 run_live_qualify() {
   require_live_authorization "$QUALIFY_GUARD_MICROUSD"
   require_clean_checkout
@@ -317,6 +346,42 @@ run_live_soak() {
   return "$status"
 }
 
+run_live_campaign() {
+  require_live_authorization "$LIVE_CAMPAIGN_GUARD_MICROUSD"
+  run_preflight
+  record_exit "campaign_preflight" 0
+
+  local challenge_status=0
+  run_live_latency_challenge || challenge_status=$?
+  local demo_status=0
+  run_live_demo || demo_status=$?
+  local qualification_status=0
+  run_live_qualify || qualification_status=$?
+  local soak_status=-1
+  if (( qualification_status == 0 )); then
+    soak_status=0
+    run_live_soak || soak_status=$?
+  else
+    record_exit "hosted_production_soak_skipped" 2
+  fi
+
+  jq -n \
+    --slurpfile challenge "$RUN_DIR/hosted-latency-challenger.json" \
+    --slurpfile demo "$RUN_DIR/live-product-demo.json" \
+    --slurpfile qualification "$RUN_DIR/hosted-ranking-qualification.json" \
+    --argjson challenge_status "$challenge_status" \
+    --argjson demo_status "$demo_status" \
+    --argjson qualification_status "$qualification_status" \
+    --argjson soak_status "$soak_status" \
+    '{schema_version:1,scope:"staged_synthetic_live_campaign_v1",maximum_provider_calls:664,maximum_cost_guard_microusd:6640000,latency_challenger_completed:($challenge_status == 0),live_product_value_supported:$demo[0].gates.live_value_indication_supported,live_demo_reader_attempts:$demo[0].reader_attempt_count,hosted_ranking_qualified:($qualification[0].scored.qualification_passed // false),production_soak_completed:($soak_status == 0),qualification_status:$qualification_status,claim_limit:"synthetic_live_campaign_not_real_incident_external_validity",campaign_decision:(if ($demo_status == 0 and $qualification_status == 0 and $soak_status == 0) then "eligible_for_governed_realistic_shadow_review" elif $demo_status == 0 then "deterministic_product_value_supported_hosted_ranker_not_admitted" else "no_live_product_value_claim" end)}' \
+    > "$RUN_DIR/live-campaign-decision.json"
+
+  if (( demo_status == 0 && qualification_status == 0 && soak_status == 0 )); then
+    return 0
+  fi
+  return 2
+}
+
 write_run_metadata
 case "$MODE" in
   value)
@@ -332,6 +397,9 @@ case "$MODE" in
   live-latency-challenge)
     run_live_latency_challenge
     ;;
+  live-demo)
+    run_live_demo
+    ;;
   live-pilot)
     run_live_pilot
     ;;
@@ -340,6 +408,9 @@ case "$MODE" in
     ;;
   live-soak)
     run_live_soak
+    ;;
+  live-campaign)
+    run_live_campaign
     ;;
   all)
     require_live_authorization "$ALL_GUARD_MICROUSD"

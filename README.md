@@ -210,10 +210,21 @@ eight-incident corpus, Evidentrail preserves 100% of required evidence with 8/8
 perfect cases. At the same per-case source-byte ceiling, raw truncation preserves
 23.75% (0/8 perfect), grep/head-tail 52.5% (3/8), quota hybrid 61.25% (3/8),
 and BM25F-style retrieval 23.75% (1/8). On three separate executable synthetic
-incidents, Evidentrail artifacts under a 7,000-byte per-case ceiling produce 3/3 verified fixture-agent
-repairs with valid source citations and reduce 61,927 source bytes to 10,122
-artifact bytes; raw prefix produces 0/3 verified repairs. These are synthetic
-conformance results, not real-incident or hosted-model population claims.
+incidents, Evidentrail artifacts under a 7,000-byte per-case ceiling produce 3/3
+verified fixture-agent repairs with valid source citations and reduce 61,927
+source bytes to 10,122 artifact bytes; raw prefix produces 0/3 verified repairs.
+These are synthetic conformance results, not real-incident or hosted-model
+population claims.
+
+For a repeated live OpenAI product-value demonstration, `live-demo` makes 180
+sequential calls through one persistent client: three executable incidents,
+three matched-budget arms, and 20 repetitions. A balanced randomized crossover
+schedule controls call-order effects. The contentless report compares exact
+root-cause diagnosis, citation-supported success, worst-case success, latency,
+tokens, cost, output reduction, and paired bootstrap bounds. `live-campaign`
+combines this with the latency challenger, hosted-ranker qualification, and a
+qualification-gated 100-call production soak for a maximum of 664 calls. Neither
+mode converts synthetic results into a real-incident claim.
 
 Those results are engineering evidence, not a population-level claim about all
 production incidents. Hosted ranking still requires a passing frozen
@@ -230,8 +241,9 @@ only through explicit manifest- and case-level egress approval. Real incident
 material must remain outside this repository and ordinary CI.
 
 The staged [production qualification program](docs/PRODUCTION_QUALIFICATION.md)
-runs the full no-egress contract/resource preflight, a 21-call live pilot, an
-up-to-381-call scored hosted evaluation, and a 100-call production-path soak.
+runs the full no-egress contract/resource preflight, a 180-call live product
+comparison, a 21-call hosted-ranker pilot, an up-to-381-call scored hosted
+evaluation, and a 100-call production-path soak.
 Each paid stage requires an explicit cost ceiling and later stages stop when an
 earlier production gate fails. Every live report now joins the deterministic
 value evidence, hosted incremental-value gates, and production-path smoke into
