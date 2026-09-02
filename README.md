@@ -216,12 +216,17 @@ source bytes to 10,122 artifact bytes; raw prefix produces 0/3 verified repairs.
 These are synthetic conformance results, not real-incident or hosted-model
 population claims.
 
-For a repeated live OpenAI product-value demonstration, `live-demo` makes 180
-sequential calls through one persistent client: three executable incidents,
-three matched-budget arms, and 20 repetitions. A balanced randomized crossover
-schedule controls call-order effects. The contentless report compares exact
-root-cause diagnosis, citation-supported success, worst-case success, latency,
-tokens, cost, output reduction, and paired bootstrap bounds. `live-campaign`
+Before a repeated live OpenAI product-value demonstration, `live-demo-pilot`
+makes 18 calls to validate the evaluation contract. The evaluation-only reader
+uses a 15-second deadline, normalizes set ordering, and scores frozen semantic
+cause rules separately from exact private label spelling. Production hosted
+ranking retains its independent 800 ms gate. After the pilot passes, `live-demo`
+makes 180 sequential calls through one persistent client: three executable
+incidents, three matched-budget arms, and 20 repetitions. A balanced randomized
+crossover schedule controls call-order effects. The contentless report compares
+semantic root-cause diagnosis, exact-code matches, citation-supported success,
+worst-case success, latency, tokens, cost, output reduction, and paired
+bootstrap bounds. `live-campaign`
 combines this with the latency challenger, hosted-ranker qualification, and a
 qualification-gated 100-call production soak for a maximum of 664 calls. Neither
 mode converts synthetic results into a real-incident claim.

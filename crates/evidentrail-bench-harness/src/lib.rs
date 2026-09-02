@@ -177,10 +177,12 @@ pub use legacy_drain_normalizer::{
 };
 pub use live_product_demo::{
     LIVE_PRODUCT_DEMO_CALL_COUNT_V1, LIVE_PRODUCT_DEMO_COST_GUARD_MICROUSD_V1,
-    LIVE_PRODUCT_DEMO_COST_PER_CALL_GUARD_MICROUSD_V1, LIVE_PRODUCT_DEMO_REPEATS_V1,
-    LIVE_PRODUCT_DEMO_SCHEMA_VERSION_V1, LiveProductDemoArmSummaryV1, LiveProductDemoAttemptV1,
-    LiveProductDemoErrorV1, LiveProductDemoGatesV1, LiveProductDemoPairedComparisonV1,
-    LiveProductDemoReportV1, run_live_product_demo_v1,
+    LIVE_PRODUCT_DEMO_COST_PER_CALL_GUARD_MICROUSD_V1, LIVE_PRODUCT_DEMO_PILOT_CALL_COUNT_V2,
+    LIVE_PRODUCT_DEMO_PILOT_COST_GUARD_MICROUSD_V2, LIVE_PRODUCT_DEMO_PILOT_REPEATS_V2,
+    LIVE_PRODUCT_DEMO_REPEATS_V1, LIVE_PRODUCT_DEMO_SCHEMA_VERSION_V2, LiveProductDemoArmSummaryV1,
+    LiveProductDemoAttemptV1, LiveProductDemoErrorV1, LiveProductDemoGatesV1,
+    LiveProductDemoPairedComparisonV1, LiveProductDemoReportV1, run_live_product_demo_pilot_v2,
+    run_live_product_demo_v1,
 };
 pub use matched_representation::{
     MatchedRepresentationArmReceiptV1, MatchedRepresentationArmV1, MatchedRepresentationArmsV1,
@@ -190,10 +192,10 @@ pub use matched_representation::{
     StaticRepresentationRecallOrderingV1, compare_matched_representations_v1,
 };
 pub use openai_hosted_diagnosis::{
-    HOSTED_DIAGNOSIS_DEADLINE_V1, HostedDiagnosisFailureV1, HostedDiagnosisOutputV1,
-    HostedDiagnosisReaderV1, OpenAiHostedDiagnosisReaderV1,
+    HOSTED_DIAGNOSIS_DEADLINE_V1, HOSTED_PRODUCT_DEMO_DEADLINE_V2, HostedDiagnosisFailureV1,
+    HostedDiagnosisOutputV1, HostedDiagnosisReaderV1, OpenAiHostedDiagnosisReaderV1,
     hosted_diagnosis_configuration_digest_v1, hosted_diagnosis_provider_digest_v1,
-    hosted_product_demo_configuration_digest_v1,
+    hosted_product_demo_configuration_digest_v2,
 };
 pub use paired_reader::{
     CONSTRAINED_READER_CITATION_POLICY_VERSION_V1, CONSTRAINED_READER_CONTEXT_V1,

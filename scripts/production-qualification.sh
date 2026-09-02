@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly APPROVAL_SENTINEL="I_APPROVE_OPENAI_RESPONSES_CHARGES_AND_SYNTHETIC_EGRESS"
 readonly LATENCY_CHALLENGE_GUARD_MICROUSD=30000
+readonly LIVE_DEMO_PILOT_GUARD_MICROUSD=180000
 readonly LIVE_DEMO_GUARD_MICROUSD=1800000
 readonly PILOT_GUARD_MICROUSD=210000
 readonly QUALIFY_GUARD_MICROUSD=3810000
@@ -12,11 +13,12 @@ readonly LIVE_CAMPAIGN_GUARD_MICROUSD=6640000
 
 usage() {
   cat >&2 <<'EOF'
-usage: scripts/production-qualification.sh <value|preflight|live-latency-challenge|live-demo|live-pilot|live-qualify|live-soak|live-campaign|all>
+usage: scripts/production-qualification.sh <value|preflight|live-latency-challenge|live-demo-pilot|live-demo|live-pilot|live-qualify|live-soak|live-campaign|all>
 
 value          no-cost matched-budget product-value report
 preflight      offline product, contract, security, scale, and release checks
 live-latency-challenge  3-call dated model screen at the unchanged 800 ms deadline
+live-demo-pilot  18-call evaluation-contract pilot with a 15-second deadline
 live-demo      180-call paired live-reader product-value demonstration
 live-pilot     18-call benchmark pilot plus 3-call production-path smoke
 live-qualify   gated pilot, then up to 72 ranking and 288 diagnosis calls, plus smoke
@@ -34,7 +36,7 @@ EOF
 [[ $# -eq 1 ]] || usage
 readonly MODE="$1"
 case "$MODE" in
-  value|preflight|live-latency-challenge|live-demo|live-pilot|live-qualify|live-soak|live-campaign|all) ;;
+  value|preflight|live-latency-challenge|live-demo-pilot|live-demo|live-pilot|live-qualify|live-soak|live-campaign|all) ;;
   *) usage ;;
 esac
 
@@ -292,7 +294,7 @@ run_live_demo() {
   export EVIDENTRAIL_HOSTED_RANKING_SHADOW=1
 
   set +e
-  target/release/evidentrail-live-product-demo \
+  target/release/evidentrail-live-product-demo full \
     > "$RUN_DIR/live-product-demo.json"
   local status=$?
   set -e
@@ -303,6 +305,28 @@ run_live_demo() {
     --slurpfile live "$RUN_DIR/live-product-demo.json" \
     '{schema_version:1,scope:"synthetic_live_product_value_v1",deterministic_value_supported:$deterministic[0].deterministic_selection_value_passed,live_reader_value_supported:$live[0].gates.live_value_indication_supported,reader_attempt_count:$live[0].reader_attempt_count,reported_cost_microusd:$live[0].reported_cost_microusd,decision:(if ($deterministic[0].deterministic_selection_value_passed and $live[0].gates.live_value_indication_supported) then "synthetic_live_product_value_supported" else "live_product_value_not_established" end),claim_limit:"synthetic_only_not_real_incident_external_validity"}' \
     > "$RUN_DIR/live-demo-decision.json"
+  return "$status"
+}
+
+run_live_demo_pilot() {
+  require_live_authorization "$LIVE_DEMO_PILOT_GUARD_MICROUSD"
+  require_clean_checkout
+  build_live_binaries
+  unset EVIDENTRAIL_HOSTED_RANKING_DISABLED
+  export EVIDENTRAIL_SYNTHETIC_HOSTED_BENCHMARK=1
+  export EVIDENTRAIL_HOSTED_RANKING_SHADOW=1
+
+  set +e
+  target/release/evidentrail-live-product-demo pilot \
+    > "$RUN_DIR/live-product-demo-pilot.json"
+  local status=$?
+  set -e
+  jq empty "$RUN_DIR/live-product-demo-pilot.json"
+  record_exit "live_product_demo_pilot" "$status"
+  jq \
+    '{schema_version:2,scope:"synthetic_live_evaluation_contract_pilot_v2",full_value_evaluation:.full_value_evaluation,reader_attempt_count:.reader_attempt_count,valid_response_counts:[.arms[].valid_response_count],fallbacks:.fallbacks,evaluation_contract_accepted:.gates.evaluation_contract_accepted,reported_cost_microusd:.reported_cost_microusd,next_step:(if .gates.evaluation_contract_accepted then "eligible_for_full_180_call_live_demo" else "repair_contract_before_more_spend" end)}' \
+    "$RUN_DIR/live-product-demo-pilot.json" \
+    > "$RUN_DIR/live-demo-pilot-decision.json"
   return "$status"
 }
 
@@ -399,6 +423,9 @@ case "$MODE" in
     ;;
   live-latency-challenge)
     run_live_latency_challenge
+    ;;
+  live-demo-pilot)
+    run_live_demo_pilot
     ;;
   live-demo)
     run_live_demo

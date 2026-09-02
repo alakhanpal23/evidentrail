@@ -17,11 +17,14 @@ use crate::{
     prepare_incident_method_arms_v1,
 };
 
-pub const LIVE_PRODUCT_DEMO_SCHEMA_VERSION_V1: u16 = 1;
+pub const LIVE_PRODUCT_DEMO_SCHEMA_VERSION_V2: u16 = 2;
 pub const LIVE_PRODUCT_DEMO_REPEATS_V1: u32 = 20;
 pub const LIVE_PRODUCT_DEMO_CALL_COUNT_V1: u64 = 180;
 pub const LIVE_PRODUCT_DEMO_COST_PER_CALL_GUARD_MICROUSD_V1: u64 = 10_000;
 pub const LIVE_PRODUCT_DEMO_COST_GUARD_MICROUSD_V1: u64 = 1_800_000;
+pub const LIVE_PRODUCT_DEMO_PILOT_REPEATS_V2: u32 = 2;
+pub const LIVE_PRODUCT_DEMO_PILOT_CALL_COUNT_V2: u64 = 18;
+pub const LIVE_PRODUCT_DEMO_PILOT_COST_GUARD_MICROUSD_V2: u64 = 180_000;
 const BOOTSTRAP_RESAMPLES_V1: usize = 10_000;
 const VALID_RESPONSE_FLOOR_MICROS_V1: u64 = 990_000;
 const NONINFERIORITY_MARGIN_MICROS_V1: i64 = 10_000;
@@ -33,6 +36,8 @@ pub struct LiveProductDemoAttemptV1 {
     repetition: u32,
     randomized_order_position: u8,
     valid_response: bool,
+    exact_cause_code_match: bool,
+    semantic_cause_match: bool,
     diagnosis_success: bool,
     citation_supported_success: bool,
     elapsed_nanos: Option<u64>,
@@ -51,6 +56,8 @@ pub struct LiveProductDemoArmSummaryV1 {
     valid_response_rate_micros: u64,
     diagnosis_success_count: u64,
     diagnosis_success_rate_micros: u64,
+    exact_cause_code_match_count: u64,
+    semantic_cause_match_count: u64,
     worst_case_diagnosis_success_rate_micros: u64,
     citation_supported_success_count: u64,
     unique_case_artifact_bytes: u64,
@@ -84,6 +91,7 @@ pub struct LiveProductDemoGatesV1 {
     evidentrail_noninferior_to_grep_within_one_point: bool,
     evidentrail_smaller_than_grep_and_raw: bool,
     evidentrail_citations_support_every_successful_diagnosis: bool,
+    evaluation_contract_accepted: bool,
     live_value_indication_supported: bool,
 }
 
@@ -91,6 +99,7 @@ pub struct LiveProductDemoGatesV1 {
 pub struct LiveProductDemoReportV1 {
     schema_version: u16,
     purpose: &'static str,
+    full_value_evaluation: bool,
     qualification_eligible: bool,
     synthetic_only: bool,
     contentless_report: bool,
@@ -120,6 +129,11 @@ impl LiveProductDemoReportV1 {
     #[must_use]
     pub const fn live_value_indication_supported(&self) -> bool {
         self.gates.live_value_indication_supported
+    }
+
+    #[must_use]
+    pub const fn evaluation_contract_accepted(&self) -> bool {
+        self.gates.evaluation_contract_accepted
     }
 }
 
@@ -170,22 +184,68 @@ pub fn run_live_product_demo_v1<D: HostedDiagnosisReaderV1>(
     helper_path: &Path,
     working_directory: &Path,
 ) -> Result<LiveProductDemoReportV1, LiveProductDemoErrorV1> {
-    if !helper_path.is_absolute() || !working_directory.is_absolute() {
+    run_live_product_demo_inner_v2(
+        reader,
+        reader_configuration_digest,
+        model_snapshot,
+        helper_path,
+        working_directory,
+        LIVE_PRODUCT_DEMO_REPEATS_V1,
+        LIVE_PRODUCT_DEMO_CALL_COUNT_V1,
+        LIVE_PRODUCT_DEMO_COST_GUARD_MICROUSD_V1,
+        true,
+    )
+}
+
+/// Small non-claiming live pilot used to validate the transport and scoring
+/// contract before another full 180-call comparison is authorized.
+pub fn run_live_product_demo_pilot_v2<D: HostedDiagnosisReaderV1>(
+    reader: &mut D,
+    reader_configuration_digest: [u8; 32],
+    model_snapshot: &'static str,
+    helper_path: &Path,
+    working_directory: &Path,
+) -> Result<LiveProductDemoReportV1, LiveProductDemoErrorV1> {
+    run_live_product_demo_inner_v2(
+        reader,
+        reader_configuration_digest,
+        model_snapshot,
+        helper_path,
+        working_directory,
+        LIVE_PRODUCT_DEMO_PILOT_REPEATS_V2,
+        LIVE_PRODUCT_DEMO_PILOT_CALL_COUNT_V2,
+        LIVE_PRODUCT_DEMO_PILOT_COST_GUARD_MICROUSD_V2,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_live_product_demo_inner_v2<D: HostedDiagnosisReaderV1>(
+    reader: &mut D,
+    reader_configuration_digest: [u8; 32],
+    model_snapshot: &'static str,
+    helper_path: &Path,
+    working_directory: &Path,
+    repeats: u32,
+    expected_call_count: u64,
+    cost_guard_microusd: u64,
+    full_value_evaluation: bool,
+) -> Result<LiveProductDemoReportV1, LiveProductDemoErrorV1> {
+    if !helper_path.is_absolute() || !working_directory.is_absolute() || repeats == 0 {
         return Err(LiveProductDemoErrorV1::InvalidHelper);
     }
-    let guarded = LIVE_PRODUCT_DEMO_CALL_COUNT_V1
+    let guarded = expected_call_count
         .checked_mul(LIVE_PRODUCT_DEMO_COST_PER_CALL_GUARD_MICROUSD_V1)
         .ok_or(LiveProductDemoErrorV1::Arithmetic)?;
-    if guarded != LIVE_PRODUCT_DEMO_COST_GUARD_MICROUSD_V1 {
+    if guarded != cost_guard_microusd {
         return Err(LiveProductDemoErrorV1::CostGuard);
     }
     let cases = prepare_cases_v1(helper_path, working_directory)?;
-    let corpus_digest_hex = corpus_digest_hex_v1(&cases);
+    let corpus_digest_hex = corpus_digest_hex_v1(&cases, repeats);
     let mut attempts = Vec::with_capacity(
-        usize::try_from(LIVE_PRODUCT_DEMO_CALL_COUNT_V1)
-            .map_err(|_| LiveProductDemoErrorV1::Arithmetic)?,
+        usize::try_from(expected_call_count).map_err(|_| LiveProductDemoErrorV1::Arithmetic)?,
     );
-    for repetition in 0..LIVE_PRODUCT_DEMO_REPEATS_V1 {
+    for repetition in 0..repeats {
         for case in &cases {
             let order = arm_order_v1(&case.digest_hex, repetition);
             for (position, arm_index) in order.into_iter().enumerate() {
@@ -199,8 +259,15 @@ pub fn run_live_product_demo_v1<D: HostedDiagnosisReaderV1>(
                 let attempt = match result {
                     Ok(output) => {
                         let answer = output.answer();
+                        let exact_cause_code_match =
+                            answer.cause_code() == Some(case.expected_cause_code);
+                        let semantic_cause_match = semantic_cause_match_v2(
+                            case.expected_cause_code,
+                            answer.cause_code(),
+                            answer.diagnosis(),
+                        );
                         let success = !answer.abstained()
-                            && answer.cause_code() == Some(case.expected_cause_code)
+                            && semantic_cause_match
                             && answer.cause_granularity() == ReaderCauseGranularityV1::RootCause
                             && answer.diagnosis().is_some()
                             && answer.tool_action_count() == 0;
@@ -211,6 +278,8 @@ pub fn run_live_product_demo_v1<D: HostedDiagnosisReaderV1>(
                             randomized_order_position: u8::try_from(position)
                                 .map_err(|_| LiveProductDemoErrorV1::Arithmetic)?,
                             valid_response: true,
+                            exact_cause_code_match,
+                            semantic_cause_match,
                             diagnosis_success: success,
                             citation_supported_success: success
                                 && artifact.kind() == IncidentArmKindV1::EvidentrailBrief
@@ -229,6 +298,8 @@ pub fn run_live_product_demo_v1<D: HostedDiagnosisReaderV1>(
                         randomized_order_position: u8::try_from(position)
                             .map_err(|_| LiveProductDemoErrorV1::Arithmetic)?,
                         valid_response: false,
+                        exact_cause_code_match: false,
+                        semantic_cause_match: false,
                         diagnosis_success: false,
                         citation_supported_success: false,
                         elapsed_nanos: None,
@@ -243,7 +314,7 @@ pub fn run_live_product_demo_v1<D: HostedDiagnosisReaderV1>(
         }
     }
     if u64::try_from(attempts.len()).map_err(|_| LiveProductDemoErrorV1::Arithmetic)?
-        != LIVE_PRODUCT_DEMO_CALL_COUNT_V1
+        != expected_call_count
     {
         return Err(LiveProductDemoErrorV1::Invariant);
     }
@@ -265,8 +336,7 @@ pub fn run_live_product_demo_v1<D: HostedDiagnosisReaderV1>(
     let raw_comparison = comparison_v1(&comparisons, IncidentArmKindV1::RawWholeRecordPrefix)?;
     let grep_comparison = comparison_v1(&comparisons, IncidentArmKindV1::GrepHeadTail)?;
     let exact_reader_attempt_count = attempts.len()
-        == usize::try_from(LIVE_PRODUCT_DEMO_CALL_COUNT_V1)
-            .map_err(|_| LiveProductDemoErrorV1::Arithmetic)?;
+        == usize::try_from(expected_call_count).map_err(|_| LiveProductDemoErrorV1::Arithmetic)?;
     let valid_response_gate = arms
         .iter()
         .all(|arm| arm.valid_response_rate_micros >= VALID_RESPONSE_FLOOR_MICROS_V1);
@@ -284,10 +354,12 @@ pub fn run_live_product_demo_v1<D: HostedDiagnosisReaderV1>(
     let evidentrail_citations_support_every_successful_diagnosis =
         evidentrail.citation_supported_success_count == evidentrail.diagnosis_success_count
             && evidentrail.diagnosis_success_count > 0;
-    let live_value_indication_supported = exact_reader_attempt_count
+    let evaluation_contract_accepted = exact_reader_attempt_count
         && arm_order_balance_gate
         && valid_response_gate
-        && artifact_budget_integrity_gate
+        && artifact_budget_integrity_gate;
+    let live_value_indication_supported = full_value_evaluation
+        && evaluation_contract_accepted
         && evidentrail_beats_raw_with_positive_paired_lower_bound
         && evidentrail_noninferior_to_grep_within_one_point
         && evidentrail_smaller_than_grep_and_raw
@@ -305,8 +377,13 @@ pub fn run_live_product_demo_v1<D: HostedDiagnosisReaderV1>(
         .sum();
 
     Ok(LiveProductDemoReportV1 {
-        schema_version: LIVE_PRODUCT_DEMO_SCHEMA_VERSION_V1,
-        purpose: "repeated_live_reader_product_value_demonstration_v1",
+        schema_version: LIVE_PRODUCT_DEMO_SCHEMA_VERSION_V2,
+        purpose: if full_value_evaluation {
+            "repeated_live_reader_product_value_demonstration_v2"
+        } else {
+            "live_reader_evaluation_contract_pilot_v2"
+        },
+        full_value_evaluation,
         qualification_eligible: false,
         synthetic_only: true,
         contentless_report: true,
@@ -317,7 +394,7 @@ pub fn run_live_product_demo_v1<D: HostedDiagnosisReaderV1>(
         case_count: u64::try_from(cases.len()).map_err(|_| LiveProductDemoErrorV1::Arithmetic)?,
         arm_count: u64::try_from(ARM_KINDS_V1.len())
             .map_err(|_| LiveProductDemoErrorV1::Arithmetic)?,
-        repeats: LIVE_PRODUCT_DEMO_REPEATS_V1,
+        repeats,
         reader_attempt_count: u64::try_from(attempts.len())
             .map_err(|_| LiveProductDemoErrorV1::Arithmetic)?,
         estimated_cost_guard_microusd: guarded,
@@ -338,6 +415,7 @@ pub fn run_live_product_demo_v1<D: HostedDiagnosisReaderV1>(
             evidentrail_noninferior_to_grep_within_one_point,
             evidentrail_smaller_than_grep_and_raw,
             evidentrail_citations_support_every_successful_diagnosis,
+            evaluation_contract_accepted,
             live_value_indication_supported,
         },
         attempts,
@@ -416,6 +494,10 @@ fn summarize_arm_v1(
         u64::try_from(arm_attempts.len()).map_err(|_| LiveProductDemoErrorV1::Arithmetic)?;
     let valid_response_count = count_v1(&arm_attempts, |attempt| attempt.valid_response)?;
     let diagnosis_success_count = count_v1(&arm_attempts, |attempt| attempt.diagnosis_success)?;
+    let exact_cause_code_match_count =
+        count_v1(&arm_attempts, |attempt| attempt.exact_cause_code_match)?;
+    let semantic_cause_match_count =
+        count_v1(&arm_attempts, |attempt| attempt.semantic_cause_match)?;
     let citation_supported_success_count =
         count_v1(&arm_attempts, |attempt| attempt.citation_supported_success)?;
     let unique_case_artifact_bytes = cases.iter().try_fold(0_u64, |total, case| {
@@ -466,6 +548,8 @@ fn summarize_arm_v1(
             diagnosis_success_count,
             reader_attempt_count,
         )?,
+        exact_cause_code_match_count,
+        semantic_cause_match_count,
         worst_case_diagnosis_success_rate_micros,
         citation_supported_success_count,
         unique_case_artifact_bytes,
@@ -639,10 +723,13 @@ fn arm_order_v1(case_digest_hex: &str, repetition: u32) -> [usize; 3] {
     hasher.update(b"evidentrail/live-product-demo/arm-order/v1\0");
     hasher.update(case_digest_hex.as_bytes());
     let digest: [u8; 32] = hasher.finalize().into();
-    let offset = usize::from(digest[0]) % PERMUTATIONS.len();
-    let step = if digest[1] & 1 == 0 { 1 } else { 5 };
-    let repetition = usize::try_from(repetition).unwrap_or(0);
-    PERMUTATIONS[(offset + repetition.saturating_mul(step)) % PERMUTATIONS.len()]
+    let base = PERMUTATIONS[usize::from(digest[0]) % PERMUTATIONS.len()];
+    let rotation = usize::try_from(repetition).unwrap_or(0) % base.len();
+    [
+        base[rotation],
+        base[(rotation + 1) % base.len()],
+        base[(rotation + 2) % base.len()],
+    ]
 }
 
 fn balanced_order_v1(attempts: &[LiveProductDemoAttemptV1]) -> bool {
@@ -664,11 +751,55 @@ fn balanced_order_v1(attempts: &[LiveProductDemoAttemptV1]) -> bool {
         })
 }
 
-fn corpus_digest_hex_v1(cases: &[PreparedDemoCaseV1]) -> String {
+fn semantic_cause_match_v2(
+    expected_cause_code: &str,
+    cause_code: Option<&str>,
+    diagnosis: Option<&str>,
+) -> bool {
+    if cause_code == Some(expected_cause_code) {
+        return true;
+    }
+    let combined = format!(
+        "{} {}",
+        cause_code.unwrap_or_default(),
+        diagnosis.unwrap_or_default()
+    )
+    .to_ascii_lowercase();
+    match expected_cause_code {
+        "db_pool_size_zero" => {
+            combined.contains("pool")
+                && (combined.contains("zero")
+                    || combined.contains("size=0")
+                    || combined.contains("size_0")
+                    || combined.contains("size is 0")
+                    || combined.contains("capacity 0"))
+                && (combined.contains("size") || combined.contains("capacity"))
+        }
+        "migration_43_omitted" => {
+            combined.contains("migration")
+                && combined.contains("43")
+                && (combined.contains("omit")
+                    || combined.contains("missing")
+                    || combined.contains("not applied"))
+        }
+        "upstream_timeout_too_low" => {
+            combined.contains("upstream")
+                && combined.contains("timeout")
+                && (combined.contains("5ms")
+                    || combined.contains("5 ms")
+                    || combined.contains("too low")
+                    || combined.contains("too short"))
+        }
+        _ => false,
+    }
+}
+
+fn corpus_digest_hex_v1(cases: &[PreparedDemoCaseV1], repeats: u32) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"evidentrail/live-product-demo/corpus/v1\0");
-    hasher.update(LIVE_PRODUCT_DEMO_REPEATS_V1.to_be_bytes());
+    hasher.update(b"evidentrail/live-product-demo/corpus/v2\0");
+    hasher.update(repeats.to_be_bytes());
     hasher.update(ARM_BUDGET_V1.to_be_bytes());
+    hasher.update(b"semantic-cause-rules-v2");
     for case in cases {
         hasher.update(case.digest_hex.as_bytes());
         for kind in ARM_KINDS_V1 {
@@ -705,6 +836,17 @@ mod tests {
             assert_eq!(sorted, [0, 1, 2]);
         }
         assert!(orders.windows(2).any(|window| window[0] != window[1]));
+        for arm in 0..3 {
+            let pilot_positions = (0..LIVE_PRODUCT_DEMO_PILOT_REPEATS_V2)
+                .map(|repetition| {
+                    arm_order_v1("case-a", repetition)
+                        .iter()
+                        .position(|candidate| *candidate == arm)
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+            assert_ne!(pilot_positions[0], pilot_positions[1]);
+        }
     }
 
     #[test]
@@ -714,5 +856,29 @@ mod tests {
             (1_000_000, 1_000_000)
         );
         assert_eq!(mean_delta_micros_v1(&[-1; 60]).unwrap(), -1_000_000);
+    }
+
+    #[test]
+    fn semantic_cause_rules_accept_meaning_without_private_label_spelling() {
+        assert!(semantic_cause_match_v2(
+            "db_pool_size_zero",
+            Some("database_pool_misconfiguration"),
+            Some("The connection pool has zero capacity after the deployment."),
+        ));
+        assert!(semantic_cause_match_v2(
+            "migration_43_omitted",
+            Some("missing_database_migration"),
+            Some("Migration 43 was not applied."),
+        ));
+        assert!(semantic_cause_match_v2(
+            "upstream_timeout_too_low",
+            Some("gateway_timeout_configuration"),
+            Some("The upstream timeout was configured too low."),
+        ));
+        assert!(!semantic_cause_match_v2(
+            "db_pool_size_zero",
+            Some("database_unavailable"),
+            Some("The database could not be reached."),
+        ));
     }
 }

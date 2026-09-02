@@ -16,6 +16,7 @@ files supplied outside the repository.
 | `value` | 0 | $0 | Frozen eight-incident matched-budget evidence recall against raw, grep/head-tail, quota hybrid, BM25F, and the exact oracle; plus three executable incidents through a deterministic fixture agent and independent repair verifier |
 | `preflight` | 0 | $0 | Formatting, Clippy, all workspace targets/features, Rustdoc, wire schemas, feature partitions, RustSec audit, deterministic production shadow, 10K/100K memory probes, 10K/100K/1M repository probes, and the ignored one-million-record evidence gate |
 | `live-latency-challenge` | 3 | $0.03 | Non-qualifying go/no-go latency screen of dated `gpt-5.4-nano-2026-03-17` at the unchanged 800 ms deadline; this cannot repin or admit a model |
+| `live-demo-pilot` | 18 | $0.18 | Evaluation-contract screen over three incidents and three matched arms with two repetitions; all 18 structured responses must validate before a full demo is justified |
 | `live-demo` | 180 | $1.80 | Three executable synthetic incidents × three matched 7,000-byte arms × 20 repetitions through one persistent GPT-5.4 nano reader, using a balanced randomized crossover schedule and paired outcome bounds |
 | `live-pilot` | 21 | $0.21 | 18 frozen ranking calls over six fault families plus three calls through the public production selector |
 | `live-qualify` | Up to 381 | $3.81 | The pilot, then 72 randomized ranking calls on 24 untouched cases, replay through all three consumers, and up to 288 hosted diagnosis calls, plus the production selector smoke |
@@ -44,14 +45,17 @@ It does not use account-dependent Fast/Priority processing.
 - No prompt, response, question, log, evidence bytes, or provider request ID is
   serialized by the live benchmark reports.
 - Calls are sequential through persistent clients. There is no retry.
+- The evaluation-only live reader uses a 15-second deadline, locally
+  canonicalizes set-like output fields, and scores a frozen semantic cause
+  contract separately from exact private-label spelling.
 - `live-demo` randomizes arm order with a balanced crossover schedule and keeps
   the same incident, question, artifact ceiling, reader, and decoding contract
   across all three arms.
 - `all` never starts the 100-call soak unless the scored qualification passes.
 - `live-campaign` also skips its soak when ranker qualification fails; a demo
   result cannot override an admission failure.
-- The model deadline remains 800 ms. A timeout is a failure, not a reason to
-  silently loosen the gate.
+- The production hosted-ranker deadline remains 800 ms. The longer reader
+  deadline cannot satisfy or weaken that independent production gate.
 
 ## Run the no-cost preflight
 
@@ -81,8 +85,18 @@ one-million-record test and may take several minutes.
 
 This is the most direct answer to “does the compressed evidence help a real
 LLM diagnose the incident?” It compares Evidentrail, grep/head-tail, and raw
-prefix artifacts under the same 7,000-byte ceiling. It makes exactly 180 reader
-attempts and writes only aggregate metrics and contentless attempt diagnostics:
+prefix artifacts under the same 7,000-byte ceiling. First validate the repaired
+evaluation contract with exactly 18 calls:
+
+```sh
+cd /Users/arjun/.superset/projects/evidentrail
+export EVIDENTRAIL_LIVE_TEST_APPROVAL=I_APPROVE_OPENAI_RESPONSES_CHARGES_AND_SYNTHETIC_EGRESS
+export EVIDENTRAIL_LIVE_TEST_BUDGET_MICROUSD=180000
+scripts/production-qualification.sh live-demo-pilot
+```
+
+Only after `evaluation_contract_accepted` is true should the 180-call comparison
+be run:
 
 ```sh
 cd /Users/arjun/.superset/projects/evidentrail
@@ -91,9 +105,10 @@ export EVIDENTRAIL_LIVE_TEST_BUDGET_MICROUSD=1800000
 scripts/production-qualification.sh live-demo
 ```
 
-The conservative authorization guard is $1.80. The report uses the frozen
+The pilot and full conservative authorization guards are $0.18 and $1.80. The
+report uses the frozen
 `gpt-5.4-nano-2026-03-17` snapshot with strict structured output, no tools, no
-retention, no retry, and a five-second evaluation deadline. It is deliberately
+retention, no retry, and a 15-second evaluation deadline. It is deliberately
 separate from the 800 ms hosted-ranker production deadline.
 
 For the maximum staged campaign:
@@ -149,6 +164,8 @@ files include:
   the optional three-call screen;
 - `live-product-demo.json` and `live-demo-decision.json` for the 180-call paired
   live-reader comparison;
+- `live-product-demo-pilot.json` and `live-demo-pilot-decision.json` for the
+  18-call evaluation-contract screen;
 - `live-campaign-decision.json` for the combined staged campaign;
 - `hosted-production-smoke.json`;
 - `live-decision.json` for a single fail-closed admission verdict;

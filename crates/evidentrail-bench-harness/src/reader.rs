@@ -1637,6 +1637,82 @@ pub(crate) fn parse_structured_reader_answer_v1(
     Ok(answer)
 }
 
+/// Parse provider-enforced structured output for an evaluation-only reader.
+///
+/// Arrays that are sets in the evaluation contract are canonicalized before
+/// scoring. Provider-valid formatting differences must not be confused with
+/// diagnostic correctness. Production and governed JSONL readers continue to
+/// use the strict v1 parser above.
+pub(crate) fn parse_normalized_evaluation_reader_answer_v2(
+    bytes: &[u8],
+) -> Result<ReaderAnswerV1, ReaderErrorV1> {
+    checked_nonempty_bounded_len(
+        bytes.len(),
+        MAX_READER_ANSWER_BYTES_V1,
+        ReaderErrorV1::EmptyAnswer,
+        ReaderErrorV1::AnswerTooLarge,
+    )?;
+    let mut answer = serde_json::from_slice::<ReaderAnswerV1>(bytes)
+        .map_err(|_| ReaderErrorV1::MalformedAnswer)?;
+    if answer.schema_version != READER_ANSWER_SCHEMA_VERSION_V1 {
+        return Err(ReaderErrorV1::UnsupportedAnswerSchema);
+    }
+    if answer.uncertainty_micros > 1_000_000 {
+        return Err(ReaderErrorV1::InvalidUncertaintyMicros);
+    }
+    if !answer.tool_actions.is_empty() {
+        return Err(ReaderErrorV1::ToolActionsForbidden);
+    }
+    checked_collection_len(answer.citation_handles.len(), MAX_READER_CITATIONS_V1)?;
+    if answer.citation_handles.contains(&0) {
+        return Err(ReaderErrorV1::NonCanonicalAnswerCitations);
+    }
+    answer.citation_handles.sort_unstable();
+    answer.citation_handles.dedup();
+
+    checked_collection_len(answer.claim_codes.len(), MAX_READER_CLAIMS_V1)?;
+    answer.claim_codes = answer
+        .claim_codes
+        .iter()
+        .filter_map(|code| normalize_evaluation_code_v2(code))
+        .collect();
+    answer.claim_codes.sort_unstable();
+    answer.claim_codes.dedup();
+    if let Some(code) = answer.cause_code.as_deref() {
+        answer.cause_code = normalize_evaluation_code_v2(code);
+    }
+    if let Some(reason) = answer.abstention_reason.as_deref() {
+        validate_nonempty_text(reason, MAX_READER_ABSTENTION_REASON_BYTES_V1)?;
+    }
+    if let Some(diagnosis) = answer.diagnosis.as_deref() {
+        validate_nonempty_text(diagnosis, MAX_READER_DIAGNOSIS_BYTES_V1)?;
+    }
+    Ok(answer)
+}
+
+fn normalize_evaluation_code_v2(value: &str) -> Option<String> {
+    let mut normalized = String::with_capacity(value.len().min(MAX_READER_CODE_BYTES_V1));
+    let mut separator_pending = false;
+    for byte in value.bytes() {
+        let byte = byte.to_ascii_lowercase();
+        if byte.is_ascii_lowercase() || byte.is_ascii_digit() {
+            if separator_pending
+                && !normalized.is_empty()
+                && normalized.len() < MAX_READER_CODE_BYTES_V1
+            {
+                normalized.push('_');
+            }
+            separator_pending = false;
+            if normalized.len() < MAX_READER_CODE_BYTES_V1 {
+                normalized.push(char::from(byte));
+            }
+        } else if !normalized.is_empty() {
+            separator_pending = true;
+        }
+    }
+    (!normalized.is_empty()).then_some(normalized)
+}
+
 fn validate_reader_answer_semantics_v1(answer: &ReaderAnswerV1) -> Result<(), ReaderErrorV1> {
     if answer.uncertainty_micros > 1_000_000 {
         return Err(ReaderErrorV1::InvalidUncertaintyMicros);
@@ -2322,5 +2398,26 @@ impl From<HarnessError> for ReaderErrorV1 {
 impl From<PeakRssObserverErrorV1> for ReaderErrorV1 {
     fn from(error: PeakRssObserverErrorV1) -> Self {
         Self::PeakRssObserver(error)
+    }
+}
+
+#[cfg(test)]
+mod evaluation_normalization_tests {
+    use super::*;
+
+    #[test]
+    fn evaluation_parser_normalizes_set_order_and_free_form_codes() {
+        let answer = br#"{"schema_version":1,"abstained":false,"abstention_reason":null,"cause_code":"Database Pool Size = 0","cause_granularity":"root_cause","diagnosis":"The pool has zero capacity.","citation_handles":[3,1,3],"claim_codes":["Pool Exhausted","config-change"],"uncertainty_micros":1000,"tool_actions":[]}"#;
+        assert_eq!(
+            parse_structured_reader_answer_v1(answer),
+            Err(ReaderErrorV1::NonCanonicalAnswerCitations)
+        );
+        let normalized = parse_normalized_evaluation_reader_answer_v2(answer).unwrap();
+        assert_eq!(normalized.cause_code(), Some("database_pool_size_0"));
+        assert_eq!(normalized.citation_handles(), &[1, 3]);
+        assert_eq!(
+            normalized.claim_codes(),
+            &["config_change".to_owned(), "pool_exhausted".to_owned()]
+        );
     }
 }
