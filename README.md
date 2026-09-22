@@ -8,16 +8,9 @@ turning source evidence into an unverifiable summary: every selected event
 keeps its original bytes, every citation can be expanded, and every incomplete
 result says so.
 
-```text
-explicit log bytes + question + budget
-                │
-                ▼
-     deterministic evidence compiler
-       frame → retrieve → select → certify
-                │
-                ▼
- cited Log Brief + coverage receipt + exact expansion
-```
+![Evidentrail system design: explicit logs and question are framed, retrieved, selected under a budget, and delivered as a cited brief](docs/system-design.svg)
+
+*Source-exact citations in the brief expand into bounded events retained from the authorized input.*
 
 ## The product
 
