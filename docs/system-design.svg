@@ -1,56 +1,52 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="590" viewBox="0 0 1200 590" role="img" aria-labelledby="title desc">
-<title id="title">Evidence you can trace back to bytes</title>
-<desc id="desc">Deterministic compilation under an explicit context budget</desc>
-<rect width="1200" height="590" rx="28" fill="#071521"/>
-<rect x="1" y="1" width="1198" height="588" rx="27" fill="none" stroke="#254256" stroke-width="2"/>
-<rect x="52" y="46" width="8" height="42" rx="4" fill="#65e1c5"/>
-<text x="77" y="67" fill="#65e1c5" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="2">EVIDENTRAIL  /  SYSTEM DESIGN</text>
-<text x="52" y="120" fill="#f1f7fb" font-family="Arial, Helvetica, sans-serif" font-size="37" font-weight="700">Evidence you can trace back to bytes</text>
-<text x="52" y="154" fill="#a9bfcb" font-family="Arial, Helvetica, sans-serif" font-size="19">Deterministic compilation under an explicit context budget</text>
-<rect x="52" y="211" width="208" height="224" rx="18" fill="#102637" stroke="#2d4b5d" stroke-width="2"/>
-<circle cx="82" cy="244" r="15" fill="#65e1c5" opacity=".18"/>
-<text x="82" y="250" text-anchor="middle" fill="#65e1c5" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700">01</text>
-<text x="72" y="295" fill="#65e1c5" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="1.4">INPUT</text>
-<rect x="72" y="315" width="168" height="1" fill="#315469"/>
-<text x="72" y="357" fill="#f1f7fb" font-family="Arial, Helvetica, sans-serif" font-size="19">Log bytes</text>
-<text x="72" y="388" fill="#a9bfcb" font-family="Arial, Helvetica, sans-serif" font-size="17">Question + budget</text>
-<path d="M 269 323 H 280" stroke="#65e1c5" stroke-width="3" stroke-linecap="round"/>
-<path d="M 275 317 L 282 323 L 275 329" fill="none" stroke="#65e1c5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-<rect x="284" y="211" width="208" height="224" rx="18" fill="#102637" stroke="#2d4b5d" stroke-width="2"/>
-<circle cx="314" cy="244" r="15" fill="#65e1c5" opacity=".18"/>
-<text x="314" y="250" text-anchor="middle" fill="#65e1c5" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700">02</text>
-<text x="304" y="295" fill="#65e1c5" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="1.4">FRAME</text>
-<rect x="304" y="315" width="168" height="1" fill="#315469"/>
-<text x="304" y="357" fill="#f1f7fb" font-family="Arial, Helvetica, sans-serif" font-size="19">Reversible records</text>
-<text x="304" y="388" fill="#a9bfcb" font-family="Arial, Helvetica, sans-serif" font-size="17">Original bytes kept</text>
-<path d="M 501 323 H 512" stroke="#65e1c5" stroke-width="3" stroke-linecap="round"/>
-<path d="M 507 317 L 514 323 L 507 329" fill="none" stroke="#65e1c5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-<rect x="516" y="211" width="208" height="224" rx="18" fill="#102637" stroke="#2d4b5d" stroke-width="2"/>
-<circle cx="546" cy="244" r="15" fill="#65e1c5" opacity=".18"/>
-<text x="546" y="250" text-anchor="middle" fill="#65e1c5" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700">03</text>
-<text x="536" y="295" fill="#65e1c5" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="1.4">RETRIEVE</text>
-<rect x="536" y="315" width="168" height="1" fill="#315469"/>
-<text x="536" y="357" fill="#f1f7fb" font-family="Arial, Helvetica, sans-serif" font-size="19">Exact matches</text>
-<text x="536" y="388" fill="#a9bfcb" font-family="Arial, Helvetica, sans-serif" font-size="17">Failure + coverage</text>
-<path d="M 733 323 H 744" stroke="#65e1c5" stroke-width="3" stroke-linecap="round"/>
-<path d="M 739 317 L 746 323 L 739 329" fill="none" stroke="#65e1c5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-<rect x="748" y="211" width="208" height="224" rx="18" fill="#102637" stroke="#2d4b5d" stroke-width="2"/>
-<circle cx="778" cy="244" r="15" fill="#65e1c5" opacity=".18"/>
-<text x="778" y="250" text-anchor="middle" fill="#65e1c5" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700">04</text>
-<text x="768" y="295" fill="#65e1c5" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="1.4">SELECT</text>
-<rect x="768" y="315" width="168" height="1" fill="#315469"/>
-<text x="768" y="357" fill="#f1f7fb" font-family="Arial, Helvetica, sans-serif" font-size="19">Mandatory evidence</text>
-<text x="768" y="388" fill="#a9bfcb" font-family="Arial, Helvetica, sans-serif" font-size="17">Budgeted packing</text>
-<path d="M 965 323 H 976" stroke="#65e1c5" stroke-width="3" stroke-linecap="round"/>
-<path d="M 971 317 L 978 323 L 971 329" fill="none" stroke="#65e1c5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-<rect x="980" y="211" width="208" height="224" rx="18" fill="#102637" stroke="#2d4b5d" stroke-width="2"/>
-<circle cx="1010" cy="244" r="15" fill="#65e1c5" opacity=".18"/>
-<text x="1010" y="250" text-anchor="middle" fill="#65e1c5" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700">05</text>
-<text x="1000" y="295" fill="#65e1c5" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="1.4">DELIVER</text>
-<rect x="1000" y="315" width="168" height="1" fill="#315469"/>
-<text x="1000" y="357" fill="#f1f7fb" font-family="Arial, Helvetica, sans-serif" font-size="19">Cited Log Brief</text>
-<text x="1000" y="388" fill="#a9bfcb" font-family="Arial, Helvetica, sans-serif" font-size="17">Coverage receipt</text>
-<rect x="52" y="474" width="1096" height="65" rx="13" fill="#112d3c" stroke="#2d4b5d"/>
-<circle cx="78" cy="507" r="6" fill="#65e1c5"/>
-<text x="98" y="514" fill="#d8e9ef" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="600">E&lt;n&gt; EXPANSION   •   Bounded lookup into retained, source-exact events</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
+<title id="title">Evidentrail — system diagram</title>
+<desc id="desc">Explicit log input passes through a deterministic evidence compiler and produces a cited brief with exact source expansion.</desc>
+<defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M 0 0 L 9 4.5 L 0 9" fill="none" stroke="#465768" stroke-width="1.5"/></marker></defs>
+<rect width="1200" height="640" fill="#ffffff"/>
+<text x="40" y="52" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" fill="#172b3a">Evidentrail — system diagram</text>
+<path d="M 40 69 H 1160" stroke="#d5dce2" stroke-width="1"/>
+<rect x="40" y="220" width="185" height="90" fill="#ffffff" stroke="#465768" stroke-width="1.7"/>
+<text x="132.5" y="262.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#172b3a">Caller</text>
+<text x="132.5" y="287.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#536777">log · question · budget</text>
+<rect x="275" y="120" width="645" height="360" fill="#f8fafb" stroke="#9aaab5" stroke-width="1.5" stroke-dasharray="7 5"/>
+<rect x="289" y="110" width="279" height="22" fill="#ffffff"/>
+<text x="297" y="126" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#33485a">Deterministic evidence compiler</text>
+<rect x="300" y="220" width="130" height="90" fill="#ffffff" stroke="#465768" stroke-width="1.7"/>
+<text x="365.0" y="262.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#172b3a">Frame</text>
+<text x="365.0" y="287.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#536777">reversible records</text>
+<rect x="455" y="220" width="130" height="90" fill="#ffffff" stroke="#465768" stroke-width="1.7"/>
+<text x="520.0" y="262.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#172b3a">Retrieve</text>
+<text x="520.0" y="287.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#536777">evidence lanes</text>
+<rect x="610" y="220" width="130" height="90" fill="#ffffff" stroke="#465768" stroke-width="1.7"/>
+<text x="675.0" y="262.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#172b3a">Select</text>
+<text x="675.0" y="287.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#536777">budget + required</text>
+<rect x="765" y="220" width="130" height="90" fill="#ffffff" stroke="#465768" stroke-width="1.7"/>
+<text x="830.0" y="262.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#172b3a">Render</text>
+<text x="830.0" y="287.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#536777">brief + receipt</text>
+<rect x="970" y="220" width="185" height="90" fill="#ffffff" stroke="#465768" stroke-width="1.7"/>
+<text x="1062.5" y="262.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#172b3a">Log Brief</text>
+<text x="1062.5" y="287.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#536777">cited evidence</text>
+<path d="M 225 265 L 300 265" fill="none" stroke="#465768" stroke-width="1.8"/>
+<polygon points="300,265 289.0,270.0 289.0,260.0" fill="#465768"/>
+<path d="M 430 265 L 455 265" fill="none" stroke="#465768" stroke-width="1.8"/>
+<polygon points="455,265 444.0,270.0 444.0,260.0" fill="#465768"/>
+<path d="M 585 265 L 610 265" fill="none" stroke="#465768" stroke-width="1.8"/>
+<polygon points="610,265 599.0,270.0 599.0,260.0" fill="#465768"/>
+<path d="M 740 265 L 765 265" fill="none" stroke="#465768" stroke-width="1.8"/>
+<polygon points="765,265 754.0,270.0 754.0,260.0" fill="#465768"/>
+<path d="M 895 265 L 970 265" fill="none" stroke="#465768" stroke-width="1.8"/>
+<polygon points="970,265 959.0,270.0 959.0,260.0" fill="#465768"/>
+<rect x="620" y="385" width="180" height="65" fill="#ffffff" stroke="#465768" stroke-width="1.7"/>
+<text x="710.0" y="414.5" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#172b3a">Result ledger</text>
+<text x="710.0" y="439.5" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#536777">retained events</text>
+<rect x="970" y="385" width="185" height="65" fill="#ffffff" stroke="#465768" stroke-width="1.7"/>
+<text x="1062.5" y="414.5" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#172b3a">Expand E&lt;n&gt;</text>
+<text x="1062.5" y="439.5" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#536777">source-exact bytes</text>
+<path d="M 830 310 L 830 417 L 800 417" fill="none" stroke="#465768" stroke-width="1.8"/>
+<polygon points="800,417 811.0,412.0 811.0,422.0" fill="#465768"/>
+<path d="M 800 417 L 970 417" fill="none" stroke="#465768" stroke-width="1.8"/>
+<polygon points="970,417 959.0,422.0 959.0,412.0" fill="#465768"/>
+<path d="M 1062 310 L 1062 385" fill="none" stroke="#465768" stroke-width="1.8"/>
+<polygon points="1062,385 1057.0,374.0 1067.0,374.0" fill="#465768"/>
+<text x="300" y="505" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#536777">Exact passthrough when input fits; otherwise the brief includes coverage and incompleteness status.</text>
 </svg>
