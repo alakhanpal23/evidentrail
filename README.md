@@ -208,6 +208,9 @@ With optional metrics, all six cases expose source-linked measurements from
 the labeled service, including a large CPU median shift in the CPU case. The
 largest relative shift is not always the injected fault type, so this is an
 evidence-availability check, not a correct-diagnosis score.
+The [combined-source probe](reports/rcaeval-selection/README.md#combined-log-and-metric-selection-probe)
+also checks whether metric summaries crowd out logs and whether the model can
+choose from omitted log groups.
 
 The generic-question, metric-only probe removes the labeled service from the
 question and excludes logs that may contain credentials. Its selected evidence

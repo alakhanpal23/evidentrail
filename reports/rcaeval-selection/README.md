@@ -74,3 +74,26 @@ inspected and adjusted selection on a subset of these cases. No LLM was run;
 its service-plus-fault score remains unmeasured. The baseline shows that a
 model must add value beyond a strong service-localization heuristic, especially
 for fault-type discrimination.
+
+## Combined log-and-metric selection probe
+
+`six-case-combined.jsonl` records the six `catalogue` fault types with both
+logs and metrics, a generic question, and no hosted model call. Reproduce with:
+
+```sh
+python3 scripts/rcaeval-log-probe.py --with-metrics --generic-question
+```
+
+The earlier `a29e6fb` selection reserved no log space when metrics were
+present. It exposed 1, 1, 1, 1, 4, and 1 log groups across these six cases.
+With an 8 KiB log reserve, the counts are 2, 3, 2, 2, 5, and 2. The model
+still sees 19–20 metric summaries (previously 24), including the labeled
+service's largest-shift metric in all six cases. A shorter, wider retrieval
+inventory includes every omitted log group in these six cases; the earlier
+16 KiB inventory included only 56 of 98 omitted groups in the CPU case.
+
+This is evidence-coverage testing, not root-cause accuracy. All reports are
+`partial` because many groups and metric series remain outside the final
+diagnosis window. A live model may choose poor groups or interpret visible
+signals incorrectly. The exact line-citation verifier checks attribution,
+not whether a causal claim is true.

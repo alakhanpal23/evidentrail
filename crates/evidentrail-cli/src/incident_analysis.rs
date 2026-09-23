@@ -22,7 +22,8 @@ const METRIC_WINDOW_SECONDS: i64 = 300;
 const MAX_VISIBLE_METRIC_SIGNALS: usize = 24;
 const MAX_MODEL_EVIDENCE_BYTES: usize = 32 * 1024;
 const MODEL_RETRIEVAL_RESERVE_BYTES: usize = 8 * 1024;
-const MAX_MODEL_INVENTORY_BYTES: usize = 16 * 1024;
+const MODEL_LOG_RESERVE_BYTES: usize = 8 * 1024;
+const MAX_MODEL_INVENTORY_BYTES: usize = 24 * 1024;
 const MAX_REQUESTED_GROUPS: usize = 4;
 const MAX_EVENT_SAMPLE_BYTES: usize = 512;
 const MAX_VISIBLE_GROUPS_PER_SERVICE: usize = 3;
@@ -459,6 +460,11 @@ pub fn analyze_with_reasoner_and_metrics(
     } else {
         MAX_MODEL_EVIDENCE_BYTES
     };
+    let initial_metric_limit = if groups.is_empty() {
+        initial_evidence_limit
+    } else {
+        initial_evidence_limit.saturating_sub(MODEL_LOG_RESERVE_BYTES)
+    };
 
     let mut visible = Vec::new();
     let mut visible_group_indexes = BTreeSet::new();
@@ -492,7 +498,7 @@ pub fn analyze_with_reasoner_and_metrics(
                 sample_event(&data.events[metric_event_index(&signal.incident_event_id)?]);
             let candidate = json!({"signal": signal, "examples": [&baseline, &incident]});
             let cost = candidate.to_string().len();
-            if visible_bytes.saturating_add(cost) > initial_evidence_limit {
+            if visible_bytes.saturating_add(cost) > initial_metric_limit {
                 continue;
             }
             visible_bytes += cost;
@@ -544,16 +550,36 @@ pub fn analyze_with_reasoner_and_metrics(
     let mut inventory = Vec::new();
     let mut inventory_indexes = BTreeSet::new();
     let mut inventory_bytes = 0usize;
-    for (index, group) in groups.iter().enumerate() {
-        if visible_group_indexes.contains(&index) {
-            continue;
-        }
+    // Round-robin omitted groups across services so a long run of warnings
+    // from one service does not hide other services from the retrieval model.
+    let mut rank_by_service = BTreeMap::<String, usize>::new();
+    let mut omitted_indexes = (0..groups.len())
+        .filter(|index| !visible_group_indexes.contains(index))
+        .map(|index| {
+            let rank = rank_by_service
+                .entry(groups[index].service.clone())
+                .or_default();
+            let item = (*rank, index);
+            *rank += 1;
+            item
+        })
+        .collect::<Vec<_>>();
+    omitted_indexes.sort_by_key(|(rank, index)| {
+        (
+            *rank,
+            !focus_services.contains(&groups[*index].service),
+            role_rank(groups[*index].role),
+            *index,
+        )
+    });
+    for (_, index) in omitted_indexes {
+        let group = &groups[index];
         let candidate = json!({
             "id": format!("G{}", index + 1),
             "service": group.service,
             "role": group.role,
             "count": group.event_ids.len(),
-            "fingerprint": truncate_utf8(&events[group.event_ids[0]].fingerprint, 160),
+            "fingerprint": truncate_utf8(&events[group.event_ids[0]].fingerprint, 80),
             "first_event_id": events[group.event_ids[0]].id,
             "last_event_id": events[*group.event_ids.last().expect("nonempty group")].id,
         });
@@ -1344,6 +1370,30 @@ mod tests {
         assert_eq!(report.model_requested_group_count, 1);
         assert_eq!(report.expanded_group_count, 1);
         assert_eq!(report.omitted_group_count, 0);
+    }
+
+    struct InvalidSelectionReasoner(Vec<String>);
+
+    impl IncidentReasoner for InvalidSelectionReasoner {
+        fn select_groups(&mut self, _: &Value) -> Result<Vec<String>, AnalysisError> {
+            Ok(self.0.clone())
+        }
+
+        fn assess(&mut self, _: &Value) -> Result<ModelAssessment, AnalysisError> {
+            panic!("invalid group selection must stop before assessment")
+        }
+    }
+
+    #[test]
+    fn model_cannot_request_unlisted_or_duplicate_groups() {
+        let logs = b"service=db level=warn first alert\nservice=db level=warn second alert\nservice=db level=warn third alert\nservice=db level=warn fourth alert";
+        for ids in [vec!["G999".to_owned()], vec!["G4".to_owned(); 2]] {
+            let mut reasoner = InvalidSelectionReasoner(ids);
+            assert!(matches!(
+                analyze_with_reasoner(logs, "What happened to db?", None, &mut reasoner),
+                Err(AnalysisError::InvalidModelOutput)
+            ));
+        }
     }
 
     fn metric_fixture() -> Vec<u8> {
