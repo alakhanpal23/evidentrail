@@ -107,6 +107,21 @@ sometimes ignores a useful prior and sometimes rejects a misleading one. A
 larger frozen test across services and independent, approved real incidents
 is still required before claiming improved diagnosis accuracy.
 
+The next [case list](frozen-precedent-replicate3-cases.json) was committed
+before model inference. It selected two replicate-3 cases per fault type by a
+fixed SHA-256 rule, spanning all five Sock Shop services. The
+[`frozen12` paired artifact](frozen12-local-precedent-paired.jsonl) uses the
+same clean Evidentrail binary, local model, question, and ±300-second metric
+window in both arms. Exact top-1 service-plus-fault hits were **7/12 with or
+without history**, identical to the largest-shift baseline on these cases.
+Top-3 joint hits were 9/12 without and 10/12 with history, but no additional
+case reached rank one. All 24 reports were partial and asked for more
+evidence. This does **not** validate a diagnosis-accuracy benefit from the
+history option. The current model continues to struggle with loss and socket
+faults; the next iteration should use additional current-incident evidence,
+especially trace timing and status changes, rather than stronger wording for
+the same prior labels.
+
 `ninety-case-metric-only.jsonl` records all 90 pinned RE2 Sock Shop cases at
 Evidentrail revision `7202a7b`. Reproduce with:
 
