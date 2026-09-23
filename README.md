@@ -97,9 +97,12 @@ For a local smoke run, start Ollama with a model already installed and set
 `EVIDENTRAIL_ANALYZE_LOCAL_MODEL` to its name. This fixes the endpoint to
 `127.0.0.1:11434` and requires no hosted key. Local model quality varies;
 the same citation checks apply, and a local run is not a hosted accuracy score.
-Set Ollama's context window to at least 16K (for example, start it with
-`OLLAMA_CONTEXT_LENGTH=16384 ollama serve`); Evidentrail rejects smaller
-loaded windows to avoid the observed prompt truncation failure.
+Set Ollama's context window to at least 32K for log analysis (for example,
+`OLLAMA_CONTEXT_LENGTH=32768 ollama serve`). Metric-only analysis requires at
+least 16K. Evidentrail rejects smaller loaded windows for these modes because
+the combined public-data pilot showed prompt truncation at 16K. These minimums
+do not prove every larger prompt fits; inspect Ollama's runtime logs for
+truncation when evaluating a new model or incident size.
 
 ```sh
 EVIDENTRAIL_ANALYZE_LOCAL_MODEL=qwen3:14b \
@@ -157,11 +160,21 @@ can be examined together. The output includes group counts, omitted-group counts
 source-line IDs, source-line SHA-256 digests, and hypotheses with exact source
 excerpts. Each hypothesis has a service and a fault type (`cpu`, `mem`, `disk`,
 `delay`, `loss`, `socket`, `other`, or `unknown`) so RCA evaluations can score
-the pair. A fabricated or unseen line ID or unrelated-service citation fails
-the request. The report labels each hypothesis's citation support as `direct`
+the pair. Hypotheses with fabricated or unseen line IDs or unrelated-service
+citations are discarded and counted; valid hypotheses still return in a
+partial report. The report labels each hypothesis's citation support as `direct`
 or `dependent_only`; the latter forces a partial result because an affected
 caller does not prove its dependency caused the incident. Omitted groups also
 set `partial` and `needs_more_evidence: true`.
+When an incident time and numeric log timestamps are available, alert groups
+include counts before and after the incident within the same five-minute
+window as the metrics. Logs without a usable time or outside that window are
+counted separately, so chronic alerts are not silently treated as new onset.
+When a log-led hypothesis points to a service with stable alert volume and a
+different service has a much stronger visible metric shift, `analyze` asks the
+model for an independent metric-only assessment. It exposes disagreement and
+the origin of each hypothesis; a directly cited metric hypothesis may lead the
+partial report. This comparison does not prove which hypothesis is causal.
 
 Line-oriented JSON logs can use flat `message`/`service`/`level` fields or a
 flattened [OpenTelemetry log record](https://github.com/open-telemetry/opentelemetry-proto/blob/main/examples/logs.json)

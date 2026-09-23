@@ -57,6 +57,7 @@ class LiveScoreTests(unittest.TestCase):
         self.assertEqual(report["case_count"], 2)
         self.assertEqual(report["model_backend"], "ollama_local")
         self.assertEqual(report["model_name"], "qwen3:14b")
+        self.assertTrue(report["metrics_only"])
         self.assertEqual(report["naive_top1_joint_hits"], 1)
         self.assertEqual(report["model_top1_joint_hits"], 1)
         self.assertEqual(report["model_only_joint_hits"], 1)
@@ -66,6 +67,23 @@ class LiveScoreTests(unittest.TestCase):
         self.assertEqual(report["top1_unknown_fault_types"], 1)
         self.assertEqual(report["top1_specific_fault_types"], 1)
         self.assertEqual(report["needs_more_evidence"], 1)
+
+    def test_scores_local_combined_run_but_rejects_hosted_public_logs(self):
+        header, rows = fixture()
+        combined = {**header, "metrics_only": False}
+        combined_rows = [
+            {**row, "metric_challenger_attempted": True, "metric_challenger_failed": False,
+             "metric_disagreement": True, "top1_origin": "metric_challenger",
+             "redacted_log_events": 2, "rejected_hypothesis_count": 1}
+            for row in rows
+        ]
+        report = score_rows(combined, combined_rows)
+        self.assertFalse(report["metrics_only"])
+        self.assertEqual(report["metric_challenger_attempts"], 2)
+        self.assertEqual(report["redacted_log_events"], 4)
+        self.assertEqual(report["rejected_hypotheses"], 2)
+        with self.assertRaises(ValueError):
+            score_rows({**combined, "model_backend": "openai_hosted"}, combined_rows)
 
     def test_rejects_incomplete_duplicate_and_failed_runs(self):
         header, rows = fixture()

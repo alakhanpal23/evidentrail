@@ -3,15 +3,19 @@
 
 Requires pyarrow. Downloads public Parquet into memory, sends a bounded NDJSON
 window to `evidentrail analyze --selection-only`, and emits aggregate counts.
-This is not a root-cause diagnosis benchmark: some injected faults have no
-diagnostic log signature and require metrics or traces.
+Selection-only output is not a root-cause diagnosis benchmark: some injected
+faults have no diagnostic log signature and require metrics or traces. Live
+log-and-metric runs require a local model and redact sensitive field values
+before analysis. Only aggregate results are emitted.
 """
 
 import argparse
+import hashlib
 import io
 import json
 import math
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -23,6 +27,30 @@ import pyarrow.parquet as parquet
 REVISION = "afeacb11bcc94dadfd1c8f483ee4377b2b8b614e"
 BASE = f"https://huggingface.co/datasets/phamquiluan/RCAEval/resolve/{REVISION}"
 DEFAULT_CASES = [f"re2ss_catalogue_{fault}_1" for fault in ("cpu", "mem", "disk", "delay", "loss", "socket")]
+SENSITIVE_MARKERS = (
+    "password=", "passwd=", "api_key=", "access_token=", "secret=",
+    "authorization:", "dsn=", '"password":', '"api_key":',
+    '"access_token":', '"secret":',
+)
+
+
+def redact_sensitive_message(message):
+    if not isinstance(message, str) or not any(marker in message.lower() for marker in SENSITIVE_MARKERS):
+        return message, False
+    redacted = re.sub(
+        r"(?i)\b(?:password|passwd|api_key|access_token|secret|dsn)=\S+",
+        "[redacted sensitive field]",
+        message,
+    )
+    redacted = re.sub(r"(?i)authorization:\s*\S+", "[redacted authorization]", redacted)
+    redacted = re.sub(
+        r'(?i)"(?:password|api_key|access_token|secret)"\s*:\s*(?:"[^"]*"|\S+)',
+        "[redacted sensitive field]",
+        redacted,
+    )
+    if any(marker in redacted.lower() for marker in SENSITIVE_MARKERS):
+        redacted = "[redacted sensitive log event]"
+    return redacted, True
 
 
 def fetch(case, name):
@@ -86,16 +114,26 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
     injection = int(fetch(case, "inject_time.txt"))
     if metrics_only:
         source = b""
+        redacted_log_events = 0
     else:
         table = parquet.read_table(io.BytesIO(fetch(case, "logs.parquet")), columns=["timestamp", "container_name", "message"])
         rows = (
             row for row in table.to_pylist()
             if abs(row["timestamp"] - injection) <= window
         )
-        source = b"".join(
-            (json.dumps({"timestamp": row["timestamp"], "service": row["container_name"], "message": row["message"]}, ensure_ascii=False) + "\n").encode("utf-8")
-            for row in rows
-        )
+        output = io.BytesIO()
+        redacted_log_events = 0
+        for row in rows:
+            message = row["message"]
+            if live_model:
+                message, redacted = redact_sensitive_message(message)
+                redacted_log_events += redacted
+            output.write((json.dumps({
+                "timestamp": row["timestamp"],
+                "service": row["container_name"],
+                "message": message,
+            }, ensure_ascii=False) + "\n").encode("utf-8"))
+        source = output.getvalue()
     if (not source and not metrics_only) or len(source) > 16 * 1024 * 1024:
         return {"case": case, "status": "window_exceeds_product_limit", "source_bytes": len(source)}
     question = "Which service and failure mode caused this incident?" if generic_question else f"What caused {root_service} service degradation?"
@@ -127,13 +165,13 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=False,
-                timeout=75,
+                timeout=180 if live_model and not metrics_only else 75,
             )
         except subprocess.TimeoutExpired:
-            return {"case": case, "status": "product_error", "error_code": "EVIDENTRAIL_PROBE_TIMEOUT"}
+            return {"case": case, "status": "product_error", "error_code": "EVIDENTRAIL_PROBE_TIMEOUT", "redacted_log_events": redacted_log_events}
         elapsed = time.perf_counter() - start
     if run.returncode:
-        return {"case": case, "status": "product_error", "error_code": run.stderr.decode("utf-8", "replace").strip()}
+        return {"case": case, "status": "product_error", "error_code": run.stderr.decode("utf-8", "replace").strip(), "redacted_log_events": redacted_log_events, "model_latency_seconds": round(elapsed, 3)}
     report = json.loads(run.stdout)
     root_signal = next(signal for signal in report["service_signals"] if signal["service"] == root_service)
     root_group_ids = {group["id"] for group in report["alert_groups"] if group["service"] == root_service}
@@ -144,6 +182,7 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
         "status": report["status"],
         "source_lines": report["source_line_count"],
         "source_bytes": len(source),
+        "redacted_log_events": redacted_log_events,
         "alert_groups": report["alert_group_count"],
         "model_visible_groups": report["model_visible_group_count"],
         "omitted_groups": report["omitted_group_count"],
@@ -197,11 +236,16 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
             "top1_root_service_hit": bool(hypotheses and hypotheses[0]["service"] == root_service),
             "top1_fault_type": hypotheses[0]["fault_type"] if hypotheses else None,
             "model_needs_more_evidence": report["needs_more_evidence"],
+            "metric_challenger_attempted": report["metric_challenger_attempted"],
+            "metric_challenger_failed": report["metric_challenger_failed"],
+            "metric_disagreement": report["metric_disagreement"],
+            "top1_origin": report["hypothesis_origins"][0] if hypotheses else None,
             "top1_fault_hit": bool(hypotheses and hypotheses[0]["fault_type"] == true_fault),
             "top1_joint_hit": bool(hypotheses and hypotheses[0]["service"] == root_service and hypotheses[0]["fault_type"] == true_fault),
             "top3_root_service_hit": any(hypothesis["service"] == root_service for hypothesis in hypotheses),
             "top3_joint_hit": any(hypothesis["service"] == root_service and hypothesis["fault_type"] == true_fault for hypothesis in hypotheses),
             "hypothesis_count": len(hypotheses),
+            "rejected_hypothesis_count": report["rejected_hypothesis_count"],
             "citation_count": sum(len(hypothesis["evidence"]) for hypothesis in hypotheses),
             "top1_support_scope": support[0]["scope"] if support else None,
             "direct_hypothesis_count": sum(item["scope"] == "direct" for item in support),
@@ -226,10 +270,12 @@ def main():
         parser.error("window must be between 1 and 600 seconds")
     if args.metrics_only and not args.with_metrics:
         parser.error("--metrics-only requires --with-metrics")
-    if args.live_model and not (args.metrics_only and args.with_metrics and args.generic_question):
-        parser.error("--live-model requires --metrics-only --with-metrics --generic-question")
+    if args.live_model and not (args.with_metrics and args.generic_question):
+        parser.error("--live-model requires --with-metrics --generic-question")
     if args.live_model and not (os.environ.get("OPENAI_API_KEY") or os.environ.get("EVIDENTRAIL_ANALYZE_LOCAL_MODEL")):
         parser.error("--live-model requires OPENAI_API_KEY or EVIDENTRAIL_ANALYZE_LOCAL_MODEL")
+    if args.live_model and not args.metrics_only and not os.environ.get("EVIDENTRAIL_ANALYZE_LOCAL_MODEL"):
+        parser.error("live public logs require a local model; set EVIDENTRAIL_ANALYZE_LOCAL_MODEL")
     if args.all_re2_ss and args.cases:
         parser.error("--all-re2-ss cannot be combined with explicit cases")
     if args.all_re2_ss and args.live_model:
@@ -239,7 +285,10 @@ def main():
     cases = all_re2_ss_cases() if args.all_re2_ss else (args.cases or DEFAULT_CASES)
     backend = "ollama_local" if os.environ.get("EVIDENTRAIL_ANALYZE_LOCAL_MODEL") else "openai_hosted"
     model_name = os.environ.get("EVIDENTRAIL_ANALYZE_LOCAL_MODEL") if backend == "ollama_local" else "gpt-5.6-luna"
-    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "with_traces": args.with_traces, "live_model": args.live_model, "model_backend": backend if args.live_model else None, "model_name": model_name if args.live_model else None, "case_count": len(cases)}))
+    with open(args.binary, "rb") as executable:
+        binary_sha256 = hashlib.sha256(executable.read()).hexdigest()
+    code_revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "evidentrail_revision": code_revision, "binary_sha256": binary_sha256, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "with_traces": args.with_traces, "live_model": args.live_model, "model_backend": backend if args.live_model else None, "model_name": model_name if args.live_model else None, "case_count": len(cases)}))
     for case in cases:
         print(json.dumps(probe(case, args.binary, args.window_seconds, args.with_metrics, args.generic_question, args.metrics_only, args.live_model, args.with_traces), sort_keys=True), flush=True)
 

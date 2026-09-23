@@ -26,13 +26,19 @@ def score(path):
         header.get("revision") != REVISION
         or header.get("dataset") != "phamquiluan/RCAEval"
         or header.get("live_model") is not True
-        or header.get("metrics_only") is not True
+        or type(header.get("metrics_only")) is not bool
         or header.get("generic_question") is not True
         or header.get("model_backend") not in {"ollama_local", "openai_hosted"}
         or not isinstance(header.get("model_name"), str)
         or not header["model_name"]
     ):
-        raise ValueError("not a pinned live, generic-question, metric-only RCAEval run")
+        raise ValueError("not a pinned live, generic-question RCAEval run")
+    if not header["metrics_only"] and header["model_backend"] != "ollama_local":
+        raise ValueError("live public-log runs must use a local model")
+    for digest_field in ("evidentrail_revision", "binary_sha256"):
+        digest = header.get(digest_field)
+        if digest is not None and (not isinstance(digest, str) or len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest)):
+            raise ValueError(f"invalid {digest_field} in probe header")
     if header.get("case_count") != len(rows):
         raise ValueError("case count does not match the probe header")
     case_names = [row.get("case") for row in rows]
@@ -78,6 +84,26 @@ def score(path):
             or (row["top1_fault_type"] == "unknown" and (row["top1_fault_hit"] or row["top1_joint_hit"]))
         ):
             raise ValueError(f"case {row['case']} has invalid count or latency")
+        if not header["metrics_only"]:
+            challenge_fields = (
+                "metric_challenger_attempted", "metric_challenger_failed",
+                "metric_disagreement", "top1_origin", "redacted_log_events",
+                "rejected_hypothesis_count",
+            )
+            if any(field not in row for field in challenge_fields):
+                raise ValueError(f"case {row['case']} lacks combined-run fields")
+            if (
+                any(type(row[field]) is not bool for field in challenge_fields[:3])
+                or row["top1_origin"] not in ("combined", "metric_challenger", None)
+                or type(row["redacted_log_events"]) is not int
+                or row["redacted_log_events"] < 0
+                or type(row["rejected_hypothesis_count"]) is not int
+                or row["rejected_hypothesis_count"] < 0
+                or (row["metric_challenger_failed"] and not row["metric_challenger_attempted"])
+                or (row["metric_disagreement"] and not row["metric_challenger_attempted"])
+                or (row["top1_origin"] == "metric_challenger" and not row["metric_disagreement"])
+            ):
+                raise ValueError(f"case {row['case']} has invalid combined-run fields")
     counts = Counter()
     by_fault = {}
     for row in rows:
@@ -102,11 +128,21 @@ def score(path):
         counts["dependent_only_hypotheses"] += row["dependent_only_hypothesis_count"]
         counts["top1_direct_support"] += row["top1_support_scope"] == "direct"
         counts["latency_seconds"] += row["model_latency_seconds"]
+        if not header["metrics_only"]:
+            counts["metric_challenger_attempts"] += row["metric_challenger_attempted"]
+            counts["metric_challenger_failures"] += row["metric_challenger_failed"]
+            counts["metric_disagreements"] += row["metric_disagreement"]
+            counts["metric_challenger_top1"] += row["top1_origin"] == "metric_challenger"
+            counts["redacted_log_events"] += row["redacted_log_events"]
+            counts["rejected_hypotheses"] += row["rejected_hypothesis_count"]
     return {
         "dataset": header["dataset"],
         "revision": header["revision"],
+        "evidentrail_revision": header.get("evidentrail_revision"),
+        "binary_sha256": header.get("binary_sha256"),
         "model_backend": header["model_backend"],
         "model_name": header["model_name"],
+        "metrics_only": header["metrics_only"],
         "case_count": counts["cases"],
         "naive_top1_joint_hits": counts["naive_joint_hit"],
         "model_top1_joint_hits": counts["top1_joint_hit"],
@@ -124,6 +160,12 @@ def score(path):
         "dependent_only_hypotheses": counts["dependent_only_hypotheses"],
         "top1_direct_support": counts["top1_direct_support"],
         "mean_model_latency_seconds": round(counts["latency_seconds"] / counts["cases"], 3),
+        "metric_challenger_attempts": counts["metric_challenger_attempts"] if not header["metrics_only"] else None,
+        "metric_challenger_failures": counts["metric_challenger_failures"] if not header["metrics_only"] else None,
+        "metric_disagreements": counts["metric_disagreements"] if not header["metrics_only"] else None,
+        "metric_challenger_top1": counts["metric_challenger_top1"] if not header["metrics_only"] else None,
+        "redacted_log_events": counts["redacted_log_events"] if not header["metrics_only"] else None,
+        "rejected_hypotheses": counts["rejected_hypotheses"] if not header["metrics_only"] else None,
         "by_fault": {fault: dict(values) for fault, values in sorted(by_fault.items())},
     }
 
