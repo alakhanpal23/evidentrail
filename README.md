@@ -1,59 +1,69 @@
 # Evidentrail
 
-**Question-aware log compression for debugging agents.**
+**Model-assisted incident analysis with source-linked evidence.**
 
-Evidentrail turns a large diagnostic log and a debugging question into a
-budget-bounded evidence brief for coding agents. Its goal is to retain the
-events needed to diagnose the problem at a smaller context cost. Selected
-events keep their original bytes, citations expand to the source, and the
-brief reports what was omitted. Exact provenance makes an answer auditable;
-it does not by itself prove that the right events were selected.
+Evidentrail groups noisy alerts, combines logs with optional metric changes
+and a supplied service graph, and asks a model for root-cause hypotheses.
+The model can request omitted log groups before answering. Each cited quote
+is checked against its source line, and the report exposes what the model
+did not see. Exact provenance makes an answer auditable; it does not prove
+the proposed cause is correct.
 
-![Evidentrail system design: explicit logs and question are framed, retrieved, selected under a budget, and delivered as a cited brief](docs/system-design.svg)
+```mermaid
+flowchart LR
+    logs[Logs] --> groups[Parse and group alerts]
+    metrics[Optional metrics] --> shifts[Before / after signals]
+    topology[Optional service graph] --> context[Dependency context]
+    groups --> window[Bounded evidence window]
+    shifts --> window
+    context --> window
+    window --> reason[LLM hypotheses]
+    window -. omitted groups .-> select[LLM group selection]
+    select --> expand[Expand exact source lines]
+    expand --> reason
+    reason --> verify[Check source IDs and quotes]
+    verify --> report[Source-linked report]
+```
 
-*Source-exact citations in the brief expand into bounded events retained from the authorized input.*
+*Model hypotheses stay linked to exact, inspectable log or metric source lines.*
 
 ## The product
 
 Large logs create a bad tradeoff for an agent: send everything and waste the
 context window, truncate and miss the cause, or summarize and lose the proof.
-Evidentrail introduces a fourth option—a compact evidence layer between raw
-telemetry and the reasoning model.
+Evidentrail puts a compact, source-linked evidence layer between raw telemetry
+and the reasoning model.
 
-Give it logs such as CI output, compiler failures, service incidents, or
-Kubernetes events. Ask a concrete question. Evidentrail selects an evidence
-set under the supplied budget, with exact `E<n>` handles back to the retained
-source.
+Give `analyze` service logs, optional metrics and dependencies, and an incident
+question. It groups repeated alerts, surfaces changes, and returns up to three
+source-linked hypotheses. The offline `brief` command remains available when
+you need byte-exact compression with `E<n>` expansion handles.
 
 | Capability | Product behavior |
 |---|---|
-| Exact when small | If the authorized input already fits, it passes through unchanged. |
-| Evidence selection | It combines exact identifiers, failure/onset roles, source coverage, and authorized correlations. |
-| Honest incompleteness | If mandatory evidence cannot fit, it returns `needs_more` instead of a confident-looking partial answer. |
-| Byte fidelity | Invalid UTF-8, duplicate events, record boundaries, and multiline stacks remain reversible. |
-| Exact follow-up | Every advertised `E<n>` reference expands to bounded original source events. |
-| Agent-ready output | A compact brief carries evidence, roles, coverage, receipts, and expansion instructions together. |
-| Local by default | Deterministic compilation performs no hosted model call and needs no credential. |
-| Optional investigation | A hosted beta groups duplicate alerts, considers a caller-supplied service graph, and returns source-linked hypotheses. |
+| Alert reduction | `analyze` groups repeated alerts, including messages with changing request or trace IDs. |
+| Model-guided retrieval | The model may request omitted log groups before forming hypotheses. |
+| Service context | Supplied dependency edges expose direct and transitive dependents. |
+| Metric context | Optional before/after medians preserve exact measurement citations. |
+| Checked attribution | Every model quote must occur in a visible source line; omitted evidence is reported. |
+| Offline brief | `brief` compiles byte-exact evidence with expandable `E<n>` references, without a model call. |
 
-The default `brief` path is an evidence compiler. A separate opt-in `analyze`
-path proposes root-cause hypotheses, but labels them as such. Its checked
-citations prove only that quoted text appears in supplied source lines; they
-do not prove the explanation or the direction of causality.
+The `analyze` path proposes root-cause hypotheses, but labels them as such.
+Its checked citations prove only that quoted text appears in supplied source
+lines; they do not prove the explanation or the direction of causality. The `brief` path
+is a separate offline evidence compiler.
 
 ## Accuracy is the release goal
 
-Compression is useful only if a reader can still find the real cause. The
-offline selector combines question terms, exact IDs, failure/onset context,
-source coverage, and trusted correlations. Its failure scanner now avoids
-promoting immediately negated phrases such as `no ERROR` into a first-failure
-signal; a later real error still gets that role. This is a narrow precision
-improvement, not natural-language understanding.
+Incident analysis is useful only if it identifies the right cause or clearly
+abstains. The current public RCAEval probes measure evidence coverage and a
+simple metric baseline; they do **not** establish model diagnosis accuracy.
+A live, paired scorer is ready, but no hosted run has been published yet.
 
-The current matched-budget and executable results below are **synthetic**.
-Real-incident accuracy remains unproven. The next release gate is a frozen,
-reviewer-labeled set of approved historical incidents: compare Evidentrail
-with raw truncation, grep/tail, lexical retrieval, and an optional model
+The offline brief's matched-budget and executable results below are
+**synthetic**. Real-incident accuracy remains unproven. The next release gate
+is a frozen, reviewer-labeled set of approved historical incidents: compare
+Evidentrail with raw truncation, grep/tail, lexical retrieval, and an optional model
 challenger at the same evidence budget. Measure required-evidence recall,
 false leads, correct downstream diagnosis and fix, citation validity,
 abstention, latency, and token cost by incident family. Keep incident files
@@ -70,19 +80,23 @@ Evidentrail is a Rust workspace and requires Rust 1.88 or newer.
 ```sh
 cargo build --release -p evidentrail-cli --bin evidentrail
 
-target/release/evidentrail brief \
-  --question "Why did request REQ-7 fail?" \
-  --token-budget 20000 < app.log
+target/release/evidentrail analyze \
+  --question "Why did the API fail?" < incident.log
 ```
 
-The default is memory-only, deterministic, and offline. Questions can also be
-read from a file so they do not appear in the process argument list:
+`analyze` requires `OPENAI_API_KEY` and sends a bounded selection and diagnosis
+request to the model provider. Redact logs before sending them. Questions can
+also be read from a file so they do not appear in the process argument list.
+For offline, byte-exact evidence compression, use `brief`:
 
 ```sh
 target/release/evidentrail brief \
   --question-file question.txt \
   --token-budget 20000 < app.log
 ```
+
+The [offline brief system diagram](docs/system-design.svg) shows its separate
+source-retention path.
 
 A compiled result is deliberately inspectable:
 
@@ -230,6 +244,12 @@ with `--with-metrics --metrics-only --generic-question --live-model`. It reports
 top-one and top-three service/fault matches, citation count, and latency without
 printing model explanations or raw telemetry. A real accuracy claim needs a
 larger held-out set and comparisons against simple metric and log baselines.
+Save a preselected case list to a JSONL run and score it with
+`python3 scripts/score-rcaeval-live.py RUN.jsonl`. The scorer compares top-one
+service-plus-fault hits with the paired largest-shift baseline and rejects
+incomplete, duplicated, or failed runs rather than dropping them from the
+denominator. The currently published 90-case baseline has already informed
+selection changes, so it is exploratory rather than a fresh held-out test.
 
 ## How it works
 

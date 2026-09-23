@@ -1358,7 +1358,7 @@ fn extract_output_text(provider: &Value) -> Option<&str> {
 mod tests {
     use super::*;
     use std::io::{Read, Write};
-    use std::net::TcpListener;
+    use std::net::{TcpListener, TcpStream};
     use std::thread;
 
     struct CheckingReasoner {
@@ -1767,6 +1767,96 @@ mod tests {
         let mut reasoner = OpenAiIncidentReasoner::for_test(endpoint);
         let assessment = reasoner.assess(&json!({"question":"why?"})).unwrap();
         assert!(assessment.needs_more_evidence);
+        server.join().unwrap();
+    }
+
+    fn read_http_json(socket: &mut TcpStream) -> Value {
+        let mut request = Vec::new();
+        let mut buffer = [0u8; 4096];
+        loop {
+            let count = socket.read(&mut buffer).unwrap();
+            assert!(count > 0);
+            request.extend_from_slice(&buffer[..count]);
+            let Some(header_end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") else {
+                continue;
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]);
+            let length = headers
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length: ")
+                        .and_then(|value| value.parse::<usize>().ok())
+                })
+                .unwrap();
+            if request.len() >= header_end + 4 + length {
+                return serde_json::from_slice(&request[header_end + 4..header_end + 4 + length])
+                    .unwrap();
+            }
+        }
+    }
+
+    fn respond_with_output(socket: &mut TcpStream, output: Value) {
+        let response = json!({
+            "status":"completed",
+            "output":[{"type":"message","content":[{"type":"output_text","text":output.to_string()}]}]
+        })
+        .to_string();
+        write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+    }
+
+    #[test]
+    fn hosted_two_pass_analysis_expands_group_and_checks_citation() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/v1/responses", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut selection_socket, _) = listener.accept().unwrap();
+            let selection_body = read_http_json(&mut selection_socket);
+            assert_eq!(
+                selection_body["text"]["format"]["name"],
+                "incident_group_selection_v1"
+            );
+            let selection_input: Value = serde_json::from_str(
+                selection_body["input"][0]["content"][0]["text"]
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(selection_input["available_groups"][0]["id"], "G4");
+            respond_with_output(&mut selection_socket, json!({"requested_group_ids":["G4"]}));
+            drop(selection_socket);
+
+            let (mut assessment_socket, _) = listener.accept().unwrap();
+            let assessment_body = read_http_json(&mut assessment_socket);
+            assert_eq!(
+                assessment_body["text"]["format"]["name"],
+                "incident_hypotheses_v1"
+            );
+            let assessment_input: Value = serde_json::from_str(
+                assessment_body["input"][0]["content"][0]["text"]
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(assessment_input["alert_groups"][3]["id"], "G4");
+            assert_eq!(
+                assessment_input["alert_groups"][3]["examples"][0]["id"],
+                "L4"
+            );
+            respond_with_output(
+                &mut assessment_socket,
+                json!({"schema_version":1,"needs_more_evidence":false,"hypotheses":[{
+                    "service":"db","fault_type":"other","explanation":"Fourth alert may be relevant",
+                    "evidence":[{"event_id":"L4","quote":"fourth alert"}]
+                }]}),
+            );
+        });
+        let mut reasoner = OpenAiIncidentReasoner::for_test(endpoint);
+        let logs = b"service=db level=warn first alert\nservice=db level=warn second alert\nservice=db level=warn third alert\nservice=db level=warn fourth alert";
+        let report =
+            analyze_with_reasoner(logs, "What happened to db?", None, &mut reasoner).unwrap();
+        assert_eq!(report.expanded_group_count, 1);
+        assert_eq!(report.hypotheses[0].evidence[0].event_id, "L4");
         server.join().unwrap();
     }
 

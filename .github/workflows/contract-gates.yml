@@ -23,6 +23,8 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           components: rustfmt, clippy
       - run: cargo fmt --all -- --check
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+        if: matrix.toolchain == '1.88.0'
       - run: bash -n scripts/production-qualification.sh
       # Keep warnings-as-errors linting reproducible as new stable Clippy adds lints.
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
