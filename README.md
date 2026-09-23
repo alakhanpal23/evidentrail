@@ -234,10 +234,11 @@ hypothesis. No history is read unless this option is passed.
 
 Pass `--traces spans.ndjson` to derive observed service edges from explicit
 parent-child spans. Each line names `trace_id`, `span_id`, `parent_span_id`
-(null for a root span), and `service`:
+(null for a root span), and `service`. Optional timing and status fields can
+be supplied when `--metrics` and `--incident-time` set an incident center:
 
 ```json
-{"trace_id":"t1","span_id":"s2","parent_span_id":"s1","service":"api"}
+{"trace_id":"t1","span_id":"s2","parent_span_id":"s1","service":"api","start_time_unix_ms":1705600751000,"duration":1234,"status_code":0,"status_code_kind":"grpc","operation":"demo.Catalogue/GetItem"}
 ```
 
 The caller should select the relevant incident window before passing spans.
@@ -246,6 +247,33 @@ counts missing or ambiguous parents, and records `T<n>` source-line IDs and
 SHA-256 digests for each observed edge. The model receives service edges and
 span counts, not raw trace IDs. An observed call is dependency evidence, not
 proof of a failure cause. Input is bounded to 64 MiB and 500,000 spans.
+For timed spans, the report also compares per-service span counts, median
+durations, and nonzero status counts in the five minutes before and after the
+incident. Duration units remain the caller's units; mixed units are invalid
+for interpretation. Median example IDs (`T<n>`) point to exact trace-file
+lines, and the report records each example line's and the file's SHA-256
+digests. Up to 16 strongest
+service timing/status summaries reach the model. A slow or nonzero-status
+span can be a downstream symptom; these summaries do not prove causality.
+Hypotheses require current log, metric, or visible trace-line citations.
+The model can inspect at most 8 KiB of selected exact trace-line examples;
+fabricated or unseen `T<n>` citations are discarded just like log and metric
+citations. A cited span proves that the supplied line exists, not that the
+fault began there.
+When `operation` and nonzero `status_code` are supplied, the report also
+counts that status per operation before and after the incident and retains an
+example `T<n>` source-line ID and SHA-256 digest. It includes total operation
+spans in each window so a changed status count can be read against changed
+traffic. Set `status_code_kind` to `grpc` only when the code uses the
+[gRPC status scheme](https://grpc.io/docs/guides/status-codes/);
+then standard names such as `UNAVAILABLE` for code 14 are shown. The default
+`untyped` setting leaves numeric codes uninterpreted. Operation strings are
+restricted to short identifier-like names, and at most 12 new status
+summaries reach the model.
+When an operation's service name uniquely matches a service connected by
+observed parent-child spans, the status summary names that target service;
+otherwise the target stays unknown. The call relationship still does not
+prove where the fault began.
 
 ```json
 {
@@ -272,7 +300,8 @@ citation must match an exact supplied source line. The process does not retain
 the log after it exits. The hosted adapter refuses
 requests containing common credential patterns, including DSNs, with a
 contentless error; this guard is not a complete secret detector. Redact and
-review logs before allowing their transfer to a model provider. There is
+review logs and trace lines before allowing their transfer to a model
+provider. There is
 no measured real-incident diagnosis advantage yet; use the benchmark protocol
 below to compare it with the offline brief and simpler baselines. The analysis
 path currently supports UTF-8, line-oriented logs only; the default brief

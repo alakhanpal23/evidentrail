@@ -91,7 +91,7 @@ def metric_ndjson(case, injection, window):
 
 
 def trace_ndjson(case, injection, window):
-    columns = ["traceID", "spanID", "parentSpanID", "serviceName", "startTimeMillis"]
+    columns = ["traceID", "spanID", "parentSpanID", "serviceName", "operationName", "startTimeMillis", "duration", "statusCode"]
     table = parquet.read_table(io.BytesIO(fetch(case, "traces.parquet")), columns=columns)
     output = io.StringIO()
     for row in table.to_pylist():
@@ -99,11 +99,19 @@ def trace_ndjson(case, injection, window):
             continue
         if not row["traceID"] or not row["spanID"] or not row["serviceName"]:
             continue
+        operation = row["operationName"]
+        if not isinstance(operation, str) or not re.fullmatch(r"[A-Za-z0-9./_:-]{1,256}", operation):
+            operation = None
         output.write(json.dumps({
             "trace_id": row["traceID"],
             "span_id": row["spanID"],
             "parent_span_id": row["parentSpanID"],
             "service": row["serviceName"],
+            "start_time_unix_ms": row["startTimeMillis"],
+            "duration": row["duration"],
+            "status_code": row["statusCode"],
+            "status_code_kind": "grpc" if operation and operation.startswith("hipstershop.") and "/" in operation else "untyped",
+            "operation": operation,
         }) + "\n")
     return output.getvalue().encode("utf-8")
 
@@ -241,6 +249,12 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
             "trace_ambiguous_parents": report["trace_ambiguous_parent_count"],
             "trace_ambiguous_spans": report["trace_ambiguous_span_count"],
             "observed_service_edges": len(report["observed_dependencies"]),
+            "trace_service_signals": len(report["trace_service_signals"]),
+            "trace_operation_status_signals": len(report["trace_operation_status_signals"]),
+            "visible_trace_events": report["model_visible_trace_event_count"],
+            "root_operation_status_signals": [signal for signal in report["trace_operation_status_signals"] if signal["service"] == root_service][:4],
+            "top_operation_status_signal": report["trace_operation_status_signals"][0] if report["trace_operation_status_signals"] else None,
+            "root_trace_signal": next((signal for signal in report["trace_service_signals"] if signal["service"] == root_service), None),
             "root_direct_dependents": len(root_signal["direct_dependents"]),
             "root_transitive_dependents": len(root_signal["transitive_dependents"]),
         })
@@ -264,6 +278,7 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
             "hypothesis_count": len(hypotheses),
             "rejected_hypothesis_count": report["rejected_hypothesis_count"],
             "citation_count": sum(len(hypothesis["evidence"]) for hypothesis in hypotheses),
+            "trace_citation_count": sum(citation["event_id"].startswith("T") for hypothesis in hypotheses for citation in hypothesis["evidence"]),
             "top1_support_scope": support[0]["scope"] if support else None,
             "direct_hypothesis_count": sum(item["scope"] == "direct" for item in support),
             "dependent_only_hypothesis_count": sum(item["scope"] == "dependent_only" for item in support),
