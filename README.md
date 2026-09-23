@@ -14,6 +14,7 @@ On macOS, CloudWatch connection registration is available with an AWS profile:
 target/release/evidentrail sources connect-cloudwatch \
   --account 123456789012 --region us-west-2 \
   --log-group /aws/example --profile my-readonly-profile
+target/release/evidentrail sources connect-datadog --site us1
 target/release/evidentrail sources list
 target/release/evidentrail sources sync
 EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
@@ -21,8 +22,13 @@ EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
   --max-raw-bytes 32768
 ```
 
-Registration verifies the AWS caller and log-group read access, then creates a
-source-bound Keychain key and encrypted local corpus. It reports
+CloudWatch registration verifies the AWS caller and log-group read access.
+Datadog registration reads `DD_API_KEY` and `DD_APP_KEY` from the environment,
+binds the connection to the authenticated organization, probes indexes,
+online archives, and Flex separately, and reports tiers it
+could not connect. Credentials are stored in separate source-bound macOS login
+Keychain items; descriptors contain no keys. Both registrations create a
+source-bound corpus key and encrypted local corpus, then report
 `registered_backfill_pending`. `sources sync` makes bounded progress from each
 durable checkpoint and replays recent history after reaching its high-water
 mark. Run it again to continue a partial backfill. It reports provisional
@@ -33,7 +39,9 @@ source records as JSON lines on stdout. Source status and retrieval truncation
 go to stderr as JSON. The byte budget counts original log bytes, not rendered
 JSON or model tokens. Background scheduling and source-verified cross-call
 expansion are still under development; no live AWS sandbox has validated this
-flow yet.
+flow yet. Datadog identity and tier coverage have not been verified in a live
+provider sandbox. Missing Datadog tiers appear as partial
+coverage in connected query metadata.
 
 The first log-only prototype is available as `compact`. It accepts an explicit
 log stream with no time-window parameter and returns model-selected original

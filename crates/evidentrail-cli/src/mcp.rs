@@ -1655,6 +1655,7 @@ fn expansion_json_v1(alias: &str, response: &McpAliasExpansionV1) -> Value {
 enum ToolExecutionV1 {
     Success(Value),
     Error(&'static str),
+    #[cfg(target_os = "macos")]
     ErrorWithMetadata(&'static str, Value),
 }
 
@@ -1667,6 +1668,7 @@ impl ToolExecutionV1 {
         Self::Error(code)
     }
 
+    #[cfg(target_os = "macos")]
     fn error_with_metadata(code: &'static str, metadata: Value) -> Self {
         Self::ErrorWithMetadata(code, metadata)
     }
@@ -1691,6 +1693,7 @@ fn render_tool_result_v1(
             "content": [{"type": "text", "text": code}],
             "isError": true,
         }),
+        #[cfg(target_os = "macos")]
         ToolExecutionV1::ErrorWithMetadata(code, metadata) => json!({
             "content": [{"type": "text", "text": code}],
             "isError": true,
@@ -2519,6 +2522,7 @@ mod tests {
                 ToolExecutionV1::Error("EVIDENTRAIL_CONNECTED_MCP_ARGUMENTS_INVALID")
             ));
         }
+        #[cfg(target_os = "macos")]
         let partial = render_tool_result_v1(
             ToolExecutionV1::error_with_metadata(
                 "EVIDENTRAIL_LOGS_NO_AUTHORIZED_SOURCE",
@@ -2527,7 +2531,9 @@ mod tests {
             McpEraV1::Modern,
             McpRetentionModeV1::MemoryOnly,
         );
+        #[cfg(target_os = "macos")]
         assert_eq!(partial["isError"], true);
+        #[cfg(target_os = "macos")]
         assert_eq!(
             partial["structuredContent"]["metadata"]["coverage"],
             "no_authorized_source"

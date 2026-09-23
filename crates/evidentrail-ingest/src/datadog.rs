@@ -17,6 +17,7 @@ use crate::{
 
 const PAGE_LIMIT: usize = 100;
 const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_IDENTITY_RESPONSE_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DatadogSiteV1 {
@@ -105,6 +106,95 @@ impl DatadogHistorySourceV1 {
             application_key: Zeroizing::new(application_key),
         })
     }
+
+    fn credential_headers(&self) -> Result<(HeaderValue, HeaderValue), HistorySyncErrorV1> {
+        let mut api_header = HeaderValue::from_str(&self.api_key)
+            .map_err(|_| HistorySyncErrorV1::InvalidConfiguration)?;
+        let mut app_header = HeaderValue::from_str(&self.application_key)
+            .map_err(|_| HistorySyncErrorV1::InvalidConfiguration)?;
+        api_header.set_sensitive(true);
+        app_header.set_sensitive(true);
+        Ok((api_header, app_header))
+    }
+
+    /// Verify the organization associated with these credentials. This must
+    /// be checked against the immutable connection descriptor before pages
+    /// are accepted into a source corpus.
+    pub fn current_org_id(&self) -> Result<String, HistorySyncErrorV1> {
+        let (api_header, app_header) = self.credential_headers()?;
+        let response = self
+            .client
+            .get(format!("{}/api/v2/current_user", self.endpoint))
+            .header("DD-API-KEY", api_header)
+            .header("DD-APPLICATION-KEY", app_header)
+            .header(ACCEPT, "application/json")
+            .send()
+            .map_err(|_| HistorySyncErrorV1::Network)?;
+        match response.status().as_u16() {
+            200 => {}
+            401 => return Err(HistorySyncErrorV1::AuthenticationChanged),
+            403 => return Err(HistorySyncErrorV1::PermissionDenied),
+            429 => return Err(HistorySyncErrorV1::Throttled),
+            _ => return Err(HistorySyncErrorV1::Provider),
+        }
+        let mut bytes = Zeroizing::new(Vec::new());
+        response
+            .take(MAX_IDENTITY_RESPONSE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| HistorySyncErrorV1::Network)?;
+        if bytes.len() as u64 > MAX_IDENTITY_RESPONSE_BYTES {
+            return Err(HistorySyncErrorV1::InvalidPage);
+        }
+        parse_current_org_id(&bytes)
+    }
+}
+
+#[derive(Deserialize)]
+struct CurrentUserResponse {
+    data: CurrentUserData,
+}
+
+#[derive(Deserialize)]
+struct CurrentUserData {
+    relationships: CurrentUserRelationships,
+}
+
+#[derive(Deserialize)]
+struct CurrentUserRelationships {
+    org: CurrentUserOrg,
+}
+
+#[derive(Deserialize)]
+struct CurrentUserOrg {
+    data: CurrentOrgIdentity,
+}
+
+#[derive(Deserialize)]
+struct CurrentOrgIdentity {
+    #[serde(rename = "type")]
+    resource_type: String,
+    id: String,
+}
+
+fn parse_current_org_id(bytes: &[u8]) -> Result<String, HistorySyncErrorV1> {
+    let body: CurrentUserResponse =
+        serde_json::from_slice(bytes).map_err(|_| HistorySyncErrorV1::InvalidPage)?;
+    if body.data.relationships.org.data.resource_type != "orgs" {
+        return Err(HistorySyncErrorV1::InvalidPage);
+    }
+    let id = body.data.relationships.org.data.id;
+    if id.len() != 36
+        || !id.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+    {
+        return Err(HistorySyncErrorV1::InvalidPage);
+    }
+    Ok(id.to_ascii_lowercase())
 }
 
 impl HistoryPageSourceV1 for DatadogHistorySourceV1 {
@@ -123,12 +213,7 @@ impl HistoryPageSourceV1 for DatadogHistorySourceV1 {
         if cursor.is_some_and(str::is_empty) {
             return Err(HistorySyncErrorV1::InvalidPage);
         }
-        let mut api_header = HeaderValue::from_str(&self.api_key)
-            .map_err(|_| HistorySyncErrorV1::InvalidConfiguration)?;
-        let mut app_header = HeaderValue::from_str(&self.application_key)
-            .map_err(|_| HistorySyncErrorV1::InvalidConfiguration)?;
-        api_header.set_sensitive(true);
-        app_header.set_sensitive(true);
+        let (api_header, app_header) = self.credential_headers()?;
         let body = serde_json::json!({
             "filter": {
                 "from": partition.start_millis.to_string(),
@@ -270,6 +355,68 @@ mod tests {
         start_millis: 0,
         end_millis: 10,
     };
+
+    #[test]
+    fn current_user_org_identity_is_required_and_normalized() {
+        let response = br#"{"data":{"relationships":{"org":{"data":{"type":"orgs","id":"A1234567-1234-1234-1234-123456789ABC"}}}}}"#;
+        assert_eq!(
+            parse_current_org_id(response).unwrap(),
+            "a1234567-1234-1234-1234-123456789abc"
+        );
+        for invalid in [
+            br#"{"data":{"relationships":{"org":{"data":{"type":"users","id":"a1234567-1234-1234-1234-123456789abc"}}}}}"#.as_slice(),
+            br#"{"data":{"relationships":{"org":{"data":{"type":"orgs","id":"wrong"}}}}}"#.as_slice(),
+            br#"{"data":{}}"#.as_slice(),
+        ] {
+            assert_eq!(parse_current_org_id(invalid), Err(HistorySyncErrorV1::InvalidPage));
+        }
+    }
+
+    #[test]
+    fn current_user_request_binds_credentials_to_org() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut chunk = [0u8; 1024];
+                let count = socket.read(&mut chunk).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&chunk[..count]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let headers = String::from_utf8_lossy(&request).to_ascii_lowercase();
+            assert!(headers.starts_with("get /api/v2/current_user http/1.1"));
+            assert!(headers.contains("dd-api-key: api-test"));
+            assert!(headers.contains("dd-application-key: app-test"));
+            let body = r#"{"data":{"relationships":{"org":{"data":{"type":"orgs","id":"a1234567-1234-1234-1234-123456789abc"}}}}}"#;
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+            socket.flush().unwrap();
+        });
+        let source = DatadogHistorySourceV1::from_endpoint(
+            endpoint,
+            DatadogStorageTierV1::Indexes,
+            "api-test".to_owned(),
+            "app-test".to_owned(),
+        )
+        .unwrap();
+        assert_eq!(
+            source.current_org_id().unwrap(),
+            "a1234567-1234-1234-1234-123456789abc"
+        );
+        server.join().unwrap();
+    }
 
     #[test]
     fn source_record_is_exact_api_json_and_partial_results_fail_closed() {

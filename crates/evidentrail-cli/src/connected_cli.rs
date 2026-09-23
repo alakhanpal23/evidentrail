@@ -1,6 +1,7 @@
-//! macOS connection registration. Synchronization and query are separate
-//! release gates; registration never claims that a source has been backfilled.
+//! macOS connected-source registration, bounded synchronization, and query.
+//! Registration never claims that a source has been backfilled.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
@@ -14,14 +15,18 @@ use crate::{
     AuthorizedCorpus, CliFailure, ConnectedLogPack, OpenAiIncidentReasoner, select_connected_logs,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use evidentrail_corpus::{EncryptedHistoryStore, MacOsCorpusKeychainV1};
+use evidentrail_corpus::{
+    EncryptedHistoryStore, MacOsConnectedCredentialKeychainV1, MacOsCorpusKeychainV1,
+};
 use evidentrail_ingest::{
     AwsCloudWatchTransportV1, CloudWatchCapsV1, CloudWatchHistorySourceV1, CloudWatchPlanV1,
-    HistoryPageSourceV1, HistoryPartitionV1, HistorySyncErrorV1, HistorySyncLimitsV1,
-    HistorySyncStatusV1, reconcile_history_v1, synchronize_history_v1,
+    DatadogHistorySourceV1, DatadogSiteV1, DatadogStorageTierV1, HistoryPageSourceV1,
+    HistoryPartitionV1, HistorySyncErrorV1, HistorySyncLimitsV1, HistorySyncStatusV1,
+    reconcile_history_v1, synchronize_history_v1,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use zeroize::Zeroizing;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -34,6 +39,46 @@ struct CloudWatchDescriptor {
     profile: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct DatadogDescriptor {
+    schema_version: u8,
+    provider: String,
+    site: String,
+    tier: String,
+    connection_id: String,
+    org_id: String,
+}
+
+enum SourceBinding {
+    CloudWatch(CloudWatchDescriptor),
+    Datadog(DatadogDescriptor),
+}
+
+fn parse_binding(descriptor: &[u8]) -> Result<SourceBinding, CliFailure> {
+    let value: serde_json::Value = serde_json::from_slice(descriptor)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+    match value.get("provider").and_then(serde_json::Value::as_str) {
+        Some("cloudwatch") => {
+            let binding: CloudWatchDescriptor = serde_json::from_value(value)
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+            validate_binding(&binding)
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+            Ok(SourceBinding::CloudWatch(binding))
+        }
+        Some("datadog") => {
+            let binding: DatadogDescriptor = serde_json::from_value(value)
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+            validate_datadog_binding(&binding)
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+            Ok(SourceBinding::Datadog(binding))
+        }
+        _ => Err(CliFailure::runtime(
+            "EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE",
+        )),
+    }
+}
+
 pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
     let mut args = args.into_iter();
     let command = args
@@ -41,6 +86,8 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
         .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_SOURCES_COMMAND_REQUIRED"))?;
     if command == "connect-cloudwatch" {
         connect_cloudwatch(parse_cloudwatch_args(args)?)
+    } else if command == "connect-datadog" {
+        connect_datadog(parse_datadog_args(args)?)
     } else if command == "list" {
         if args.next().is_some() {
             return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
@@ -137,21 +184,18 @@ pub(crate) fn query_connected_logs(
         .as_millis() as i64;
     let mut stores = Vec::new();
     let mut source_states = Vec::new();
+    let mut datadog_tiers = BTreeMap::<String, BTreeSet<String>>::new();
     for entry in entries {
-        let binding: CloudWatchDescriptor =
-            serde_json::from_slice(&entry.descriptor).map_err(|_| {
-                query_error(CliFailure::runtime(
-                    "EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE",
-                ))
-            })?;
-        validate_binding(&binding).map_err(|_| {
-            query_error(CliFailure::runtime(
-                "EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE",
-            ))
-        })?;
+        let binding = parse_binding(&entry.descriptor).map_err(query_error)?;
+        if let SourceBinding::Datadog(datadog) = &binding {
+            datadog_tiers
+                .entry(datadog.connection_id.clone())
+                .or_default()
+                .insert(datadog.tier.clone());
+        }
         let source_id = hex(&entry.source_digest);
         let path = corpus_path(&entry.source_digest, false).map_err(query_error)?;
-        if !path.is_file() {
+        if !corpus_file_exists_safe(&path).map_err(query_error)? {
             source_states.push(json!({
                 "source_id": source_id,
                 "state": "excluded_corpus_missing"
@@ -167,18 +211,13 @@ pub(crate) fn query_connected_logs(
                     "EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED",
                 ))
             })?;
-        let source_plan = plan(&binding).map_err(query_error)?;
-        let progress = AwsCloudWatchTransportV1::connect(
-            source_plan.clone(),
-            &binding.account,
-            binding.profile.as_deref(),
-        )
-        .map_err(|error| format!("{error:?}"))
-        .and_then(|transport| {
-            let mut source = CloudWatchHistorySourceV1::new(source_plan, transport)
-                .map_err(|_| "InvalidConfiguration".to_owned())?;
-            bounded_sync(&mut source, &mut store, high_water).map_err(|error| format!("{error:?}"))
-        });
+        let progress = sync_binding(
+            &binding,
+            &tenant,
+            &entry.source_digest,
+            &mut store,
+            high_water,
+        );
         match progress {
             Ok(progress) => {
                 source_states.push(json!({
@@ -195,6 +234,18 @@ pub(crate) fn query_connected_logs(
                     "source_id": source_id,
                     "state": "excluded_sync_error",
                     "error": error,
+                }));
+            }
+        }
+    }
+    for (connection_id, tiers) in datadog_tiers {
+        for tier in ["indexes", "online-archives", "flex"] {
+            if !tiers.contains(tier) {
+                source_states.push(json!({
+                    "provider": "datadog",
+                    "connection_id": connection_id,
+                    "tier": tier,
+                    "state": "tier_not_connected",
                 }));
             }
         }
@@ -344,16 +395,20 @@ fn sync_sources() -> Result<ExitCode, CliFailure> {
         .as_millis() as i64;
     let mut outcomes = Vec::new();
     let mut had_error = false;
+    let mut datadog_tiers = BTreeMap::<String, BTreeSet<String>>::new();
     for entry in authority
         .list_bound(&tenant)
         .map_err(|error| CliFailure::runtime(error.code()))?
     {
-        let binding: CloudWatchDescriptor = serde_json::from_slice(&entry.descriptor)
-            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
-        validate_binding(&binding)
-            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+        let binding = parse_binding(&entry.descriptor)?;
+        if let SourceBinding::Datadog(datadog) = &binding {
+            datadog_tiers
+                .entry(datadog.connection_id.clone())
+                .or_default()
+                .insert(datadog.tier.clone());
+        }
         let path = corpus_path(&entry.source_digest, false)?;
-        if !path.is_file() {
+        if !corpus_file_exists_safe(&path)? {
             had_error = true;
             outcomes.push(json!({
                 "source_id": hex(&entry.source_digest),
@@ -367,18 +422,13 @@ fn sync_sources() -> Result<ExitCode, CliFailure> {
             .map_err(|error| CliFailure::runtime(error.code()))?;
         let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &entry.source_digest)
             .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
-        let source_plan = plan(&binding)?;
-        let sync_result = AwsCloudWatchTransportV1::connect(
-            source_plan.clone(),
-            &binding.account,
-            binding.profile.as_deref(),
-        )
-        .map_err(|error| format!("{error:?}"))
-        .and_then(|transport| {
-            let mut source = CloudWatchHistorySourceV1::new(source_plan, transport)
-                .map_err(|_| "InvalidConfiguration".to_owned())?;
-            bounded_sync(&mut source, &mut store, high_water).map_err(|error| format!("{error:?}"))
-        });
+        let sync_result = sync_binding(
+            &binding,
+            &tenant,
+            &entry.source_digest,
+            &mut store,
+            high_water,
+        );
         let checkpoint = store
             .read_checkpoint()
             .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
@@ -401,13 +451,27 @@ fn sync_sources() -> Result<ExitCode, CliFailure> {
         };
         outcomes.push(json!({
             "source_id": hex(&entry.source_digest),
-            "provider": "cloudwatch",
+            "provider": match binding { SourceBinding::CloudWatch(_) => "cloudwatch", SourceBinding::Datadog(_) => "datadog" },
             "record_count": record_count,
             "scanned_through_millis": checkpoint.map(|value| value.completed_through_millis),
             "high_water_millis": high_water,
             "coverage": "unverified_provider_consistency",
             "result": status,
         }));
+    }
+    for (connection_id, tiers) in datadog_tiers {
+        for tier in ["indexes", "online-archives", "flex"] {
+            if !tiers.contains(tier) {
+                had_error = true;
+                outcomes.push(json!({
+                    "provider": "datadog",
+                    "connection_id": connection_id,
+                    "tier": tier,
+                    "status": "tier_not_connected",
+                    "coverage": "incomplete",
+                }));
+            }
+        }
     }
     serde_json::to_writer(io::stdout().lock(), &outcomes)
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
@@ -420,6 +484,51 @@ struct BoundedSyncProgress {
     status: &'static str,
     pages: usize,
     reconciliation: &'static str,
+}
+
+fn sync_binding(
+    binding: &SourceBinding,
+    tenant: &[u8; 32],
+    source_digest: &[u8; 32],
+    store: &mut EncryptedHistoryStore,
+    high_water: i64,
+) -> Result<BoundedSyncProgress, String> {
+    match binding {
+        SourceBinding::CloudWatch(cloudwatch) => {
+            let source_plan = plan(cloudwatch).map_err(|error| error.code.to_owned())?;
+            let transport = AwsCloudWatchTransportV1::connect(
+                source_plan.clone(),
+                &cloudwatch.account,
+                cloudwatch.profile.as_deref(),
+            )
+            .map_err(|error| error.code().to_owned())?;
+            let mut source = CloudWatchHistorySourceV1::new(source_plan, transport)
+                .map_err(|_| "InvalidConfiguration".to_owned())?;
+            bounded_sync(&mut source, store, high_water).map_err(|error| format!("{error:?}"))
+        }
+        SourceBinding::Datadog(datadog) => {
+            let authority = MacOsConnectedCredentialKeychainV1::production();
+            let secret = authority
+                .load(tenant, source_digest)
+                .map_err(|error| error.code().to_owned())?;
+            let (mut api_key, mut application_key) =
+                decode_datadog_secret(&secret).map_err(|error| error.code.to_owned())?;
+            let mut source = DatadogHistorySourceV1::connect(
+                datadog_site(&datadog.site).ok_or("InvalidConfiguration")?,
+                datadog_tier(&datadog.tier).ok_or("InvalidConfiguration")?,
+                std::mem::take(&mut *api_key),
+                std::mem::take(&mut *application_key),
+            )
+            .map_err(|error| format!("{error:?}"))?;
+            let current_org = source
+                .current_org_id()
+                .map_err(|error| format!("{error:?}"))?;
+            if current_org != datadog.org_id {
+                return Err("AuthenticationChanged".to_owned());
+            }
+            bounded_sync(&mut source, store, high_water).map_err(|error| format!("{error:?}"))
+        }
+    }
 }
 
 fn bounded_sync(
@@ -570,6 +679,355 @@ fn validate_binding(binding: &CloudWatchDescriptor) -> Result<(), CliFailure> {
     Ok(())
 }
 
+fn datadog_site(value: &str) -> Option<DatadogSiteV1> {
+    Some(match value {
+        "us1" => DatadogSiteV1::Us1,
+        "us3" => DatadogSiteV1::Us3,
+        "us5" => DatadogSiteV1::Us5,
+        "eu1" => DatadogSiteV1::Eu1,
+        "ap1" => DatadogSiteV1::Ap1,
+        "ap2" => DatadogSiteV1::Ap2,
+        "uk1" => DatadogSiteV1::Uk1,
+        "us1-fed" => DatadogSiteV1::Us1Fed,
+        "us2-fed" => DatadogSiteV1::Us2Fed,
+        _ => return None,
+    })
+}
+
+fn datadog_tier(value: &str) -> Option<DatadogStorageTierV1> {
+    Some(match value {
+        "indexes" => DatadogStorageTierV1::Indexes,
+        "online-archives" => DatadogStorageTierV1::OnlineArchives,
+        "flex" => DatadogStorageTierV1::Flex,
+        _ => return None,
+    })
+}
+
+fn validate_datadog_binding(binding: &DatadogDescriptor) -> Result<(), CliFailure> {
+    if binding.schema_version != 1
+        || binding.provider != "datadog"
+        || datadog_site(&binding.site).is_none()
+        || datadog_tier(&binding.tier).is_none()
+        || binding.connection_id.len() != 32
+        || !binding
+            .connection_id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        || binding.org_id.len() != 36
+        || !binding.org_id.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+            }
+        })
+    {
+        return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_INVALID_BINDING"));
+    }
+    Ok(())
+}
+
+fn encode_datadog_secret(
+    api_key: &str,
+    application_key: &str,
+) -> Result<Zeroizing<Vec<u8>>, CliFailure> {
+    if api_key.is_empty()
+        || application_key.is_empty()
+        || api_key.len() > 1024
+        || application_key.len() > 1024
+        || !api_key.bytes().all(|byte| byte.is_ascii_graphic())
+        || !application_key.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        return Err(CliFailure::usage("EVIDENTRAIL_DATADOG_CREDENTIAL_INVALID"));
+    }
+    let mut secret = Zeroizing::new(Vec::with_capacity(
+        4 + api_key.len() + application_key.len(),
+    ));
+    secret.extend_from_slice(&(api_key.len() as u16).to_be_bytes());
+    secret.extend_from_slice(&(application_key.len() as u16).to_be_bytes());
+    secret.extend_from_slice(api_key.as_bytes());
+    secret.extend_from_slice(application_key.as_bytes());
+    Ok(secret)
+}
+
+fn decode_datadog_secret(
+    secret: &[u8],
+) -> Result<(Zeroizing<String>, Zeroizing<String>), CliFailure> {
+    if secret.len() < 6 {
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_DATADOG_CREDENTIAL_CORRUPT",
+        ));
+    }
+    let api_length = u16::from_be_bytes([secret[0], secret[1]]) as usize;
+    let app_length = u16::from_be_bytes([secret[2], secret[3]]) as usize;
+    if api_length == 0
+        || app_length == 0
+        || api_length > 1024
+        || app_length > 1024
+        || secret.len() != 4 + api_length + app_length
+    {
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_DATADOG_CREDENTIAL_CORRUPT",
+        ));
+    }
+    let api_key = std::str::from_utf8(&secret[4..4 + api_length])
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_CREDENTIAL_CORRUPT"))?;
+    let application_key = std::str::from_utf8(&secret[4 + api_length..])
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_CREDENTIAL_CORRUPT"))?;
+    if !api_key.bytes().all(|byte| byte.is_ascii_graphic())
+        || !application_key.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_DATADOG_CREDENTIAL_CORRUPT",
+        ));
+    }
+    Ok((
+        Zeroizing::new(api_key.to_owned()),
+        Zeroizing::new(application_key.to_owned()),
+    ))
+}
+
+struct DatadogConnectOptions {
+    site: String,
+    api_key_env: String,
+    application_key_env: String,
+}
+
+fn parse_datadog_args(
+    mut args: impl Iterator<Item = OsString>,
+) -> Result<DatadogConnectOptions, CliFailure> {
+    let mut site = None;
+    let mut api_key_env = None;
+    let mut application_key_env = None;
+    while let Some(option) = args.next() {
+        let target = if option == "--site" {
+            &mut site
+        } else if option == "--api-key-env" {
+            &mut api_key_env
+        } else if option == "--application-key-env" {
+            &mut application_key_env
+        } else {
+            return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
+        };
+        let value = args
+            .next()
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_SOURCES_MISSING_VALUE"))?
+            .into_string()
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_SOURCES_INVALID_VALUE"))?;
+        if target.replace(value).is_some() {
+            return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_DUPLICATE_OPTION"));
+        }
+    }
+    let options = DatadogConnectOptions {
+        site: site.ok_or_else(|| CliFailure::usage("EVIDENTRAIL_DATADOG_SITE_REQUIRED"))?,
+        api_key_env: api_key_env.unwrap_or_else(|| "DD_API_KEY".to_owned()),
+        application_key_env: application_key_env.unwrap_or_else(|| "DD_APP_KEY".to_owned()),
+    };
+    if datadog_site(&options.site).is_none()
+        || !valid_env_name(&options.api_key_env)
+        || !valid_env_name(&options.application_key_env)
+        || options.api_key_env == options.application_key_env
+    {
+        return Err(CliFailure::usage("EVIDENTRAIL_DATADOG_OPTIONS_INVALID"));
+    }
+    Ok(options)
+}
+
+fn valid_env_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        && !value.as_bytes()[0].is_ascii_digit()
+}
+
+fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailure> {
+    let api_key = Zeroizing::new(
+        env::var(&options.api_key_env)
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_DATADOG_API_KEY_UNAVAILABLE"))?,
+    );
+    let application_key = Zeroizing::new(
+        env::var(&options.application_key_env)
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_DATADOG_APP_KEY_UNAVAILABLE"))?,
+    );
+    let secret = encode_datadog_secret(&api_key, &application_key)?;
+    let site = datadog_site(&options.site)
+        .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_DATADOG_OPTIONS_INVALID"))?;
+    let identity_source = DatadogHistorySourceV1::connect(
+        site,
+        DatadogStorageTierV1::Indexes,
+        api_key.to_string(),
+        application_key.to_string(),
+    )
+    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_IDENTITY_FAILED"))?;
+    let org_id = identity_source
+        .current_org_id()
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_IDENTITY_FAILED"))?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
+        .as_millis() as i64;
+    let mut probes = Vec::new();
+    for (name, tier) in [
+        ("indexes", DatadogStorageTierV1::Indexes),
+        ("online-archives", DatadogStorageTierV1::OnlineArchives),
+        ("flex", DatadogStorageTierV1::Flex),
+    ] {
+        let probe = DatadogHistorySourceV1::connect(
+            site,
+            tier,
+            api_key.to_string(),
+            application_key.to_string(),
+        )
+        .and_then(|mut source| {
+            source.fetch_page(
+                HistoryPartitionV1 {
+                    start_millis: now.saturating_sub(1000),
+                    end_millis: now,
+                },
+                None,
+            )
+        });
+        probes.push((
+            name,
+            probe.map(|_| ()).map_err(|error| format!("{error:?}")),
+        ));
+    }
+    if !probes.iter().any(|(_, result)| result.is_ok()) {
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_DATADOG_READ_VERIFICATION_FAILED",
+        ));
+    }
+    let corpus_authority = MacOsCorpusKeychainV1::production();
+    let credential_authority = MacOsConnectedCredentialKeychainV1::production();
+    let tenant = corpus_authority
+        .local_tenant_digest()
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let mut random_id = [0u8; 16];
+    getrandom::fill(&mut random_id)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_CONNECTION_ID_FAILED"))?;
+    let connection_id = hex(&random_id);
+    let mut registered = Vec::new();
+    let mut outcomes = Vec::new();
+    for (tier, probe) in probes {
+        if let Err(error) = probe {
+            outcomes.push(json!({"tier": tier, "status": "not_connected", "error": error}));
+            continue;
+        }
+        let binding = DatadogDescriptor {
+            schema_version: 1,
+            provider: "datadog".to_owned(),
+            site: options.site.clone(),
+            tier: tier.to_owned(),
+            connection_id: connection_id.clone(),
+            org_id: org_id.clone(),
+        };
+        let result = register_datadog_tier(
+            &corpus_authority,
+            &credential_authority,
+            &tenant,
+            &binding,
+            &secret,
+        );
+        match result {
+            Ok((source_digest, path)) => {
+                registered.push((source_digest, path));
+                outcomes.push(json!({
+                    "tier": tier,
+                    "source_id": hex(&source_digest),
+                    "status": "registered_backfill_pending",
+                }));
+            }
+            Err(error) => {
+                rollback_datadog_registration(
+                    &corpus_authority,
+                    &credential_authority,
+                    &tenant,
+                    &registered,
+                )?;
+                return Err(error);
+            }
+        }
+    }
+    serde_json::to_writer(
+        io::stdout().lock(),
+        &json!({
+            "provider": "datadog",
+            "site": options.site,
+        "connection_id": connection_id,
+        "org_id": org_id,
+            "tiers": outcomes,
+            "coverage": "partial_until_backfill_and_provider_consistency_verified",
+        }),
+    )
+    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
+    writeln!(io::stdout().lock())
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+fn register_datadog_tier(
+    corpus_authority: &MacOsCorpusKeychainV1,
+    credential_authority: &MacOsConnectedCredentialKeychainV1,
+    tenant: &[u8; 32],
+    binding: &DatadogDescriptor,
+    secret: &[u8],
+) -> Result<([u8; 32], PathBuf), CliFailure> {
+    validate_datadog_binding(binding)?;
+    let descriptor = serde_json::to_vec(binding)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+    let source_digest = MacOsCorpusKeychainV1::source_digest_for_descriptor(&descriptor)
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let path = corpus_path(&source_digest, true)?;
+    credential_authority
+        .create(tenant, &source_digest, secret)
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    if let Err(error) = register_corpus(corpus_authority, tenant, &descriptor, &path) {
+        credential_authority
+            .destroy(tenant, &source_digest)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROLLBACK_FAILED"))?;
+        return Err(error);
+    }
+    Ok((source_digest, path))
+}
+
+fn rollback_datadog_registration(
+    corpus_authority: &MacOsCorpusKeychainV1,
+    credential_authority: &MacOsConnectedCredentialKeychainV1,
+    tenant: &[u8; 32],
+    registered: &[([u8; 32], PathBuf)],
+) -> Result<(), CliFailure> {
+    for (source_digest, path) in registered {
+        remove_corpus_files(path)?;
+        corpus_authority
+            .destroy(tenant, source_digest)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROLLBACK_FAILED"))?;
+        credential_authority
+            .destroy(tenant, source_digest)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROLLBACK_FAILED"))?;
+    }
+    Ok(())
+}
+
+fn remove_corpus_files(path: &Path) -> Result<(), CliFailure> {
+    fs::remove_file(path)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROLLBACK_FAILED"))?;
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROLLBACK_FAILED"))?
+        .to_string_lossy();
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let sidecar = path.with_file_name(format!("{file_name}{suffix}"));
+        match fs::remove_file(sidecar) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(_) => return Err(CliFailure::runtime("EVIDENTRAIL_DATADOG_ROLLBACK_FAILED")),
+        }
+    }
+    Ok(())
+}
+
 fn plan(binding: &CloudWatchDescriptor) -> Result<CloudWatchPlanV1, CliFailure> {
     let caps = CloudWatchCapsV1::new(10_000, 16 * 1024 * 1024, 1, 8 * 1024 * 1024)
         .map_err(|_| CliFailure::usage("EVIDENTRAIL_SOURCES_INVALID_BINDING"))?;
@@ -677,12 +1135,9 @@ fn list_sources() -> Result<ExitCode, CliFailure> {
         .list_bound(&tenant)
         .map_err(|error| CliFailure::runtime(error.code()))?
     {
-        let binding: CloudWatchDescriptor = serde_json::from_slice(&entry.descriptor)
-            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
-        validate_binding(&binding)
-            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+        let binding = parse_binding(&entry.descriptor)?;
         let path = corpus_path(&entry.source_digest, false)?;
-        let status = if path.is_file() {
+        let status = if corpus_file_exists_safe(&path)? {
             let key = authority
                 .load(&tenant, &entry.source_digest)
                 .map_err(|error| CliFailure::runtime(error.code()))?;
@@ -699,14 +1154,26 @@ fn list_sources() -> Result<ExitCode, CliFailure> {
         } else {
             json!({"state": "corpus_missing"})
         };
-        listed.push(json!({
-            "source_id": hex(&entry.source_digest),
-            "provider": binding.provider,
-            "account": binding.account,
-            "region": binding.region,
-            "log_group": binding.log_group,
-            "status": status,
-        }));
+        let summary = match binding {
+            SourceBinding::CloudWatch(binding) => json!({
+                "source_id": hex(&entry.source_digest),
+                "provider": "cloudwatch",
+                "account": binding.account,
+                "region": binding.region,
+                "log_group": binding.log_group,
+                "status": status,
+            }),
+            SourceBinding::Datadog(binding) => json!({
+                "source_id": hex(&entry.source_digest),
+                "provider": "datadog",
+                "site": binding.site,
+                "tier": binding.tier,
+                "connection_id": binding.connection_id,
+                "org_id": binding.org_id,
+                "status": status,
+            }),
+        };
+        listed.push(summary);
     }
     serde_json::to_writer(io::stdout().lock(), &listed)
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
@@ -734,6 +1201,20 @@ fn corpus_path(source_digest: &[u8; 32], create_dirs: bool) -> Result<PathBuf, C
         check_private_directory_if_present(&corpus)?;
     }
     Ok(corpus.join(format!("{}.db", hex(source_digest))))
+}
+
+fn corpus_file_exists_safe(path: &Path) -> Result<bool, CliFailure> {
+    match path.symlink_metadata() {
+        Ok(metadata)
+            if metadata.file_type().is_file()
+                && !metadata.file_type().is_symlink()
+                && metadata.permissions().mode() & 0o077 == 0 =>
+        {
+            Ok(true)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Ok(_) | Err(_) => Err(CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_UNSAFE")),
+    }
 }
 
 fn ensure_private_directory(path: &Path) -> Result<(), CliFailure> {
@@ -800,6 +1281,81 @@ mod tests {
         assert!(
             parse_cloudwatch_args(["--account", "123"].into_iter().map(OsString::from)).is_err()
         );
+    }
+
+    #[test]
+    fn datadog_binding_and_secret_never_mix() {
+        let options = parse_datadog_args(
+            ["--site", "eu1", "--api-key-env", "TEST_DD_API_KEY"]
+                .into_iter()
+                .map(OsString::from),
+        )
+        .unwrap();
+        assert_eq!(options.application_key_env, "DD_APP_KEY");
+        assert!(parse_datadog_args(["--site", "invalid"].into_iter().map(OsString::from)).is_err());
+        assert!(
+            parse_datadog_args(
+                ["--site", "eu1", "--api-key-env", "BAD=VALUE"]
+                    .into_iter()
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+        let binding = DatadogDescriptor {
+            schema_version: 1,
+            provider: "datadog".to_owned(),
+            site: "eu1".to_owned(),
+            tier: "online-archives".to_owned(),
+            connection_id: "a".repeat(32),
+            org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+        };
+        let descriptor = serde_json::to_vec(&binding).unwrap();
+        assert!(matches!(
+            parse_binding(&descriptor),
+            Ok(SourceBinding::Datadog(_))
+        ));
+        assert!(!String::from_utf8_lossy(&descriptor).contains("private-api"));
+        let secret = encode_datadog_secret("private-api", "private-app").unwrap();
+        let (api_key, app_key) = decode_datadog_secret(&secret).unwrap();
+        assert_eq!(&**api_key, "private-api");
+        assert_eq!(&**app_key, "private-app");
+        let mut malformed = secret.clone();
+        malformed[0] = 0xff;
+        assert!(decode_datadog_secret(&malformed).is_err());
+        let mut with_secret = serde_json::to_value(&binding).unwrap();
+        with_secret["api_key"] = json!("private-api");
+        assert!(parse_binding(&serde_json::to_vec(&with_secret).unwrap()).is_err());
+    }
+
+    #[test]
+    fn connected_corpus_rejects_symlink_and_shared_permissions() {
+        use std::os::unix::fs::symlink;
+
+        let base = env::temp_dir().join(format!(
+            "evidentrail-corpus-path-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&base).unwrap();
+        let file = base.join("corpus.db");
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&file)
+            .unwrap();
+        assert_eq!(corpus_file_exists_safe(&file), Ok(true));
+        let link = base.join("symlink.db");
+        symlink(&file, &link).unwrap();
+        assert!(corpus_file_exists_safe(&link).is_err());
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(corpus_file_exists_safe(&file).is_err());
+        fs::remove_file(link).unwrap();
+        fs::remove_file(file).unwrap();
+        fs::remove_dir(base).unwrap();
     }
 
     #[test]

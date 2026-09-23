@@ -18,7 +18,11 @@ use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
 
 #[cfg(target_os = "macos")]
+mod macos_connected_credentials;
+#[cfg(target_os = "macos")]
 mod macos_corpus_keychain;
+#[cfg(target_os = "macos")]
+pub use macos_connected_credentials::MacOsConnectedCredentialKeychainV1;
 #[cfg(target_os = "macos")]
 pub use macos_corpus_keychain::{
     ConnectedSourceDescriptorV1, CorpusKeychainErrorV1, MacOsCorpusKeychainV1,

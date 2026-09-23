@@ -102,8 +102,16 @@ chosen storage tier, pages by `meta.page.after`, and rejects partial warnings
 or malformed events before checkpoint advancement. A connected run must cover
 each authorized tier (indexes, online archives, and Flex) and report tiers it
 cannot access. Local HTTP fixtures cover empty-page continuation and exact
-source JSON retention; live Datadog validation and credential/org binding are
-still missing.
+source JSON retention. The macOS CLI now probes each of the three storage tiers
+and registers readable tiers with source-bound credentials in a separate login
+Keychain service. The connector reads the authenticated organization ID at
+registration using Datadog's [current-user endpoint](https://docs.datadoghq.com/api/latest/users/get-current-user/) and verifies it before every sync; a local HTTP fixture covers
+the identity request and response. An isolated live macOS login Keychain
+create/load/revoke check passed for the source-bound credential item.
+`sources sync`, `logs`, and connected MCP
+calls can use those entries, and missing tiers are reported as partial
+coverage. A live Datadog account test, credential rotation,
+revocation, and complete tier coverage are still missing.
 
 ## One product contract
 
