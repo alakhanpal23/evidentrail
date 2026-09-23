@@ -31,6 +31,9 @@ def fixture():
             "top1_fault_hit": model,
             "citation_count": 1,
             "hypothesis_count": 1,
+            "top1_support_scope": "direct" if model else "dependent_only",
+            "direct_hypothesis_count": int(model),
+            "dependent_only_hypothesis_count": int(not model),
             "model_latency_seconds": 1.5,
         })
     return header, rows
@@ -52,6 +55,8 @@ class LiveScoreTests(unittest.TestCase):
         self.assertEqual(report["model_top1_joint_hits"], 1)
         self.assertEqual(report["model_only_joint_hits"], 1)
         self.assertEqual(report["naive_only_joint_hits"], 1)
+        self.assertEqual(report["direct_hypotheses"], 1)
+        self.assertEqual(report["dependent_only_hypotheses"], 1)
 
     def test_rejects_incomplete_duplicate_and_failed_runs(self):
         header, rows = fixture()

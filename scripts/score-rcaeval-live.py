@@ -47,7 +47,8 @@ def score(path):
     fields = (
         "naive_joint_hit", "top1_joint_hit", "top3_joint_hit",
         "top1_root_service_hit", "top1_fault_hit", "citation_count",
-        "model_latency_seconds", "hypothesis_count",
+        "model_latency_seconds", "hypothesis_count", "top1_support_scope",
+        "direct_hypothesis_count", "dependent_only_hypothesis_count",
     )
     for row in rows:
         if row.get("status") not in {"partial", "source_linked_hypotheses"}:
@@ -57,11 +58,16 @@ def score(path):
         if any(type(row[field]) is not bool for field in fields[:5]):
             raise ValueError(f"case {row['case']} has invalid hit fields")
         if (
-            any(type(row[field]) is not int or row[field] < 0 for field in ("citation_count", "hypothesis_count"))
+            any(type(row[field]) is not int or row[field] < 0 for field in (
+                "citation_count", "hypothesis_count", "direct_hypothesis_count",
+                "dependent_only_hypothesis_count",
+            ))
             or type(row["model_latency_seconds"]) not in (int, float)
             or not math.isfinite(row["model_latency_seconds"])
             or row["model_latency_seconds"] < 0
             or row["citation_count"] < row["hypothesis_count"]
+            or row["direct_hypothesis_count"] + row["dependent_only_hypothesis_count"] != row["hypothesis_count"]
+            or row["top1_support_scope"] not in ({"direct", "dependent_only"} if row["hypothesis_count"] else {None})
         ):
             raise ValueError(f"case {row['case']} has invalid count or latency")
     counts = Counter()
@@ -80,6 +86,9 @@ def score(path):
         if row["hypothesis_count"] == 0:
             counts["abstentions"] += 1
         counts["citations"] += row["citation_count"]
+        counts["direct_hypotheses"] += row["direct_hypothesis_count"]
+        counts["dependent_only_hypotheses"] += row["dependent_only_hypothesis_count"]
+        counts["top1_direct_support"] += row["top1_support_scope"] == "direct"
         counts["latency_seconds"] += row["model_latency_seconds"]
     return {
         "dataset": header["dataset"],
@@ -94,6 +103,9 @@ def score(path):
         "naive_only_joint_hits": counts["naive_only_joint_hits"],
         "abstentions": counts["abstentions"],
         "citation_count": counts["citations"],
+        "direct_hypotheses": counts["direct_hypotheses"],
+        "dependent_only_hypotheses": counts["dependent_only_hypotheses"],
+        "top1_direct_support": counts["top1_direct_support"],
         "mean_model_latency_seconds": round(counts["latency_seconds"] / counts["cases"], 3),
         "by_fault": {fault: dict(values) for fault, values in sorted(by_fault.items())},
     }

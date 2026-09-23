@@ -13,9 +13,10 @@ mod incident_analysis;
 mod mcp;
 
 pub use incident_analysis::{
-    AnalysisError, AnalysisReport, EvidenceCitation, FaultType, Hypothesis, IncidentReasoner,
-    ModelAssessment, OpenAiIncidentReasoner, ServiceTopology, analyze_with_reasoner,
-    analyze_with_reasoner_and_metrics, analyze_with_reasoner_and_metrics_and_traces,
+    AnalysisError, AnalysisReport, EvidenceCitation, FaultType, Hypothesis, HypothesisSupport,
+    IncidentReasoner, ModelAssessment, OpenAiIncidentReasoner, ServiceTopology,
+    analyze_with_reasoner, analyze_with_reasoner_and_metrics,
+    analyze_with_reasoner_and_metrics_and_traces,
 };
 
 use std::error::Error as StdError;

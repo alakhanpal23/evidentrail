@@ -187,6 +187,7 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
         })
     if live_model:
         hypotheses = report["hypotheses"]
+        support = report["hypothesis_support"]
         result.update({
             "model_latency_seconds": round(elapsed, 3),
             "top1_service": hypotheses[0]["service"] if hypotheses else None,
@@ -198,6 +199,9 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
             "top3_joint_hit": any(hypothesis["service"] == root_service and hypothesis["fault_type"] == true_fault for hypothesis in hypotheses),
             "hypothesis_count": len(hypotheses),
             "citation_count": sum(len(hypothesis["evidence"]) for hypothesis in hypotheses),
+            "top1_support_scope": support[0]["scope"] if support else None,
+            "direct_hypothesis_count": sum(item["scope"] == "direct" for item in support),
+            "dependent_only_hypothesis_count": sum(item["scope"] == "dependent_only" for item in support),
         })
     return result
 

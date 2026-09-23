@@ -48,12 +48,12 @@ you need byte-exact compression with `E<n>` expansion handles.
 | Model-guided retrieval | The model may request omitted log groups before forming hypotheses. |
 | Service context | Supplied edges or trace-observed parent-child calls expose direct and transitive dependents. |
 | Metric context | Optional before/after medians preserve exact measurement citations. |
-| Checked attribution | Every model quote must occur in a visible source line; omitted evidence is reported. |
+| Checked attribution | Quotes must match visible source lines and come from the proposed service or one of its dependents. |
 | Offline brief | `brief` compiles byte-exact evidence with expandable `E<n>` references, without a model call. |
 
 The `analyze` path proposes root-cause hypotheses, but labels them as such.
-Its checked citations prove only that quoted text appears in supplied source
-lines; they do not prove the explanation or the direction of causality. The `brief` path
+Its checked citations prove quoted text and a relationship between supplied
+service labels, not the labels' authenticity, the explanation, or causality. The `brief` path
 is a separate offline evidence compiler.
 
 ## Accuracy is the release goal
@@ -140,8 +140,11 @@ examined together. The output includes group counts, omitted-group counts,
 source-line IDs, source-line SHA-256 digests, and hypotheses with exact checked
 quotes. Each hypothesis has a service and a fault type (`cpu`, `mem`, `disk`,
 `delay`, `loss`, `socket`, `other`, or `unknown`) so RCA evaluations can score
-the pair. A fabricated line ID or quote fails the request. When groups were
-omitted, the report says `partial` and `needs_more_evidence: true`.
+the pair. A fabricated line ID, quote, or unrelated-service citation fails
+the request. The report labels each hypothesis's citation support as `direct`
+or `dependent_only`; the latter forces a partial result because an affected
+caller does not prove its dependency caused the incident. Omitted groups also
+set `partial` and `needs_more_evidence: true`.
 
 When the logs do not show the failure, an explicit metric file can add
 before/after evidence. Each line is one JSON measurement with Unix-second
@@ -274,7 +277,8 @@ Save a preselected case list to a JSONL run and score it with
 `python3 scripts/score-rcaeval-live.py RUN.jsonl`. The scorer compares top-one
 service-plus-fault hits with the paired largest-shift baseline and rejects
 incomplete, duplicated, or failed runs rather than dropping them from the
-denominator. The currently published 90-case baseline has already informed
+denominator. It also counts direct versus dependent-only hypothesis support.
+The currently published 90-case baseline has already informed
 selection changes, so it is exploratory rather than a fresh held-out test.
 
 ## How it works
