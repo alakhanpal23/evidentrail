@@ -134,7 +134,8 @@ Use `--metrics metrics.ndjson --incident-time 1705600751` with either analysis
 mode. Evidentrail computes medians from the five minutes before and after that
 time, shows representative source lines under `M<n>` IDs, and checks metric
 citations against those exact lines. The metric file is read only when named;
-the summary does not assume units, thresholds, or causality.
+the summary does not assume units, thresholds, or causality. Metric-only
+investigations can pass an empty explicit standard input stream.
 
 ```json
 {

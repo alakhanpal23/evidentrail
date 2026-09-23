@@ -354,7 +354,7 @@ pub fn analyze_with_reasoner_and_metrics(
     if logs.len() > MAX_LOG_BYTES || question.len() > MAX_QUESTION_BYTES {
         return Err(AnalysisError::InputTooLarge);
     }
-    if logs.is_empty() || question.trim().is_empty() {
+    if (logs.is_empty() && metrics.is_none()) || question.trim().is_empty() {
         return Err(AnalysisError::InvalidInput);
     }
     let log_text = std::str::from_utf8(logs).map_err(|_| AnalysisError::InvalidInput)?;
@@ -1187,6 +1187,25 @@ mod tests {
         assert_eq!(report.metric_signals[0].incident_median, 100.0);
         assert!(report.evidence.iter().any(|event| event.id == "M8"));
         assert_eq!(report.status, "source_linked_hypotheses");
+    }
+
+    #[test]
+    fn explicit_metrics_can_supply_evidence_when_no_logs_exist() {
+        let metrics = metric_fixture();
+        let mut reasoner = CheckingReasoner {
+            expected_group_count: 0,
+            answer: assessment("M8", "\"value\":100"),
+        };
+        let report = analyze_with_reasoner_and_metrics(
+            b"",
+            "Why did db fail?",
+            None,
+            Some((&metrics, 1000)),
+            &mut reasoner,
+        )
+        .unwrap();
+        assert_eq!(report.source_line_count, 0);
+        assert_eq!(report.metric_signal_count, 1);
     }
 
     #[test]
