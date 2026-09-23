@@ -15,6 +15,7 @@ impl IncidentReasoner for AbstainingReasoner {
             schema_version: 1,
             hypotheses: Vec::new(),
             needs_more_evidence: true,
+            highlight_event_ids: Vec::new(),
         })
     }
 }

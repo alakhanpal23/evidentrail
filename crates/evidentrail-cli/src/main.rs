@@ -541,6 +541,7 @@ impl evidentrail_cli::IncidentReasoner for SelectionOnlyReasoner {
             schema_version: 1,
             hypotheses: Vec::new(),
             needs_more_evidence: true,
+            highlight_event_ids: Vec::new(),
         })
     }
 }
