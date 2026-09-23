@@ -1346,14 +1346,7 @@ pub fn analyze_with_reasoner_and_metrics_and_traces_and_precedents(
         )
         .cloned()
         .collect::<BTreeSet<_>>();
-    let focus_services = known_services
-        .iter()
-        .filter(|service| {
-            service.as_str() != "unknown" && question_mentions_service(question, service)
-        })
-        .take(4)
-        .cloned()
-        .collect::<Vec<_>>();
+    let focus_services = focus_services_for_question(question, &known_services);
     let precedent_matches = precedent_history.as_ref().map_or_else(Vec::new, |history| {
         precedent_matches(
             history,
@@ -1972,6 +1965,34 @@ fn question_mentions_service(question: &str, service: &str) -> bool {
         before.is_none_or(|character| !character.is_ascii_alphanumeric())
             && after.is_none_or(|character| !character.is_ascii_alphanumeric())
     })
+}
+
+fn service_alias(service: &str) -> Option<String> {
+    let lower = service.to_ascii_lowercase();
+    let alias = lower.strip_suffix("service")?.trim_end_matches(['-', '_']);
+    (alias.len() >= 4).then(|| alias.to_owned())
+}
+
+fn focus_services_for_question(question: &str, known_services: &BTreeSet<String>) -> Vec<String> {
+    let mut alias_counts = BTreeMap::<String, usize>::new();
+    for service in known_services {
+        if let Some(alias) = service_alias(service) {
+            *alias_counts.entry(alias).or_default() += 1;
+        }
+    }
+    known_services
+        .iter()
+        .filter(|service| {
+            service.as_str() != "unknown"
+                && (question_mentions_service(question, service)
+                    || service_alias(service).is_some_and(|alias| {
+                        alias_counts.get(&alias) == Some(&1)
+                            && question_mentions_service(question, &alias)
+                    }))
+        })
+        .take(4)
+        .cloned()
+        .collect()
 }
 
 fn focus_context(events: &[ParsedEvent], focus_services: &[String]) -> Vec<EvidenceEvent> {
@@ -2927,6 +2948,27 @@ mod tests {
         let warning = parse_event(8, "[checkoutservice] WARN: upstream timeout");
         assert_eq!(warning.service, "checkoutservice");
         assert_eq!(warning.role, "warning");
+    }
+
+    #[test]
+    fn question_focus_accepts_only_unambiguous_service_aliases() {
+        let services = ["checkoutservice", "database", "ads"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(
+            focus_services_for_question("Why did checkout fail?", &services),
+            ["checkoutservice"]
+        );
+        let ambiguous = ["checkoutservice", "checkout-service"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        assert!(focus_services_for_question("Why did checkout fail?", &ambiguous).is_empty());
+        assert_eq!(
+            focus_services_for_question("Why did checkoutservice fail?", &ambiguous),
+            ["checkoutservice"]
+        );
     }
 
     #[test]

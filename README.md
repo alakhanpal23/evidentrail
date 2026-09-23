@@ -176,6 +176,9 @@ still returns in a partial report. The report labels each hypothesis's citation 
 or `dependent_only`; the latter forces a partial result because an affected
 caller does not prove its dependency caused the incident. Omitted groups also
 set `partial` and `needs_more_evidence: true`.
+Question focus recognizes an exact service name or a unique shortened form of
+a name ending in `service` (for example, “checkout” for `checkoutservice`);
+ambiguous shortened names are ignored.
 The model can also select up to five `model_highlights` for a compact evidence
 brief, even when it abstains from a root-cause hypothesis. The compiler accepts
 only visible source IDs, includes exact excerpts and SHA-256 digests, and adds
