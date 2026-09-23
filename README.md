@@ -62,9 +62,9 @@ Incident analysis is useful only if it identifies the right cause or clearly
 abstains. The current public RCAEval probes measure evidence coverage and a
 simple metric baseline; they do **not** establish model diagnosis accuracy.
 A live, paired scorer is ready, but no hosted run has been published yet.
-A six-case [local Qwen3 pilot](reports/rcaeval-selection/README.md#local-llm-diagnostic-pilot)
-produced four valid partial reports, zero correct top-one service/fault pairs,
-and two verifier failures; that local model is not qualified for diagnosis.
+A 12-case [local Qwen3 pilot](reports/rcaeval-selection/README.md#local-llm-diagnostic-pilot)
+localized the service in every selected case but matched the simple baseline's
+four correct service/fault pairs; that local model is not qualified for diagnosis.
 
 The offline brief's matched-budget and executable results below are
 **synthetic**. Real-incident accuracy remains unproven. The next release gate
@@ -97,9 +97,12 @@ For a local smoke run, start Ollama with a model already installed and set
 `EVIDENTRAIL_ANALYZE_LOCAL_MODEL` to its name. This fixes the endpoint to
 `127.0.0.1:11434` and requires no hosted key. Local model quality varies;
 the same citation checks apply, and a local run is not a hosted accuracy score.
+Set Ollama's context window to at least 16K (for example, start it with
+`OLLAMA_CONTEXT_LENGTH=16384 ollama serve`); Evidentrail rejects smaller
+loaded windows to avoid the observed prompt truncation failure.
 
 ```sh
-EVIDENTRAIL_ANALYZE_LOCAL_MODEL=qwen2.5-coder:7b \
+EVIDENTRAIL_ANALYZE_LOCAL_MODEL=qwen3:14b \
   target/release/evidentrail analyze \
   --question "Why did the API fail?" --topology services.json < incident.log
 ```

@@ -69,33 +69,10 @@ in **42/90** and the correct service-plus-fault pair in **37/90**.
 | Memory | 15 | 15 | 3 | 3 |
 | Socket | 15 | 15 | 0 | 0 |
 
-### Local LLM diagnostic pilot
-
-[`six-case-local-qwen3-14b.jsonl`](six-case-local-qwen3-14b.jsonl) records an
-exploratory local run of `qwen3:14b` (Ollama manifest `bdbd181c33f2`) on the
-six `catalogue` fault-1 cases with a generic question and metric-only input.
-The model selected visible event IDs; Evidentrail attached exact source
-excerpts and checked service relationships. Four cases produced valid partial
-reports, but **none** had a correct top-one service-plus-fault pair. Two cases
-failed model-output verification. The strict scorer rejects this incomplete
-run instead of quietly treating the four valid cases as the denominator.
-This is a small, previously inspected development sample, not an accuracy
-estimate for the hosted model or a product qualification. It demonstrates that
-making citations well-formed did not solve diagnosis quality.
-
-Reproduce with an installed local model and Ollama listening on loopback:
-
-```sh
-EVIDENTRAIL_ANALYZE_LOCAL_MODEL=qwen3:14b \
-  python3 scripts/rcaeval-log-probe.py --with-metrics --metrics-only \
-  --generic-question --live-model \
-  re2ss_catalogue_cpu_1 re2ss_catalogue_mem_1 re2ss_catalogue_disk_1 \
-  re2ss_catalogue_delay_1 re2ss_catalogue_loss_1 re2ss_catalogue_socket_1
-```
-
 This is an exploratory public-data baseline, not a hidden test. We previously
-inspected and adjusted selection on a subset of these cases. No LLM was run;
-its service-plus-fault score remains unmeasured. The baseline shows that a
+inspected and adjusted selection on a subset of these cases. No LLM was run
+for the 90-case baseline; its model service-plus-fault score remains unmeasured.
+The baseline shows that a
 model must add value beyond a strong service-localization heuristic, especially
 for fault-type discrimination.
 
@@ -108,6 +85,42 @@ selected summaries, not evidence that the injected faults did not occur. A
 metric-only model should be allowed to return `unknown` or abstain when the
 visible signals cannot distinguish the failure mode; a fault-type hit rate
 without that abstention count would overstate diagnostic usefulness.
+
+### Local LLM diagnostic pilot
+
+[`twelve-case-local-qwen3-14b-16k.jsonl`](twelve-case-local-qwen3-14b-16k.jsonl)
+records `qwen3:14b` (Ollama manifest `bdbd181c33f2`) on the six fault-1
+cases each for `catalogue` and `carts`, with a generic question and metric-only
+input. Ollama reported a **16,384-token** loaded context and no prompt
+truncation warnings. All 12 cases returned valid partial reports with direct
+source citations. The model identified the labeled service in **12/12**, but
+the exact service-plus-fault pair in only **4/12**, the same four found by the
+largest-metric-shift baseline. It added **zero** joint hits and averaged
+**34.661 seconds** per case. This selected public development sample does not
+qualify a model or establish accuracy on held-out incidents.
+
+The earlier [six-case artifact](six-case-local-qwen3-14b-truncated.jsonl)
+used Ollama's 4K default context. Server logs showed a roughly 7.7K-token
+prompt truncated to about 2K tokens, so its four valid reports and zero joint
+hits are **not** a fair model-quality comparison. Evidentrail now checks the
+loaded local context and rejects windows under 16K rather than presenting
+answers produced under that known-bad setting.
+
+Start Ollama with a 16K context in one shell, then run the probe in another:
+
+```sh
+OLLAMA_CONTEXT_LENGTH=16384 ollama serve
+```
+
+```sh
+EVIDENTRAIL_ANALYZE_LOCAL_MODEL=qwen3:14b \
+  python3 scripts/rcaeval-log-probe.py --with-metrics --metrics-only \
+  --generic-question --live-model \
+  re2ss_catalogue_cpu_1 re2ss_catalogue_mem_1 re2ss_catalogue_disk_1 \
+  re2ss_catalogue_delay_1 re2ss_catalogue_loss_1 re2ss_catalogue_socket_1 \
+  re2ss_carts_cpu_1 re2ss_carts_mem_1 re2ss_carts_disk_1 \
+  re2ss_carts_delay_1 re2ss_carts_loss_1 re2ss_carts_socket_1
+```
 
 ## Combined log-and-metric selection probe
 
