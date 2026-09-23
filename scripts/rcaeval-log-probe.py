@@ -175,7 +175,7 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=False,
-                timeout=180 if live_model and not metrics_only else 75,
+                timeout=180 if live_model else 75,
             )
         except subprocess.TimeoutExpired:
             return {"case": case, "status": "product_error", "error_code": "EVIDENTRAIL_PROBE_TIMEOUT", "redacted_log_events": redacted_log_events}
