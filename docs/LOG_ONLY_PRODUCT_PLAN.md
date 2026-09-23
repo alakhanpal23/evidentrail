@@ -27,12 +27,15 @@ Reopening after an incomplete partition replays pages idempotently, while
 conflicting native IDs, wrong keys, and tenant/source mismatches fail closed.
 The corpus now maintains exact template-group counts and first/last source
 references in the same transaction as raw ingestion, using the same parser as
-the CLI. It also maintains versioned, explicitly observed service edges whose
-counts and endpoint records resolve to original logs; unrelated service
-co-occurrence does not create an edge. Older corpora rebuild missing groups
-and graph evidence on reopen; unknown index versions fail closed. The key is
-still supplied by a caller; production key authority, task-based index retrieval, query access
-control, and a live provider transport are missing. A CloudWatch
+the CLI. It has an encrypted lexical group index and a bounded task-query API
+that reports candidate truncation; this is an unvalidated candidate stage,
+not yet the connected model-guided retrieval product. It also maintains
+versioned, explicitly observed service edges whose counts and endpoint records
+resolve to original logs; unrelated service co-occurrence does not create an
+edge. Older corpora rebuild missing groups, graph evidence, and lexical terms
+on reopen; unknown index versions fail closed. The key is still supplied by a
+caller; production key authority, query access control, graph-aware candidate
+retrieval, and a live provider transport are missing. A CloudWatch
 history-source adapter maps internal partitions to
 unfiltered log-group page requests, but it does not provide AWS credentials or
 network calls yet. One scan to a high-water mark does not prove complete

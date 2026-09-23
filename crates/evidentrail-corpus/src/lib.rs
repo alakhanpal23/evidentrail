@@ -4,6 +4,7 @@
 //! provides durable page deduplication and checkpoints; it does not by itself
 //! establish provider completeness or make a connected product.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::Path;
 use std::time::Duration;
@@ -18,6 +19,7 @@ use zeroize::Zeroizing;
 
 const PARSER_INDEX_VERSION: i64 = 1;
 const GRAPH_INDEX_VERSION: i64 = 1;
+const TERM_INDEX_VERSION: i64 = 1;
 const MAX_RAW_RECORD_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +84,14 @@ pub struct CorpusGroupCard {
     pub last_timestamp_millis: i64,
     pub first_native_id: Vec<u8>,
     pub last_native_id: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CandidateGroupPage {
+    pub groups: Vec<CorpusGroupCard>,
+    pub total_groups: u64,
+    /// True when lexical matches exceeded the requested candidate budget.
+    pub candidate_pool_truncated: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -180,6 +190,16 @@ impl EncryptedHistoryStore {
                      group_id INTEGER NOT NULL REFERENCES log_groups(group_id)
                  );
                  CREATE INDEX IF NOT EXISTS group_members_group ON group_members(group_id);
+                 CREATE TABLE IF NOT EXISTS group_terms (
+                     term_digest BLOB NOT NULL,
+                     group_id INTEGER NOT NULL REFERENCES log_groups(group_id),
+                     PRIMARY KEY(term_digest, group_id)
+                 );
+                 CREATE TABLE IF NOT EXISTS term_metadata (
+                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                     index_version INTEGER NOT NULL,
+                     backfill_complete INTEGER NOT NULL CHECK (backfill_complete IN (0, 1))
+                 );
                  CREATE TABLE IF NOT EXISTS service_edges (
                      source_service TEXT NOT NULL,
                      target_service TEXT NOT NULL,
@@ -268,10 +288,79 @@ impl EncryptedHistoryStore {
         if graph_extractor_version != GRAPH_INDEX_VERSION {
             return Err(CorpusError::IndexVersionMismatch);
         }
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO term_metadata(singleton, index_version, backfill_complete)
+                 VALUES (1, ?1, 0)",
+                [TERM_INDEX_VERSION],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let term_version: i64 = connection
+            .query_row(
+                "SELECT index_version FROM term_metadata WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        if term_version != TERM_INDEX_VERSION {
+            return Err(CorpusError::IndexVersionMismatch);
+        }
         let mut store = Self { connection };
         store.index_unindexed_records()?;
         store.backfill_graph_if_needed()?;
+        store.backfill_terms_if_needed()?;
         Ok(store)
+    }
+
+    fn backfill_terms_if_needed(&mut self) -> Result<(), CorpusError> {
+        let ready: i64 = self
+            .connection
+            .query_row(
+                "SELECT backfill_complete FROM term_metadata WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        if ready == 1 {
+            return Ok(());
+        }
+        let mut cursor = 0;
+        loop {
+            let cards = self.read_group_cards(cursor, 256)?;
+            if cards.is_empty() {
+                break;
+            }
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|_| CorpusError::Storage)?;
+            for card in &cards {
+                let raw: Vec<u8> = transaction
+                    .query_row(
+                        "SELECT raw FROM history_records WHERE native_id = ?1",
+                        [&card.first_native_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| CorpusError::Storage)?;
+                let parsed = parse_event(0, &String::from_utf8_lossy(&raw));
+                index_group_terms(
+                    &transaction,
+                    card.group_id,
+                    &parsed.service,
+                    parsed.role,
+                    &parsed.fingerprint,
+                )?;
+            }
+            transaction.commit().map_err(|_| CorpusError::Storage)?;
+            cursor = cards.last().expect("nonempty page").group_id;
+        }
+        self.connection
+            .execute(
+                "UPDATE term_metadata SET backfill_complete = 1 WHERE singleton = 1",
+                [],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        Ok(())
     }
 
     fn backfill_graph_if_needed(&mut self) -> Result<(), CorpusError> {
@@ -612,6 +701,75 @@ impl EncryptedHistoryStore {
             .map_err(|_| CorpusError::Storage)
     }
 
+    /// Search the complete indexed group corpus with a bounded lexical candidate pool.
+    /// An empty result does not prove that no relevant logs exist; callers must
+    /// surface retrieval uncertainty and may page through all group cards.
+    pub fn search_candidate_groups(
+        &self,
+        task: &str,
+        limit: usize,
+    ) -> Result<CandidateGroupPage, CorpusError> {
+        if limit == 0 || limit > 256 || task.len() > 8192 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let total_groups = self.group_count()?;
+        let terms = search_terms(task, 32);
+        if terms.is_empty() {
+            return Ok(CandidateGroupPage {
+                groups: Vec::new(),
+                total_groups,
+                candidate_pool_truncated: false,
+            });
+        }
+        let placeholders = vec!["?"; terms.len()].join(",");
+        let sql = format!(
+            "SELECT g.group_id, g.service, g.role, g.repeat_count,
+                    g.first_timestamp_millis, g.last_timestamp_millis,
+                    g.first_native_id, g.last_native_id
+             FROM group_terms t JOIN log_groups g ON g.group_id = t.group_id
+             WHERE t.term_digest IN ({placeholders})
+             GROUP BY g.group_id
+             ORDER BY COUNT(*) DESC,
+                CASE g.role WHEN 'critical' THEN 0 WHEN 'error' THEN 1
+                    WHEN 'warning' THEN 2 WHEN 'change' THEN 3 ELSE 4 END,
+                g.last_timestamp_millis DESC, g.group_id DESC
+             LIMIT {}",
+            limit + 1
+        );
+        let digests = terms
+            .iter()
+            .map(|term| Sha256::digest(term.as_bytes()).to_vec())
+            .collect::<Vec<_>>();
+        let mut statement = self
+            .connection
+            .prepare(&sql)
+            .map_err(|_| CorpusError::Storage)?;
+        let rows = statement
+            .query_map(rusqlite::params_from_iter(&digests), |row| {
+                Ok(CorpusGroupCard {
+                    group_id: row.get(0)?,
+                    service: row.get(1)?,
+                    role: row.get(2)?,
+                    repeat_count: row.get(3)?,
+                    first_timestamp_millis: row.get(4)?,
+                    last_timestamp_millis: row.get(5)?,
+                    first_native_id: row.get(6)?,
+                    last_native_id: row.get(7)?,
+                })
+            })
+            .map_err(|_| CorpusError::Storage)?;
+        let mut groups = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)?;
+        let candidate_pool_truncated = groups.len() > limit;
+        groups.truncate(limit);
+        Ok(CandidateGroupPage {
+            groups,
+            total_groups,
+            candidate_pool_truncated,
+        })
+    }
+
     pub fn get_record(&self, native_id: &[u8]) -> Result<Option<StoredHistoryRecord>, CorpusError> {
         self.connection
             .query_row(
@@ -782,12 +940,69 @@ fn index_new_record(
             .map_err(|_| CorpusError::Storage)?;
         transaction.last_insert_rowid()
     };
+    index_group_terms(
+        transaction,
+        group_id,
+        &parsed.service,
+        parsed.role,
+        &parsed.fingerprint,
+    )?;
     transaction
         .execute(
             "INSERT INTO group_members(native_id, group_id) VALUES (?1, ?2)",
             params![&record.native_id, group_id],
         )
         .map_err(|_| CorpusError::Storage)?;
+    Ok(())
+}
+
+fn search_terms(text: &str, cap: usize) -> BTreeSet<String> {
+    text.split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|term| term.len() >= 3 && term.len() <= 64)
+        .map(str::to_ascii_lowercase)
+        .filter(|term| {
+            !matches!(
+                term.as_str(),
+                "the"
+                    | "and"
+                    | "for"
+                    | "with"
+                    | "from"
+                    | "that"
+                    | "this"
+                    | "then"
+                    | "into"
+                    | "what"
+                    | "when"
+                    | "where"
+                    | "why"
+                    | "how"
+                    | "logs"
+                    | "log"
+                    | "find"
+                    | "show"
+            )
+        })
+        .take(cap)
+        .collect()
+}
+
+fn index_group_terms(
+    transaction: &Transaction<'_>,
+    group_id: i64,
+    service: &str,
+    role: &str,
+    fingerprint: &str,
+) -> Result<(), CorpusError> {
+    for term in search_terms(&format!("{service} {role} {fingerprint}"), 64) {
+        let digest = Sha256::digest(term.as_bytes());
+        transaction
+            .execute(
+                "INSERT OR IGNORE INTO group_terms(term_digest, group_id) VALUES (?1, ?2)",
+                params![digest.as_slice(), group_id],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+    }
     Ok(())
 }
 
@@ -923,6 +1138,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
@@ -932,13 +1148,15 @@ mod tests {
     };
 
     fn test_path() -> PathBuf {
+        static NEXT_PATH: AtomicU64 = AtomicU64::new(0);
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "evidentrail-corpus-{}-{stamp}.db",
-            std::process::id()
+            "evidentrail-corpus-{}-{stamp}-{}.db",
+            std::process::id(),
+            NEXT_PATH.fetch_add(1, Ordering::Relaxed)
         ))
     }
 
@@ -1157,6 +1375,78 @@ mod tests {
     }
 
     #[test]
+    fn candidate_search_finds_old_rare_group_and_reports_truncation() {
+        let path = test_path();
+        let key = [18; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            let mut records = vec![HistoryRecordV1 {
+                native_id: b"rare".to_vec(),
+                event_timestamp_millis: 1,
+                bytes: b"[checkout] ERROR: inventory reservation failed".to_vec(),
+            }];
+            for index in 0..100 {
+                records.push(HistoryRecordV1 {
+                    native_id: format!("noise-{index}").into_bytes(),
+                    event_timestamp_millis: index + 2,
+                    bytes: format!("[api] INFO: heartbeat shard={index}").into_bytes(),
+                });
+            }
+            store.commit_page_checked(&records).unwrap();
+            let match_page = store
+                .search_candidate_groups("inventory reservation", 1)
+                .unwrap();
+            assert_eq!(match_page.groups.len(), 1);
+            assert_eq!(match_page.groups[0].first_native_id, b"rare");
+            assert!(!match_page.candidate_pool_truncated);
+            assert_eq!(match_page.total_groups, store.group_count().unwrap());
+            assert_eq!(
+                store
+                    .search_candidate_groups("checkout error", 1)
+                    .unwrap()
+                    .groups[0]
+                    .first_native_id,
+                b"rare"
+            );
+            let capped = store.search_candidate_groups("heartbeat shard", 1).unwrap();
+            assert!(capped.candidate_pool_truncated);
+        }
+        {
+            let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert_eq!(
+                store
+                    .search_candidate_groups("reservation", 1)
+                    .unwrap()
+                    .groups[0]
+                    .first_native_id,
+                b"rare"
+            );
+            store
+                .connection
+                .execute("DELETE FROM group_terms", [])
+                .unwrap();
+            store
+                .connection
+                .execute("UPDATE term_metadata SET backfill_complete = 0", [])
+                .unwrap();
+        }
+        {
+            let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert_eq!(
+                store
+                    .search_candidate_groups("reservation", 1)
+                    .unwrap()
+                    .groups[0]
+                    .first_native_id,
+                b"rare"
+            );
+        }
+        cleanup(&path);
+    }
+
+    #[test]
     fn reopen_rebuilds_missing_group_members_and_rejects_unknown_parser_version() {
         let path = test_path();
         let key = [13; 32];
@@ -1174,6 +1464,10 @@ mod tests {
             store
                 .connection
                 .execute("DELETE FROM group_members", [])
+                .unwrap();
+            store
+                .connection
+                .execute("DELETE FROM group_terms", [])
                 .unwrap();
             store
                 .connection
