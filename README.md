@@ -156,8 +156,12 @@ target/release/evidentrail analyze \
   --topology services.json < incident.log
 ```
 
-This beta requires `OPENAI_API_KEY`, uses a single bounded hosted request, and
-does not retain the log after the process exits. The hosted adapter refuses
+This beta requires `OPENAI_API_KEY` and uses one bounded hosted request for
+diagnosis. When some alert groups do not fit in the first evidence window, it
+uses a second bounded request so the model can choose up to four omitted groups
+to inspect before diagnosing. Group selection remains advisory: every final
+citation must match an exact supplied source line. The process does not retain
+the log after it exits. The hosted adapter refuses
 requests containing common credential patterns, including DSNs, with a
 contentless error; this guard is not a complete secret detector. Redact and
 review logs before allowing their transfer to a model provider. There is
