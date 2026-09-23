@@ -114,7 +114,10 @@ event bytes.
 `analyze` accepts UTF-8 logs on explicit standard input and optionally a JSON
 service graph. It groups identical alert messages by service and severity,
 keeps rare failures ahead of repeated warnings, and sends bounded examples to
-a hosted model. The output includes group counts, omitted-group counts,
+a hosted model. Adjacent lines give each failure local context. The report
+counts alerts by service and lists direct and transitive dependents derived
+from the supplied graph, so a failing dependency and affected callers can be
+examined together. The output includes group counts, omitted-group counts,
 source-line IDs, source-line SHA-256 digests, and hypotheses with exact checked
 quotes. A fabricated line ID or quote fails the request. When groups were
 omitted, the report says `partial` and `needs_more_evidence: true`.
@@ -143,6 +146,12 @@ no measured real-incident diagnosis advantage yet; use the benchmark protocol
 below to compare it with the offline brief and simpler baselines. The analysis
 path currently supports UTF-8, line-oriented logs only; the default brief
 handles arbitrary source bytes.
+
+The committed synthetic selection regression places one rare database failure
+at the beginning, middle, or end of 3,000 repeated API warnings. The current
+selector retains that failure in all three positions at its 32 KiB example
+budget; a raw 32 KiB tail retains it only at the end. This checks a specific
+noise pattern, not root-cause diagnosis or real-incident performance.
 
 ## How it works
 

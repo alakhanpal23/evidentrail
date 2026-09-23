@@ -105,6 +105,17 @@ pub struct AlertGroup {
     pub last_event_id: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct ServiceSignal {
+    pub service: String,
+    pub critical_count: usize,
+    pub error_count: usize,
+    pub warning_count: usize,
+    pub change_count: usize,
+    pub direct_dependents: Vec<String>,
+    pub transitive_dependents: Vec<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EvidenceCitation {
@@ -136,6 +147,7 @@ pub struct AnalysisReport {
     pub model_visible_group_count: usize,
     pub omitted_group_count: usize,
     pub topology: ServiceTopology,
+    pub service_signals: Vec<ServiceSignal>,
     pub alert_groups: Vec<AlertGroup>,
     pub evidence: Vec<EvidenceEvent>,
     pub hypotheses: Vec<Hypothesis>,
@@ -224,13 +236,7 @@ pub fn analyze_with_reasoner(
     let mut evidence = Vec::new();
     let mut visible_bytes = 0usize;
     for group in &groups {
-        let first = &events[group.event_ids[0]];
-        let last = &events[*group.event_ids.last().ok_or(AnalysisError::InvalidInput)?];
-        let candidates = if first.id == last.id {
-            vec![first]
-        } else {
-            vec![first, last]
-        };
+        let candidates = group_examples(group, &events);
         let samples = candidates
             .iter()
             .map(|event| sample_event(event))
@@ -274,9 +280,11 @@ pub fn analyze_with_reasoner(
         .chain(events.iter().map(|event| &event.service))
         .cloned()
         .collect::<BTreeSet<_>>();
+    let service_signals = service_signals(&events, &topology, &known_services);
     let request = json!({
         "question": question,
         "topology": &topology,
+        "service_signals": &service_signals,
         "alert_groups": &visible,
         "source_line_count": events.len(),
         "total_group_count": groups.len(),
@@ -297,12 +305,91 @@ pub fn analyze_with_reasoner(
         model_visible_group_count: visible.len(),
         omitted_group_count: omitted,
         topology,
+        service_signals,
         alert_groups,
         evidence,
         hypotheses: assessment.hypotheses,
         needs_more_evidence: assessment.needs_more_evidence || omitted > 0,
         verification_boundary: "Citation IDs, exact quotes, and source-line SHA-256 digests are checked. Hypothesis truth and causality are not verified.",
     })
+}
+
+fn group_examples<'a>(group: &GroupBuilder, events: &'a [ParsedEvent]) -> Vec<&'a ParsedEvent> {
+    let first_index = group.event_ids[0];
+    let last_index = *group.event_ids.last().expect("nonempty group");
+    let mut indexes = BTreeSet::new();
+    indexes.insert(first_index);
+    indexes.insert(last_index);
+    if matches!(group.role, "critical" | "error") {
+        for index in [first_index, last_index] {
+            if let Some(previous) = index.checked_sub(1) {
+                indexes.insert(previous);
+            }
+            if index + 1 < events.len() {
+                indexes.insert(index + 1);
+            }
+        }
+    }
+    indexes.into_iter().map(|index| &events[index]).collect()
+}
+
+fn service_signals(
+    events: &[ParsedEvent],
+    topology: &ServiceTopology,
+    known_services: &BTreeSet<String>,
+) -> Vec<ServiceSignal> {
+    let mut by_service = known_services
+        .iter()
+        .map(|service| {
+            (
+                service.clone(),
+                ServiceSignal {
+                    service: service.clone(),
+                    critical_count: 0,
+                    error_count: 0,
+                    warning_count: 0,
+                    change_count: 0,
+                    direct_dependents: Vec::new(),
+                    transitive_dependents: Vec::new(),
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    for event in events {
+        if let Some(signal) = by_service.get_mut(&event.service) {
+            match event.role {
+                "critical" => signal.critical_count += 1,
+                "error" => signal.error_count += 1,
+                "warning" => signal.warning_count += 1,
+                "change" => signal.change_count += 1,
+                _ => {}
+            }
+        }
+    }
+    for dependency in &topology.dependencies {
+        if let Some(signal) = by_service.get_mut(&dependency.to) {
+            signal.direct_dependents.push(dependency.from.clone());
+        }
+    }
+    let direct = by_service
+        .iter()
+        .map(|(service, signal)| (service.clone(), signal.direct_dependents.clone()))
+        .collect::<BTreeMap<_, _>>();
+    for signal in by_service.values_mut() {
+        signal.direct_dependents.sort();
+        signal.direct_dependents.dedup();
+        let mut seen = BTreeSet::new();
+        let mut pending = signal.direct_dependents.clone();
+        while let Some(dependent) = pending.pop() {
+            if dependent != signal.service && seen.insert(dependent.clone()) {
+                if let Some(next) = direct.get(&dependent) {
+                    pending.extend(next.iter().cloned());
+                }
+            }
+        }
+        signal.transitive_dependents = seen.into_iter().collect();
+    }
+    by_service.into_values().collect()
 }
 
 fn role_rank(role: &str) -> u8 {
@@ -689,6 +776,13 @@ mod tests {
         .unwrap();
         assert_eq!(report.alert_groups.len(), 2);
         assert_eq!(report.alert_groups[1].count, 100);
+        let database = report
+            .service_signals
+            .iter()
+            .find(|signal| signal.service == "db")
+            .unwrap();
+        assert_eq!(database.error_count, 1);
+        assert_eq!(database.direct_dependents, ["api"]);
         assert_eq!(report.hypotheses[0].evidence[0].event_id, "L101");
         assert_eq!(
             report
@@ -699,6 +793,30 @@ mod tests {
                 .sample,
             "service=db level=error disk full"
         );
+    }
+
+    #[test]
+    fn error_context_is_visible_and_graph_tracks_transitive_dependents() {
+        let logs = b"service=db level=info pool_size=0\nservice=db level=error connection refused\nservice=api level=error db unavailable\n";
+        let topology = br#"{"services":["web","api","db"],"dependencies":[{"from":"web","to":"api"},{"from":"api","to":"db"}]}"#;
+        let mut reasoner = CheckingReasoner {
+            expected_group_count: 2,
+            answer: assessment("L1", "pool_size=0"),
+        };
+        let report = analyze_with_reasoner(
+            logs,
+            "Why is web unavailable?",
+            Some(topology),
+            &mut reasoner,
+        )
+        .unwrap();
+        assert!(report.evidence.iter().any(|event| event.id == "L1"));
+        let db = report
+            .service_signals
+            .iter()
+            .find(|signal| signal.service == "db")
+            .unwrap();
+        assert_eq!(db.transitive_dependents, ["api", "web"]);
     }
 
     #[test]
