@@ -98,6 +98,15 @@ pub struct NearbyRecords {
     pub after_truncated: bool,
 }
 
+/// A local scan receipt, not a provider completeness guarantee.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SyncObservation {
+    pub completed_at_millis: i64,
+    pub high_water_millis: i64,
+    pub scanned_to_high_water: bool,
+    pub reconciled_lookback: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CorpusGroupCard {
     pub group_id: i64,
@@ -189,6 +198,13 @@ impl EncryptedHistoryStore {
                      tenant_digest BLOB NOT NULL,
                      source_digest BLOB NOT NULL,
                      completed_through_millis INTEGER
+                 );
+                 CREATE TABLE IF NOT EXISTS last_sync_observation (
+                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                     completed_at_millis INTEGER NOT NULL CHECK (completed_at_millis >= 0),
+                     high_water_millis INTEGER NOT NULL CHECK (high_water_millis >= 0),
+                     scanned_to_high_water INTEGER NOT NULL CHECK (scanned_to_high_water IN (0, 1)),
+                     reconciled_lookback INTEGER NOT NULL CHECK (reconciled_lookback IN (0, 1))
                  );
                  CREATE TABLE IF NOT EXISTS history_records (
                      native_id BLOB PRIMARY KEY,
@@ -556,6 +572,67 @@ impl EncryptedHistoryStore {
         Ok(value.map(|completed_through_millis| HistoryCheckpointV1 {
             completed_through_millis,
         }))
+    }
+
+    pub fn read_sync_observation(&self) -> Result<Option<SyncObservation>, CorpusError> {
+        self.connection
+            .query_row(
+                "SELECT completed_at_millis, high_water_millis,
+                        scanned_to_high_water, reconciled_lookback
+                 FROM last_sync_observation WHERE singleton = 1",
+                [],
+                |row| {
+                    Ok(SyncObservation {
+                        completed_at_millis: row.get(0)?,
+                        high_water_millis: row.get(1)?,
+                        scanned_to_high_water: row.get(2)?,
+                        reconciled_lookback: row.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|_| CorpusError::Storage)
+    }
+
+    pub fn record_sync_observation(
+        &mut self,
+        observation: SyncObservation,
+    ) -> Result<(), CorpusError> {
+        if observation.high_water_millis < 0
+            || observation.completed_at_millis < observation.high_water_millis
+            || (observation.reconciled_lookback && !observation.scanned_to_high_water)
+            || (observation.scanned_to_high_water
+                && self.read_checkpoint()?.is_none_or(|checkpoint| {
+                    checkpoint.completed_through_millis < observation.high_water_millis
+                }))
+        {
+            return Err(CorpusError::InvalidCheckpoint);
+        }
+        if self.read_sync_observation()?.is_some_and(|prior| {
+            prior.completed_at_millis > observation.completed_at_millis
+                || prior.high_water_millis > observation.high_water_millis
+        }) {
+            return Err(CorpusError::InvalidCheckpoint);
+        }
+        self.connection
+            .execute(
+                "INSERT INTO last_sync_observation
+                 (singleton, completed_at_millis, high_water_millis, scanned_to_high_water, reconciled_lookback)
+                 VALUES (1, ?1, ?2, ?3, ?4)
+                 ON CONFLICT(singleton) DO UPDATE SET
+                     completed_at_millis = excluded.completed_at_millis,
+                     high_water_millis = excluded.high_water_millis,
+                     scanned_to_high_water = excluded.scanned_to_high_water,
+                     reconciled_lookback = excluded.reconciled_lookback",
+                params![
+                    observation.completed_at_millis,
+                    observation.high_water_millis,
+                    observation.scanned_to_high_water,
+                    observation.reconciled_lookback,
+                ],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        Ok(())
     }
 
     /// Return the immutable tenant/source binding recorded in this encrypted
@@ -1499,6 +1576,54 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    #[test]
+    fn sync_observation_persists_and_cannot_overstate_checkpoint() {
+        let path = test_path();
+        let key = [7; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        let complete = SyncObservation {
+            completed_at_millis: 120,
+            high_water_millis: 100,
+            scanned_to_high_water: true,
+            reconciled_lookback: true,
+        };
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert_eq!(store.read_sync_observation().unwrap(), None);
+            assert_eq!(
+                store.record_sync_observation(complete),
+                Err(CorpusError::InvalidCheckpoint)
+            );
+            store
+                .complete_partition_checked(HistoryCheckpointV1 {
+                    completed_through_millis: 100,
+                })
+                .unwrap();
+            store.record_sync_observation(complete).unwrap();
+        }
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert_eq!(store.read_sync_observation().unwrap(), Some(complete));
+            assert_eq!(
+                store.record_sync_observation(SyncObservation {
+                    completed_at_millis: 119,
+                    ..complete
+                }),
+                Err(CorpusError::InvalidCheckpoint)
+            );
+            assert_eq!(
+                store.record_sync_observation(SyncObservation {
+                    completed_at_millis: 130,
+                    high_water_millis: 90,
+                    ..complete
+                }),
+                Err(CorpusError::InvalidCheckpoint)
+            );
+        }
+        cleanup(&path);
     }
 
     #[test]

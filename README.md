@@ -36,6 +36,11 @@ source-bound corpus key and encrypted local corpus, then report
 durable checkpoint and replays recent history after reaching its high-water
 mark. `sources watch` repeats these passes, releasing the source lock after
 each pass and backing off to at most one hour when a provider or source fails.
+Each successful pass also writes a receipt in the encrypted source corpus.
+`sources list` shows its completion time, scan high-water mark, age, and whether
+that pass reached the high-water mark and reconciled the recent lookback.
+These fields describe the last successful local pass; they do not establish
+current authorization or complete provider coverage.
 `sources service install` registers the running binary's absolute path as a
 private per-user macOS LaunchAgent, starts it in the current GUI session, and
 restarts it after a crash or login. Run it from a release binary kept at a

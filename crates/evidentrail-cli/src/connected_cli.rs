@@ -18,7 +18,7 @@ use crate::{
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use evidentrail_corpus::{
     ConnectedSourceDescriptorV1, CorpusKeychainErrorV1, EncryptedHistoryStore,
-    MacOsConnectedCredentialKeychainV1, MacOsCorpusKeychainV1,
+    MacOsConnectedCredentialKeychainV1, MacOsCorpusKeychainV1, SyncObservation,
 };
 use evidentrail_ingest::{
     AwsCloudWatchTransportV1, CloudWatchCapsV1, CloudWatchHistorySourceV1, CloudWatchPlanV1,
@@ -718,7 +718,7 @@ fn sync_binding(
     store: &mut EncryptedHistoryStore,
     high_water: i64,
 ) -> Result<BoundedSyncProgress, String> {
-    match binding {
+    let progress = match binding {
         SourceBinding::CloudWatch(cloudwatch) => {
             let source_plan = plan(cloudwatch).map_err(|error| error.code.to_owned())?;
             let transport = AwsCloudWatchTransportV1::connect(
@@ -753,7 +753,20 @@ fn sync_binding(
             }
             bounded_sync(&mut source, store, high_water).map_err(|error| format!("{error:?}"))
         }
-    }
+    }?;
+    let completed_at_millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "ClockFailure".to_owned())?
+        .as_millis() as i64;
+    store
+        .record_sync_observation(SyncObservation {
+            completed_at_millis,
+            high_water_millis: high_water,
+            scanned_to_high_water: progress.status == "scanned_to_high_water",
+            reconciled_lookback: progress.reconciliation == "recent_lookback_scanned",
+        })
+        .map_err(|error| format!("{error:?}"))?;
+    Ok(progress)
 }
 
 fn bounded_sync(
@@ -1377,10 +1390,29 @@ fn list_sources() -> Result<ExitCode, CliFailure> {
             let checkpoint = store
                 .read_checkpoint()
                 .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
+            let observation = store
+                .read_sync_observation()
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
+            let observation_age_millis = observation.map(|value| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_or(0, |duration| duration.as_millis() as i64)
+                    .saturating_sub(value.completed_at_millis)
+            });
             json!({
-                "state": "registered_incomplete",
+                "state": if observation.is_some() { "sync_observed" } else { "registered_incomplete" },
                 "record_count": store.record_count().map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?,
                 "scanned_through_millis": checkpoint.map(|value| value.completed_through_millis),
+                "last_sync_completed_at_millis": observation.map(|value| value.completed_at_millis),
+                "last_sync_high_water_millis": observation.map(|value| value.high_water_millis),
+                "last_sync_age_millis": observation_age_millis,
+                "last_sync_scanned_to_high_water": observation.map(|value| value.scanned_to_high_water),
+                "last_sync_reconciled_lookback": observation.map(|value| value.reconciled_lookback),
+                "coverage": if observation.is_some_and(|value| value.scanned_to_high_water && value.reconciled_lookback) {
+                    "unverified_provider_consistency_at_last_sync"
+                } else {
+                    "partial"
+                },
             })
         } else {
             json!({"state": "corpus_missing"})
