@@ -1,0 +1,18 @@
+[package]
+name = "evidentrail-corpus"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "Encrypted full-history log corpus for Evidentrail"
+
+[dependencies]
+evidentrail-ingest.workspace = true
+rusqlite.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true

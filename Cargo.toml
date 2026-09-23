@@ -6,6 +6,7 @@ members = [
     "crates/evidentrail-candidates",
     "crates/evidentrail-cli",
     "crates/evidentrail-compile",
+    "crates/evidentrail-corpus",
     "crates/evidentrail-core",
     "crates/evidentrail-evidence",
     "crates/evidentrail-framing",
@@ -37,6 +38,7 @@ evidentrail-authority = { path = "crates/evidentrail-authority" }
 evidentrail-candidates = { path = "crates/evidentrail-candidates" }
 evidentrail-cli = { path = "crates/evidentrail-cli" }
 evidentrail-compile = { path = "crates/evidentrail-compile" }
+evidentrail-corpus = { path = "crates/evidentrail-corpus" }
 evidentrail-core = { path = "crates/evidentrail-core" }
 evidentrail-bench = { path = "crates/evidentrail-bench" }
 evidentrail-evidence = { path = "crates/evidentrail-evidence" }
@@ -58,6 +60,7 @@ sha2 = "0.10.9"
 zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
 rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs", "system"] }
 reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rusqlite = { version = "=0.36.0", default-features = false, features = ["bundled-sqlcipher-vendored-openssl"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

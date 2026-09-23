@@ -11,7 +11,7 @@ lines, asks a local or hosted model to select group IDs, verifies the IDs, and
 emits selected original lines with repeat counts. Its in-process API can
 expand an advertised line to bounded original neighbors; no cross-call
 expansion handle is shipped. Its graph currently consists only of explicitly
-named peer services in JSON log records. It has no durable full-history corpus,
+named peer services in JSON log records. It has no searchable full-history index,
 connector credentials, background synchronization, cross-call graph memory,
 or verified learning loop. These
 are release requirements, not existing capabilities. The current group-card
@@ -21,12 +21,16 @@ preserve rare clues in very large histories.
 The ingestion crate now also has a provider-neutral full-history sync contract.
 It paginates internal time partitions from a store checkpoint to a frozen
 high-water mark, continues through empty pages, and advances the checkpoint
-only after the final page of a partition. Its test store verifies replay and
-deduplication. A production durable encrypted store and live provider
-transport are still missing; this seam alone is not a connected source. A
-CloudWatch history-source adapter now maps the internal partitions to
+only after the final page of a partition. A SQLCipher-encrypted per-source
+corpus now durably stores raw records and completed-partition checkpoints.
+Reopening after an incomplete partition replays pages idempotently, while
+conflicting native IDs, wrong keys, and tenant/source mismatches fail closed.
+The key is still supplied by a caller; production key authority, index
+construction, query access control, and a live provider transport are
+missing. A CloudWatch history-source adapter maps internal partitions to
 unfiltered log-group page requests, but it does not provide AWS credentials or
-network calls yet.
+network calls yet. One scan to a high-water mark does not prove complete
+coverage under provider eventual consistency; reconciliation is required.
 
 ## One product contract
 
