@@ -64,7 +64,7 @@ broader comparison.
 
 ## Quick start
 
-Evidentrail is a Rust workspace and requires Rust 1.85 or newer.
+Evidentrail is a Rust workspace and requires Rust 1.88 or newer.
 
 ```sh
 cargo build --release -p evidentrail-cli --bin evidentrail
