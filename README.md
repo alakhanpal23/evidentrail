@@ -208,7 +208,8 @@ question and excludes logs that may contain credentials. Its selected evidence
 still contains a measurement from the labeled service in these six cases and four
 additional cases from other Sock Shop services. The benchmark script uses the
 labels only after selection to score coverage; no LLM diagnosis result has
-been measured.
+been measured. The [ten-case selection report](reports/rcaeval-selection/README.md)
+records the pinned cases and case-level aggregate output.
 
 Once `OPENAI_API_KEY` is configured, the same script can run the hosted model
 with `--with-metrics --metrics-only --generic-question --live-model`. It reports
