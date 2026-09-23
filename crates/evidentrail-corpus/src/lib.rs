@@ -21,6 +21,8 @@ pub enum CorpusError {
     ScopeMismatch,
     ConflictingRecord,
     InvalidCheckpoint,
+    InvalidPageBudget,
+    RecordExceedsPageBudget,
     Storage,
 }
 
@@ -33,6 +35,8 @@ impl CorpusError {
             Self::ScopeMismatch => "EVIDENTRAIL_CORPUS_SCOPE_MISMATCH",
             Self::ConflictingRecord => "EVIDENTRAIL_CORPUS_CONFLICTING_RECORD",
             Self::InvalidCheckpoint => "EVIDENTRAIL_CORPUS_INVALID_CHECKPOINT",
+            Self::InvalidPageBudget => "EVIDENTRAIL_CORPUS_INVALID_PAGE_BUDGET",
+            Self::RecordExceedsPageBudget => "EVIDENTRAIL_CORPUS_RECORD_EXCEEDS_PAGE_BUDGET",
             Self::Storage => "EVIDENTRAIL_CORPUS_STORAGE_FAILURE",
         }
     }
@@ -43,6 +47,19 @@ pub struct StoredHistoryRecord {
     pub native_id: Vec<u8>,
     pub event_timestamp_millis: i64,
     pub bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CorpusCursor {
+    pub event_timestamp_millis: i64,
+    pub native_id: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CorpusPage {
+    pub records: Vec<StoredHistoryRecord>,
+    /// `None` means the end was reached at the moment of this read.
+    pub next_cursor: Option<CorpusCursor>,
 }
 
 pub struct EncryptedHistoryStore {
@@ -225,6 +242,73 @@ impl EncryptedHistoryStore {
             .optional()
             .map_err(|_| CorpusError::Storage)
     }
+
+    /// Read a bounded page in stable `(event timestamp, native ID)` order.
+    /// The cursor names the last returned record; replaying it is harmless.
+    pub fn read_page(
+        &self,
+        after: Option<&CorpusCursor>,
+        max_records: usize,
+        max_bytes: usize,
+    ) -> Result<CorpusPage, CorpusError> {
+        if max_records == 0 || max_records > 256 || max_bytes == 0 || max_bytes > 16 * 1024 * 1024 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let timestamp = after.map(|cursor| cursor.event_timestamp_millis);
+        let native_id = after.map(|cursor| cursor.native_id.as_slice());
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT native_id, event_timestamp_millis, raw FROM history_records
+                 WHERE (?1 IS NULL OR event_timestamp_millis > ?1
+                    OR (event_timestamp_millis = ?1 AND native_id > ?2))
+                 ORDER BY event_timestamp_millis, native_id LIMIT ?3",
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let mut rows = statement
+            .query(params![
+                timestamp,
+                native_id,
+                i64::try_from(max_records + 1).map_err(|_| CorpusError::Storage)?
+            ])
+            .map_err(|_| CorpusError::Storage)?;
+        let mut records = Vec::new();
+        let mut total_bytes = 0usize;
+        let mut has_more = false;
+        while let Some(row) = rows.next().map_err(|_| CorpusError::Storage)? {
+            if records.len() == max_records {
+                has_more = true;
+                break;
+            }
+            let record = StoredHistoryRecord {
+                native_id: row.get(0).map_err(|_| CorpusError::Storage)?,
+                event_timestamp_millis: row.get(1).map_err(|_| CorpusError::Storage)?,
+                bytes: row.get(2).map_err(|_| CorpusError::Storage)?,
+            };
+            let next_total = total_bytes.saturating_add(record.bytes.len());
+            if next_total > max_bytes {
+                if records.is_empty() {
+                    return Err(CorpusError::RecordExceedsPageBudget);
+                }
+                has_more = true;
+                break;
+            }
+            total_bytes = next_total;
+            records.push(record);
+        }
+        let next_cursor = if has_more {
+            records.last().map(|last| CorpusCursor {
+                event_timestamp_millis: last.event_timestamp_millis,
+                native_id: last.native_id.clone(),
+            })
+        } else {
+            None
+        };
+        Ok(CorpusPage {
+            records,
+            next_cursor,
+        })
+    }
 }
 
 impl HistoryPageStoreV1 for EncryptedHistoryStore {
@@ -397,6 +481,51 @@ mod tests {
                 10
             );
         }
+        cleanup(&path);
+    }
+
+    #[test]
+    fn cursor_pages_cover_timestamp_ties_and_byte_budget_without_omission() {
+        let path = test_path();
+        let key = [11; 32];
+        let mut store = EncryptedHistoryStore::open(&path, &key, &[1; 32], &[2; 32]).unwrap();
+        store
+            .commit_page_checked(&[
+                HistoryRecordV1 {
+                    native_id: b"b".to_vec(),
+                    event_timestamp_millis: 5,
+                    bytes: b"two".to_vec(),
+                },
+                HistoryRecordV1 {
+                    native_id: b"a".to_vec(),
+                    event_timestamp_millis: 5,
+                    bytes: b"one".to_vec(),
+                },
+                HistoryRecordV1 {
+                    native_id: b"c".to_vec(),
+                    event_timestamp_millis: 6,
+                    bytes: b"three".to_vec(),
+                },
+            ])
+            .unwrap();
+        let first = store.read_page(None, 2, 5).unwrap();
+        assert_eq!(first.records.len(), 1);
+        assert_eq!(first.records[0].native_id, b"a");
+        let second = store.read_page(first.next_cursor.as_ref(), 2, 8).unwrap();
+        assert_eq!(
+            second
+                .records
+                .iter()
+                .map(|record| record.native_id.as_slice())
+                .collect::<Vec<_>>(),
+            vec![b"b".as_slice(), b"c".as_slice()]
+        );
+        assert!(second.next_cursor.is_none());
+        assert_eq!(
+            store.read_page(None, 2, 2),
+            Err(CorpusError::RecordExceedsPageBudget)
+        );
+        drop(store);
         cleanup(&path);
     }
 }
