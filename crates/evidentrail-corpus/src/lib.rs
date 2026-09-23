@@ -107,6 +107,15 @@ pub struct SyncObservation {
     pub reconciled_lookback: bool,
 }
 
+/// Most recent attempted provider scan. A failed attempt does not erase the
+/// last successful observation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SyncAttempt {
+    pub completed_at_millis: i64,
+    pub high_water_millis: i64,
+    pub succeeded: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CorpusGroupCard {
     pub group_id: i64,
@@ -205,6 +214,12 @@ impl EncryptedHistoryStore {
                      high_water_millis INTEGER NOT NULL CHECK (high_water_millis >= 0),
                      scanned_to_high_water INTEGER NOT NULL CHECK (scanned_to_high_water IN (0, 1)),
                      reconciled_lookback INTEGER NOT NULL CHECK (reconciled_lookback IN (0, 1))
+                 );
+                 CREATE TABLE IF NOT EXISTS last_sync_attempt (
+                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                     completed_at_millis INTEGER NOT NULL CHECK (completed_at_millis >= 0),
+                     high_water_millis INTEGER NOT NULL CHECK (high_water_millis >= 0),
+                     succeeded INTEGER NOT NULL CHECK (succeeded IN (0, 1))
                  );
                  CREATE TABLE IF NOT EXISTS history_records (
                      native_id BLOB PRIMARY KEY,
@@ -594,6 +609,60 @@ impl EncryptedHistoryStore {
             .map_err(|_| CorpusError::Storage)
     }
 
+    pub fn read_sync_attempt(&self) -> Result<Option<SyncAttempt>, CorpusError> {
+        self.connection
+            .query_row(
+                "SELECT completed_at_millis, high_water_millis, succeeded
+                 FROM last_sync_attempt WHERE singleton = 1",
+                [],
+                |row| {
+                    Ok(SyncAttempt {
+                        completed_at_millis: row.get(0)?,
+                        high_water_millis: row.get(1)?,
+                        succeeded: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|_| CorpusError::Storage)
+    }
+
+    pub fn record_failed_sync_attempt(&mut self, attempt: SyncAttempt) -> Result<(), CorpusError> {
+        if attempt.succeeded {
+            return Err(CorpusError::InvalidCheckpoint);
+        }
+        self.record_sync_attempt(attempt)
+    }
+
+    fn record_sync_attempt(&mut self, attempt: SyncAttempt) -> Result<(), CorpusError> {
+        if attempt.high_water_millis < 0
+            || attempt.completed_at_millis < attempt.high_water_millis
+            || self.read_sync_attempt()?.is_some_and(|prior| {
+                prior.completed_at_millis > attempt.completed_at_millis
+                    || prior.high_water_millis > attempt.high_water_millis
+            })
+        {
+            return Err(CorpusError::InvalidCheckpoint);
+        }
+        self.connection
+            .execute(
+                "INSERT INTO last_sync_attempt
+                 (singleton, completed_at_millis, high_water_millis, succeeded)
+                 VALUES (1, ?1, ?2, ?3)
+                 ON CONFLICT(singleton) DO UPDATE SET
+                     completed_at_millis = excluded.completed_at_millis,
+                     high_water_millis = excluded.high_water_millis,
+                     succeeded = excluded.succeeded",
+                params![
+                    attempt.completed_at_millis,
+                    attempt.high_water_millis,
+                    attempt.succeeded,
+                ],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        Ok(())
+    }
+
     pub fn record_sync_observation(
         &mut self,
         observation: SyncObservation,
@@ -611,10 +680,17 @@ impl EncryptedHistoryStore {
         if self.read_sync_observation()?.is_some_and(|prior| {
             prior.completed_at_millis > observation.completed_at_millis
                 || prior.high_water_millis > observation.high_water_millis
+        }) || self.read_sync_attempt()?.is_some_and(|prior| {
+            prior.completed_at_millis > observation.completed_at_millis
+                || prior.high_water_millis > observation.high_water_millis
         }) {
             return Err(CorpusError::InvalidCheckpoint);
         }
-        self.connection
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|_| CorpusError::Storage)?;
+        transaction
             .execute(
                 "INSERT INTO last_sync_observation
                  (singleton, completed_at_millis, high_water_millis, scanned_to_high_water, reconciled_lookback)
@@ -632,6 +708,22 @@ impl EncryptedHistoryStore {
                 ],
             )
             .map_err(|_| CorpusError::Storage)?;
+        transaction
+            .execute(
+                "INSERT INTO last_sync_attempt
+                 (singleton, completed_at_millis, high_water_millis, succeeded)
+                 VALUES (1, ?1, ?2, 1)
+                 ON CONFLICT(singleton) DO UPDATE SET
+                     completed_at_millis = excluded.completed_at_millis,
+                     high_water_millis = excluded.high_water_millis,
+                     succeeded = 1",
+                params![
+                    observation.completed_at_millis,
+                    observation.high_water_millis
+                ],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        transaction.commit().map_err(|_| CorpusError::Storage)?;
         Ok(())
     }
 
@@ -1603,10 +1695,33 @@ mod tests {
                 })
                 .unwrap();
             store.record_sync_observation(complete).unwrap();
+            assert_eq!(
+                store.read_sync_attempt().unwrap(),
+                Some(SyncAttempt {
+                    completed_at_millis: 120,
+                    high_water_millis: 100,
+                    succeeded: true,
+                })
+            );
+            store
+                .record_failed_sync_attempt(SyncAttempt {
+                    completed_at_millis: 130,
+                    high_water_millis: 125,
+                    succeeded: false,
+                })
+                .unwrap();
         }
         {
             let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
             assert_eq!(store.read_sync_observation().unwrap(), Some(complete));
+            assert_eq!(
+                store.read_sync_attempt().unwrap(),
+                Some(SyncAttempt {
+                    completed_at_millis: 130,
+                    high_water_millis: 125,
+                    succeeded: false,
+                })
+            );
             assert_eq!(
                 store.record_sync_observation(SyncObservation {
                     completed_at_millis: 119,
@@ -1622,6 +1737,19 @@ mod tests {
                 }),
                 Err(CorpusError::InvalidCheckpoint)
             );
+            store
+                .complete_partition_checked(HistoryCheckpointV1 {
+                    completed_through_millis: 140,
+                })
+                .unwrap();
+            store
+                .record_sync_observation(SyncObservation {
+                    completed_at_millis: 150,
+                    high_water_millis: 140,
+                    ..complete
+                })
+                .unwrap();
+            assert!(store.read_sync_attempt().unwrap().unwrap().succeeded);
         }
         cleanup(&path);
     }
