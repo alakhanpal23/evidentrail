@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "dataset": "phamquiluan/RCAEval",
+  "dataset_revision": "afeacb11bcc94dadfd1c8f483ee4377b2b8b614e",
+  "selection": "For each fault in cpu, mem, disk, delay, loss, socket, among the five replicate-3 Online Boutique services choose the two lowest SHA-256 hashes of evidentrail-trace-paired-v1:<case>. Case names only; no signal or model output used.",
+  "cases": [
+    "re2ob_currencyservice_cpu_3",
+    "re2ob_recommendationservice_cpu_3",
+    "re2ob_emailservice_mem_3",
+    "re2ob_currencyservice_mem_3",
+    "re2ob_currencyservice_disk_3",
+    "re2ob_recommendationservice_disk_3",
+    "re2ob_currencyservice_delay_3",
+    "re2ob_productcatalogservice_delay_3",
+    "re2ob_productcatalogservice_loss_3",
+    "re2ob_emailservice_loss_3",
+    "re2ob_checkoutservice_socket_3",
+    "re2ob_recommendationservice_socket_3"
+  ]
+}
