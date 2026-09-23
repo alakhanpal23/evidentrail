@@ -1,7 +1,7 @@
 # RCAEval evidence-selection probes
 
-This is a **selection-only** result. No hosted model was called, and no
-root-cause diagnosis was scored. The input question was the same in every case:
+Most probes here are **selection-only**. The local LLM pilots below also score
+root-cause hypotheses; no hosted model was called. The input question was the same in every case:
 “Which service and failure mode caused this incident?” It did not name the
 labeled service. The probe used metrics only, so public logs that may contain
 credentials were not sent to a provider or committed here.
@@ -98,6 +98,53 @@ the exact service-plus-fault pair in only **4/12**, the same four found by the
 largest-metric-shift baseline. It added **zero** joint hits and averaged
 **34.661 seconds** per case. This selected public development sample does not
 qualify a model or establish accuracy on held-out incidents.
+
+### Local log-and-metric pilot
+
+[`six-case-local-qwen3-14b-32k-challenger.jsonl`](six-case-local-qwen3-14b-32k-challenger.jsonl)
+records all six `catalogue` fault-1 cases with logs and metrics, a generic
+question, and the local `qwen3:14b` model under a loaded 32,768-token Ollama
+context. The two batches of two and four cases used the same Evidentrail
+revision (`be30240`) and executable SHA-256, recorded in the artifact. Before
+analysis, the probe redacted sensitive field values in **3,408 log events**;
+the product's citations refer to those sanitized input lines. No raw logs or
+model explanations are committed.
+
+All **6/6** cases returned partial reports. The leading hypothesis identified
+the labeled service in **6/6**, but the exact service-plus-fault pair in only
+**2/6** (CPU and delay), the same two as the naive largest-metric-shift
+baseline. The model added **zero** joint hits. It launched an independent
+metric-only challenge in five cases where log-heavy hypotheses conflicted
+with stronger metric changes, discarded three invalid hypotheses across the
+run, and averaged **122.351 seconds** per case. The remaining fault labels
+were wrong: memory, disk, and socket were called CPU; loss was called delay.
+All cases requested more evidence. These are selected public development
+cases, not a held-out accuracy estimate or a qualified RCA model.
+
+The log stream explains the challenge. In the CPU case, `queue-master` emitted
+1,224 alerts before and 1,224 after the incident while `catalogue` had the
+dominant CPU change. Alert volume alone repeatedly pulled the model toward
+the wrong service. Temporal alert counts and the metric-only challenger
+corrected service localization in this small sample but did not solve
+fault-type discrimination. Direct metric or log citations validate the
+reported source line, not the causal fault label.
+
+Reproduce with Ollama configured for at least a 32K context, then run:
+
+```sh
+EVIDENTRAIL_ANALYZE_LOCAL_MODEL=qwen3:14b \
+  python3 scripts/rcaeval-log-probe.py --with-metrics \
+  --generic-question --live-model \
+  re2ss_catalogue_cpu_1 re2ss_catalogue_mem_1 \
+  re2ss_catalogue_disk_1 re2ss_catalogue_delay_1 \
+  re2ss_catalogue_loss_1 re2ss_catalogue_socket_1 \
+  > local-combined.jsonl
+python3 scripts/score-rcaeval-live.py local-combined.jsonl
+```
+
+The committed artifact was split into two batches for execution; its header
+records the identical executable used for both batches. Local model outputs
+can vary across runs, so score the full denominator and retain failures.
 
 The earlier [six-case artifact](six-case-local-qwen3-14b-truncated.jsonl)
 used Ollama's 4K default context. Server logs showed a roughly 7.7K-token

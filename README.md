@@ -59,12 +59,16 @@ is a separate offline evidence compiler.
 ## Accuracy is the release goal
 
 Incident analysis is useful only if it identifies the right cause or clearly
-abstains. The current public RCAEval probes measure evidence coverage and a
-simple metric baseline; they do **not** establish model diagnosis accuracy.
-A live, paired scorer is ready, but no hosted run has been published yet.
+abstains. The public RCAEval probes measure evidence coverage and selected
+local-model diagnoses, but they do **not** establish general diagnosis accuracy.
+No hosted run has been published yet.
 A 12-case [local Qwen3 pilot](reports/rcaeval-selection/README.md#local-llm-diagnostic-pilot)
 localized the service in every selected case but matched the simple baseline's
 four correct service/fault pairs; that local model is not qualified for diagnosis.
+A six-case [log-and-metric pilot](reports/rcaeval-selection/README.md#local-log-and-metric-pilot)
+localized the service in every case but got only two fault types right, again
+matching the simple metric baseline. Its mean local latency was about two
+minutes per case.
 
 The offline brief's matched-budget and executable results below are
 **synthetic**. Real-incident accuracy remains unproven. The next release gate

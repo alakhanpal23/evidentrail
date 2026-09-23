@@ -35,9 +35,9 @@ def score(path):
         raise ValueError("not a pinned live, generic-question RCAEval run")
     if not header["metrics_only"] and header["model_backend"] != "ollama_local":
         raise ValueError("live public-log runs must use a local model")
-    for digest_field in ("evidentrail_revision", "binary_sha256"):
+    for digest_field, expected_length in (("evidentrail_revision", 40), ("binary_sha256", 64)):
         digest = header.get(digest_field)
-        if digest is not None and (not isinstance(digest, str) or len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest)):
+        if digest is not None and (not isinstance(digest, str) or len(digest) != expected_length or any(ch not in "0123456789abcdef" for ch in digest)):
             raise ValueError(f"invalid {digest_field} in probe header")
     if header.get("case_count") != len(rows):
         raise ValueError("case count does not match the probe header")

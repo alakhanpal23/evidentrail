@@ -85,6 +85,14 @@ class LiveScoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             score_rows({**combined, "model_backend": "openai_hosted"}, combined_rows)
 
+    def test_accepts_git_revision_and_binary_digest_lengths(self):
+        header, rows = fixture()
+        header.update({"evidentrail_revision": "a" * 40, "binary_sha256": "b" * 64})
+        report = score_rows(header, rows)
+        self.assertEqual(report["evidentrail_revision"], "a" * 40)
+        with self.assertRaises(ValueError):
+            score_rows({**header, "evidentrail_revision": "a" * 64}, rows)
+
     def test_rejects_incomplete_duplicate_and_failed_runs(self):
         header, rows = fixture()
         for modified_header, modified_rows in (
