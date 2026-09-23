@@ -112,9 +112,11 @@ event bytes.
 ## Model-assisted incident analysis (beta)
 
 `analyze` accepts UTF-8 logs on explicit standard input and optionally a JSON
-service graph. It groups identical alert messages by service and severity,
-keeps rare failures ahead of repeated warnings, and sends bounded examples to
-a hosted model. Adjacent lines give each failure local context. The report
+service graph. It groups alerts by service and severity, ignoring changing
+request, trace, and span IDs while keeping diagnostic values such as status
+codes distinct. It keeps rare failures ahead of repeated warnings and sends
+bounded examples to a hosted model. Adjacent lines give each failure local
+context. The report
 counts alerts by service and lists direct and transitive dependents derived
 from the supplied graph, so a failing dependency and affected callers can be
 examined together. The output includes group counts, omitted-group counts,

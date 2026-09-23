@@ -938,7 +938,11 @@ fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         {
             tokens.remove(0);
         }
-        tokens.join(" ").to_ascii_lowercase()
+        tokens
+            .into_iter()
+            .map(normalize_fingerprint_token)
+            .collect::<Vec<_>>()
+            .join(" ")
     } else {
         raw.split_ascii_whitespace()
             .filter(|token| {
@@ -947,9 +951,9 @@ fn parse_event(line: usize, raw: &str) -> ParsedEvent {
                     && !token.starts_with("timestamp=")
                     && !looks_like_iso_timestamp(token)
             })
+            .map(normalize_fingerprint_token)
             .collect::<Vec<_>>()
             .join(" ")
-            .to_ascii_lowercase()
     };
     ParsedEvent {
         id: format!("L{line}"),
@@ -958,6 +962,50 @@ fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         role,
         fingerprint,
     }
+}
+
+fn normalize_fingerprint_token(token: &str) -> String {
+    let lower = token.to_ascii_lowercase();
+    let trimmed = lower.trim_matches(|character: char| {
+        matches!(
+            character,
+            ',' | ';' | '"' | '\'' | '(' | ')' | '[' | ']' | '{' | '}'
+        )
+    });
+    if let Some((key, value)) = trimmed.split_once(['=', ':']) {
+        if matches!(
+            key,
+            "request_id"
+                | "request-id"
+                | "requestid"
+                | "x-request-id"
+                | "trace_id"
+                | "trace-id"
+                | "span_id"
+                | "span-id"
+                | "correlation_id"
+                | "correlation-id"
+        ) && !value.is_empty()
+        {
+            return format!("{key}=<id>");
+        }
+    }
+    let bytes = trimmed.as_bytes();
+    if bytes.len() == 36
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                *byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+    {
+        return "<uuid>".to_owned();
+    }
+    if bytes.len() >= 32 && bytes.iter().all(u8::is_ascii_hexdigit) {
+        return "<hex-id>".to_owned();
+    }
+    lower
 }
 
 fn looks_like_date(token: &str) -> bool {
@@ -1559,6 +1607,30 @@ mod tests {
                 .sample,
             "service=db level=error disk full"
         );
+    }
+
+    #[test]
+    fn alert_grouping_ignores_request_ids_but_preserves_status_codes() {
+        let logs = b"service=api level=warn request_id=a1 failed status=503\nservice=api level=warn request_id=b2 failed status=503\nservice=api level=warn request_id=c3 failed status=404";
+        let mut answer = assessment("L1", "status=503");
+        answer.hypotheses[0].service = "api".to_owned();
+        let mut reasoner = CheckingReasoner {
+            expected_group_count: 2,
+            answer,
+        };
+        let report =
+            analyze_with_reasoner(logs, "What happened to api?", None, &mut reasoner).unwrap();
+        assert_eq!(report.alert_groups.len(), 2);
+        assert!(report.alert_groups.iter().any(|group| group.count == 2));
+        let first = parse_event(
+            1,
+            "service=api level=warn failed 123e4567-e89b-12d3-a456-426614174000",
+        );
+        let second = parse_event(
+            2,
+            "service=api level=warn failed 123e4567-e89b-12d3-a456-426614174001",
+        );
+        assert_eq!(first.fingerprint, second.fingerprint);
     }
 
     #[test]
