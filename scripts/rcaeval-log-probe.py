@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe log-only evidence availability on pinned RCAEval cases.
+"""Probe log and optional metric evidence on pinned RCAEval cases.
 
 Requires pyarrow. Downloads public Parquet into memory, sends a bounded NDJSON
 window to `evidentrail analyze --selection-only`, and emits aggregate counts.
@@ -10,7 +10,9 @@ diagnostic log signature and require metrics or traces.
 import argparse
 import io
 import json
+import math
 import subprocess
+import tempfile
 import urllib.request
 
 import pyarrow.parquet as parquet
@@ -22,11 +24,31 @@ DEFAULT_CASES = [f"re2ss_catalogue_{fault}_1" for fault in ("cpu", "mem", "disk"
 
 
 def fetch(case, name):
-    with urllib.request.urlopen(f"{BASE}/{case}/{name}", timeout=30) as response:
-        return response.read()
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(f"{BASE}/{case}/{name}", timeout=60) as response:
+                return response.read()
+        except (TimeoutError, ConnectionError):
+            if attempt == 2:
+                raise
 
 
-def probe(case, binary, window):
+def metric_ndjson(case, injection, window):
+    table = parquet.read_table(io.BytesIO(fetch(case, "metrics.parquet")))
+    output = io.StringIO()
+    for row in table.to_pylist():
+        timestamp = row["time"]
+        if abs(timestamp - injection) > window:
+            continue
+        for column, value in row.items():
+            if column == "time" or value is None or not math.isfinite(value):
+                continue
+            service, metric = column.rsplit("_", 1)
+            output.write(json.dumps({"timestamp": timestamp, "service": service, "metric": metric, "value": value}) + "\n")
+    return output.getvalue().encode("utf-8")
+
+
+def probe(case, binary, window, with_metrics):
     root_service = case.removeprefix("re2ss_").rsplit("_", 2)[0]
     injection = int(fetch(case, "inject_time.txt"))
     table = parquet.read_table(io.BytesIO(fetch(case, "logs.parquet")), columns=["timestamp", "container_name", "message"])
@@ -40,19 +62,29 @@ def probe(case, binary, window):
     )
     if not source or len(source) > 16 * 1024 * 1024:
         return {"case": case, "status": "window_exceeds_product_limit", "source_bytes": len(source)}
-    run = subprocess.run(
-        [binary, "analyze", "--question", f"What caused {root_service} service degradation?", "--selection-only"],
-        input=source,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-        timeout=60,
-    )
+    command = [binary, "analyze", "--question", f"What caused {root_service} service degradation?", "--selection-only"]
+    with tempfile.TemporaryDirectory(prefix="evidentrail-rcaeval-") as scratch:
+        if with_metrics:
+            metrics = metric_ndjson(case, injection, window)
+            if len(metrics) > 16 * 1024 * 1024:
+                return {"case": case, "status": "metric_window_exceeds_product_limit", "metric_bytes": len(metrics)}
+            metric_path = scratch + "/metrics.ndjson"
+            with open(metric_path, "wb") as output:
+                output.write(metrics)
+            command.extend(["--metrics", metric_path, "--incident-time", str(injection)])
+        run = subprocess.run(
+            command,
+            input=source,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=60,
+        )
     if run.returncode:
         return {"case": case, "status": "product_error", "error_code": run.stderr.decode("utf-8", "replace").strip()}
     report = json.loads(run.stdout)
     root_signal = next(signal for signal in report["service_signals"] if signal["service"] == root_service)
-    return {
+    result = {
         "case": case,
         "status": report["status"],
         "source_lines": report["source_line_count"],
@@ -62,22 +94,36 @@ def probe(case, binary, window):
         "omitted_groups": report["omitted_group_count"],
         "root_service": root_service,
         "root_service_alert_events": sum(root_signal[f"{role}_count"] for role in ("critical", "error", "warning", "change")),
-        "root_service_alert_evidence": sum(event["service"] == root_service and event["role"] != "context" for event in report["evidence"]),
+        "root_service_alert_evidence": sum(event["service"] == root_service and event["role"] in ("critical", "error", "warning", "change") for event in report["evidence"]),
         "focus_log_signal_absent": report["focus_log_signal_absent"],
     }
+    if with_metrics:
+        root_metrics = [signal for signal in report["metric_signals"] if signal["service"] == root_service]
+        strongest = max(root_metrics, key=lambda signal: signal["relative_shift"], default=None)
+        result.update({
+            "metric_source_lines": report["metric_source_line_count"],
+            "metric_signals": report["metric_signal_count"],
+            "visible_metric_signals": report["model_visible_metric_signal_count"],
+            "root_metric_evidence": sum(event["service"] == root_service and event["role"] == "metric" for event in report["evidence"]),
+            "root_largest_shift_metric": strongest["metric"] if strongest else None,
+            "root_largest_relative_shift": round(strongest["relative_shift"], 3) if strongest else None,
+            "root_largest_shift_visible": bool(strongest and {strongest["baseline_event_id"], strongest["incident_event_id"]} <= {event["id"] for event in report["evidence"]}),
+        })
+    return result
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", default="target/debug/evidentrail")
     parser.add_argument("--window-seconds", type=int, default=300)
+    parser.add_argument("--with-metrics", action="store_true")
     parser.add_argument("cases", nargs="*", default=DEFAULT_CASES)
     args = parser.parse_args()
     if args.window_seconds <= 0 or args.window_seconds > 600:
         parser.error("window must be between 1 and 600 seconds")
     print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "window_seconds": args.window_seconds}))
     for case in args.cases:
-        print(json.dumps(probe(case, args.binary, args.window_seconds), sort_keys=True), flush=True)
+        print(json.dumps(probe(case, args.binary, args.window_seconds, args.with_metrics), sort_keys=True), flush=True)
 
 
 if __name__ == "__main__":

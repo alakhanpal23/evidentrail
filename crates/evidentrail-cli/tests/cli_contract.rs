@@ -153,6 +153,67 @@ fn selection_preview_runs_without_a_hosted_credential() {
 }
 
 #[test]
+fn selection_preview_reads_explicit_metric_file() {
+    let path = std::env::temp_dir().join(format!(
+        "evidentrail-metric-contract-{}-{}.ndjson",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let mut metrics = String::new();
+    for index in 0..10 {
+        metrics.push_str(&format!(
+            "{{\"timestamp\":{},\"service\":\"db\",\"metric\":\"cpu\",\"value\":{}}}\n",
+            if index < 5 { 700 + index } else { 995 + index },
+            if index < 5 { 1 } else { 100 }
+        ));
+    }
+    std::fs::write(&path, metrics).unwrap();
+    let mut child = command()
+        .args([
+            "analyze",
+            "--question",
+            "Why did db fail?",
+            "--selection-only",
+            "--metrics",
+        ])
+        .arg(&path)
+        .args(["--incident-time", "1000"])
+        .env_remove("OPENAI_API_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"service=db level=info healthy\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["metric_signal_count"], 1);
+    assert_eq!(report["metric_signals"][0]["baseline_median"], 1.0);
+    assert_eq!(report["metric_signals"][0]["incident_median"], 100.0);
+    assert!(
+        report["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["id"] == "M8")
+    );
+}
+
+#[test]
 fn durable_mcp_selection_fails_closed_without_platform_authority() {
     let output = command()
         .args(["serve-mcp", "--retention", "durable"])

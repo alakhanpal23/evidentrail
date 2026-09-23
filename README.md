@@ -122,6 +122,20 @@ source-line IDs, source-line SHA-256 digests, and hypotheses with exact checked
 quotes. A fabricated line ID or quote fails the request. When groups were
 omitted, the report says `partial` and `needs_more_evidence: true`.
 
+When the logs do not show the failure, an explicit metric file can add
+before/after evidence. Each line is one JSON measurement with Unix-second
+`timestamp`, `service`, `metric`, and finite numeric `value`:
+
+```json
+{"timestamp": 1705600751, "service": "catalogue", "metric": "cpu", "value": 49.98}
+```
+
+Use `--metrics metrics.ndjson --incident-time 1705600751` with either analysis
+mode. Evidentrail computes medians from the five minutes before and after that
+time, shows representative source lines under `M<n>` IDs, and checks metric
+citations against those exact lines. The metric file is read only when named;
+the summary does not assume units, thresholds, or causality.
+
 ```json
 {
   "services": ["api", "db"],
@@ -171,6 +185,7 @@ probe is reproducible with `scripts/rcaeval-log-probe.py` after installing
 python3 -m pip install pyarrow==21.0.0
 cargo build -p evidentrail-cli --bin evidentrail
 python3 scripts/rcaeval-log-probe.py
+python3 scripts/rcaeval-log-probe.py --with-metrics
 ```
 
 In ±5-minute windows around injected faults in one Sock Shop
@@ -180,6 +195,11 @@ reports partial. These cases show a
 real limit of logs-only diagnosis for faults whose indicators live in metrics
 or traces, not a score for downstream LLM accuracy. The probe prints aggregate
 counts and does not commit the downloaded telemetry.
+
+With optional metrics, all six cases expose source-linked measurements from
+the labeled service, including a large CPU median shift in the CPU case. The
+largest relative shift is not always the injected fault type, so this is an
+evidence-availability check, not a correct-diagnosis score.
 
 ## How it works
 
