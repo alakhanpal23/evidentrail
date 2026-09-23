@@ -1,12 +1,13 @@
 # Evidentrail
 
-**Compression you can cross-examine.**
+**Question-aware log compression for debugging agents.**
 
 Evidentrail turns a large diagnostic log and a debugging question into a
-budget-bounded evidence brief for coding agents. It reduces context without
-turning source evidence into an unverifiable summary: every selected event
-keeps its original bytes, every citation can be expanded, and every incomplete
-result says so.
+budget-bounded evidence brief for coding agents. Its goal is to retain the
+events needed to diagnose the problem at a smaller context cost. Selected
+events keep their original bytes, citations expand to the source, and the
+brief reports what was omitted. Exact provenance makes an answer auditable;
+it does not by itself prove that the right events were selected.
 
 ![Evidentrail system design: explicit logs and question are framed, retrieved, selected under a budget, and delivered as a cited brief](docs/system-design.svg)
 
@@ -20,9 +21,9 @@ Evidentrail introduces a fourth option—a compact evidence layer between raw
 telemetry and the reasoning model.
 
 Give it logs such as CI output, compiler failures, service incidents, or
-Kubernetes events. Ask a concrete question. Evidentrail returns the smallest
-useful set it can certify under the supplied budget, with exact `E<n>` handles
-back to the retained source.
+Kubernetes events. Ask a concrete question. Evidentrail selects an evidence
+set under the supplied budget, with exact `E<n>` handles back to the retained
+source.
 
 | Capability | Product behavior |
 |---|---|
@@ -38,6 +39,28 @@ Evidentrail is an evidence compiler, not a root-cause chatbot. It does not
 invent a diagnosis, paraphrase a failure, or treat generated text as source
 truth. The downstream agent reasons; Evidentrail controls what evidence reaches
 that reasoning step and preserves the path back to the bytes.
+
+## Accuracy is the release goal
+
+Compression is useful only if a reader can still find the real cause. The
+offline selector combines question terms, exact IDs, failure/onset context,
+source coverage, and trusted correlations. Its failure scanner now avoids
+promoting immediately negated phrases such as `no ERROR` into a first-failure
+signal; a later real error still gets that role. This is a narrow precision
+improvement, not natural-language understanding.
+
+The current matched-budget and executable results below are **synthetic**.
+Real-incident accuracy remains unproven. The next release gate is a frozen,
+reviewer-labeled set of approved historical incidents: compare Evidentrail
+with raw truncation, grep/tail, lexical retrieval, and an optional model
+challenger at the same evidence budget. Measure required-evidence recall,
+false leads, correct downstream diagnosis and fix, citation validity,
+abstention, latency, and token cost by incident family. Keep incident files
+outside the public repository. The existing
+[production shadow runner](docs/PRODUCTION_SHADOW_PILOT.md) checks exact evidence
+recall and expansion; downstream diagnosis and fix still need a blinded reader
+study. [Benchmark protocol](docs/EVIDENTRAILBENCH_PROTOCOL.md) defines the
+broader comparison.
 
 ## Quick start
 

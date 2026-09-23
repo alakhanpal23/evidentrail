@@ -262,6 +262,36 @@ fn complete_multiline_and_repeated_failure_blocks_stay_intact() {
 }
 
 #[test]
+fn absence_reports_do_not_steal_the_first_failure_boundary() {
+    let records = [
+        RecordSpec::line(b"health check: NO ERROR, no panic".to_vec()),
+        RecordSpec::line(b"worker ready without failure".to_vec()),
+        RecordSpec::line(b"no ERROR at startup; ERROR request REQ-7 upstream timed out".to_vec()),
+        RecordSpec::line(b"retry failed".to_vec()),
+    ];
+    let ledger = ledger(79, &records);
+    let blocks = fallback_singleton_index(&ledger, BlockConfidence::Certain, false);
+    let universe = ready(&blocks);
+    let ids = ledger
+        .events()
+        .iter()
+        .map(|event| blocks.block_for_event(event.id()).unwrap().id())
+        .collect::<Vec<_>>();
+
+    assert!(annotation(&universe, ids[0]).failure().is_none());
+    assert!(annotation(&universe, ids[1]).failure().is_none());
+    assert!(has_boundary(
+        annotation(&universe, ids[2]),
+        OnsetBoundaryRoleV1::FirstFailureInLane
+    ));
+    assert!(has_boundary(
+        annotation(&universe, ids[1]),
+        OnsetBoundaryRoleV1::LastAvailableBeforeFirstFailure
+    ));
+    assert!(annotation(&universe, ids[3]).failure().is_some());
+}
+
+#[test]
 fn explicit_onset_and_pre_onset_context_are_order_facts_not_causal_claims() {
     let records = [
         RecordSpec::line(b"serving normally".to_vec()).on(FixtureLane::Stdout),
@@ -580,16 +610,14 @@ fn duplicate_failure_payloads_remain_distinct_occurrence_annotations() {
 }
 
 #[test]
-fn negated_failure_text_remains_a_nonmandatory_syntactic_observation() {
+fn negated_failure_text_does_not_create_a_failure_role() {
     let records = [RecordSpec::line(b"no ERROR was observed".to_vec())];
     let ledger = ledger(61, &records);
     let blocks = frame_source_lanes_v1(&ledger).unwrap();
     let universe = ready(&blocks);
     let block = &blocks.blocks()[0];
-    let failure = annotation(&universe, block.id()).failure().unwrap();
-
-    assert_eq!(failure.signals()[0].kind(), FailureSignalKindV1::Error);
-    assert!(universe.facets().iter().any(|facet| {
+    assert!(annotation(&universe, block.id()).failure().is_none());
+    assert!(!universe.facets().iter().any(|facet| {
         facet.role() == CoverageFacetRoleV1::Failure(FailureSignalKindV1::Error)
             && facet.kind() == ProductionFacetKindV1::FailureRole
     }));

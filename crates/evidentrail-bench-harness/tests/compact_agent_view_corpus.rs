@@ -109,7 +109,7 @@ fn frozen_six_case_corpus_has_strict_per_case_and_aggregate_reduction() {
     assert_eq!(receipt.minimum_case_saved_bytes(), 797);
     assert_eq!(
         hex(receipt.artifact_digest().as_bytes()),
-        "7019aa49bd165c57874e035a6811894b161a3b3493271e540863dbfd7fa1ec18"
+        "6c2e4f83d31634938957aee22f103a1d9e2745b073174dfbcd624b63dabb6ab7"
     );
     assert!(!receipt.contains_hidden_labels());
     assert_eq!(parities.len(), 5);
@@ -339,7 +339,7 @@ fn bounded_admission_challenges_cover_bytes_citations_parity_and_needs_more() {
     assert_eq!(receipt.reduction_micros(), 275_706);
     assert_eq!(
         hex(receipt.artifact_digest().as_bytes()),
-        "ac2ee0013b65d0b862f5b270a512912fbdde9cdd93577abd530e754e3f2976d0"
+        "659a4f3f502ab20a6dfcacb1bbd71bd9e84df5552f65d2d2d63e04d65d605731"
     );
     assert!(!receipt.contains_hidden_labels());
     assert!(

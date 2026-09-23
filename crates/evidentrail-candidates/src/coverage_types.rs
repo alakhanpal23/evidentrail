@@ -6,7 +6,7 @@ use evidentrail_select::{FacetAffinityV1, FacetIdV1, ProductionFacetKindV1, Prod
 use crate::types::CandidateNeedsMoreV1;
 
 pub const COVERAGE_CANDIDATE_POLICY_NAME_V1: &[u8] = b"evidentrail/failure-onset-raw-coverage";
-pub const COVERAGE_CANDIDATE_POLICY_VERSION_V1: &[u8] = b"2";
+pub const COVERAGE_CANDIDATE_POLICY_VERSION_V1: &[u8] = b"3";
 /// Denominator applied to source/time breadth-facet weights. The numerator is
 /// exactly one; diagnostic, onset, and reconstruction-risk facets retain full
 /// V1 weight.

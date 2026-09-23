@@ -216,6 +216,10 @@ fn build_failure_coverage_candidates_v1(
             scanned_bytes = checked_scanned_bytes(scanned_bytes, event_bytes)?;
             has_fragment |= !event.record_state().is_complete();
             let mut scan_failure = None;
+            // An absence report is not an observed failure. Keep this scoped
+            // to the immediately preceding token in the same source record;
+            // a later, real failure on that record must still be counted.
+            let mut previous_negates_failure = false;
             for_each_ascii_token(event.raw(), |token| {
                 match checked_bounded_u64_increment(
                     scanned_analysis_tokens,
@@ -229,7 +233,9 @@ fn build_failure_coverage_candidates_v1(
                     }
                 }
 
-                if let Some(kind) = classify_failure_signal(token) {
+                if let Some(kind) =
+                    classify_failure_signal(token).filter(|_| !previous_negates_failure)
+                {
                     match checked_signal_observation_increment(
                         failure_signal_observations,
                         onset_signal_observations,
@@ -261,6 +267,9 @@ fn build_failure_coverage_candidates_v1(
                         return false;
                     }
                 }
+                previous_negates_failure = ascii_eq(token, b"no")
+                    || ascii_eq(token, b"without")
+                    || ascii_eq(token, b"zero");
                 true
             });
             if let Some(reason) = scan_failure {
