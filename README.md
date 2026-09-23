@@ -17,6 +17,7 @@ target/release/evidentrail sources connect-cloudwatch \
 target/release/evidentrail sources connect-datadog --site us1
 target/release/evidentrail sources list
 target/release/evidentrail sources sync
+target/release/evidentrail sources watch --interval-seconds 60
 target/release/evidentrail sources disconnect --source-id SOURCE_ID_FROM_LIST
 EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
   target/release/evidentrail logs --task "Find checkout failures" \
@@ -32,7 +33,10 @@ Keychain items; descriptors contain no keys. Both registrations create a
 source-bound corpus key and encrypted local corpus, then report
 `registered_backfill_pending`. `sources sync` makes bounded progress from each
 durable checkpoint and replays recent history after reaching its high-water
-mark. Run it again to continue a partial backfill. It reports provisional
+mark. `sources watch` repeats these passes, releasing the source lock after
+each pass and backing off to at most one hour when a provider or source fails.
+Run the watcher under a user-level process supervisor so it restarts after a
+crash or login; this repository does not install a login service yet. It reports provisional
 coverage because provider consistency and older late arrivals are not yet
 fully verified. `logs` catches up each source, excludes sources whose current
 authorization or sync fails, selects groups globally, and writes original
@@ -41,8 +45,8 @@ go to stderr as JSON. The byte budget counts original log bytes, not rendered
 JSON or model tokens. The memory-only MCP server supports bounded expansion
 of a selected line into chronological neighbors. Its 30-minute handle is scoped
 to the selected source and native ID, and expansion checks the live source
-connection again before reading the encrypted corpus. Background scheduling
-is still under development; no live AWS sandbox has validated this
+connection again before reading the encrypted corpus. Automatic login-service
+installation is still under development; no live AWS sandbox has validated this
 flow yet. Datadog identity and tier coverage have not been verified in a live
 provider sandbox. Missing Datadog tiers appear as partial
 coverage in connected query metadata.
@@ -50,7 +54,7 @@ coverage in connected query metadata.
 connection, removes its encrypted local corpus and Keychain entries, and
 rejects concurrent connected operations with a busy error. In-flight MCP
 responses constructed before revocation may still be delivered. This
-development CLI has no credential rotation or background scheduler yet.
+development CLI has no credential rotation or automatic service installation yet.
 
 The first log-only prototype is available as `compact`. It accepts an explicit
 log stream with no time-window parameter and returns model-selected original

@@ -1308,24 +1308,24 @@ impl McpStdioServerV1 {
         if self.backend.mode() != McpRetentionModeV1::MemoryOnly {
             return ToolExecutionV1::error("EVIDENTRAIL_CONNECTED_MCP_MODE_UNSUPPORTED");
         }
-        let arguments =
-            match serde_json::from_str::<ConnectedExpandArgumentsV1>(encoded_arguments.get()) {
-                Ok(arguments) => arguments,
-                Err(_) => {
-                    return ToolExecutionV1::error(
-                        "EVIDENTRAIL_CONNECTED_EXPAND_ARGUMENTS_INVALID",
-                    );
-                }
-            };
-        if arguments.before > 32
-            || arguments.after > 32
-            || arguments.max_raw_bytes == 0
-            || arguments.max_raw_bytes > 256 * 1024
-        {
-            return ToolExecutionV1::error("EVIDENTRAIL_CONNECTED_EXPAND_ARGUMENTS_INVALID");
-        }
         #[cfg(target_os = "macos")]
         {
+            let arguments =
+                match serde_json::from_str::<ConnectedExpandArgumentsV1>(encoded_arguments.get()) {
+                    Ok(arguments) => arguments,
+                    Err(_) => {
+                        return ToolExecutionV1::error(
+                            "EVIDENTRAIL_CONNECTED_EXPAND_ARGUMENTS_INVALID",
+                        );
+                    }
+                };
+            if arguments.before > 32
+                || arguments.after > 32
+                || arguments.max_raw_bytes == 0
+                || arguments.max_raw_bytes > 256 * 1024
+            {
+                return ToolExecutionV1::error("EVIDENTRAIL_CONNECTED_EXPAND_ARGUMENTS_INVALID");
+            }
             let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
                 Ok(duration) => duration.as_millis(),
                 Err(_) => return ToolExecutionV1::error("EVIDENTRAIL_CONNECTED_MCP_CLOCK_FAILURE"),
@@ -1367,7 +1367,7 @@ impl McpStdioServerV1 {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = arguments;
+            let _ = encoded_arguments;
             ToolExecutionV1::error("EVIDENTRAIL_CONNECTED_MCP_UNSUPPORTED_HOST")
         }
     }
@@ -2295,6 +2295,7 @@ struct ConnectedLogsArgumentsV1 {
     max_raw_bytes: usize,
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ConnectedExpandArgumentsV1 {

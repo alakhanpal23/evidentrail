@@ -9,7 +9,8 @@ use std::io::{self, Read as _, Write as _};
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::{
     AuthorizedCorpus, CliFailure, ConnectedLogPack, OpenAiIncidentReasoner, select_connected_logs,
@@ -100,6 +101,8 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
             return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
         }
         sync_sources()
+    } else if command == "watch" {
+        watch_sources(parse_watch_interval(args)?)
     } else if command == "disconnect" {
         let option = args
             .next()
@@ -143,6 +146,66 @@ pub(crate) fn source_id_for_mcp(source_digest: &[u8; 32]) -> String {
 
 const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
 const MAX_SYNC_PAGES: usize = 256;
+const DEFAULT_WATCH_INTERVAL_SECS: u64 = 60;
+const MAX_WATCH_INTERVAL_SECS: u64 = 3600;
+
+fn parse_watch_interval(mut args: impl Iterator<Item = OsString>) -> Result<Duration, CliFailure> {
+    let Some(option) = args.next() else {
+        return Ok(Duration::from_secs(DEFAULT_WATCH_INTERVAL_SECS));
+    };
+    if option != "--interval-seconds" {
+        return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
+    }
+    let value = args
+        .next()
+        .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_SOURCES_WATCH_INTERVAL_INVALID"))?
+        .into_string()
+        .map_err(|_| CliFailure::usage("EVIDENTRAIL_SOURCES_WATCH_INTERVAL_INVALID"))?;
+    if args.next().is_some() {
+        return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
+    }
+    let seconds = value
+        .parse::<u64>()
+        .map_err(|_| CliFailure::usage("EVIDENTRAIL_SOURCES_WATCH_INTERVAL_INVALID"))?;
+    if !(5..=MAX_WATCH_INTERVAL_SECS).contains(&seconds) {
+        return Err(CliFailure::usage(
+            "EVIDENTRAIL_SOURCES_WATCH_INTERVAL_INVALID",
+        ));
+    }
+    Ok(Duration::from_secs(seconds))
+}
+
+fn watch_sources(interval: Duration) -> Result<ExitCode, CliFailure> {
+    let mut consecutive_errors = 0u32;
+    loop {
+        match sync_cycle() {
+            Ok(false) => consecutive_errors = 0,
+            Ok(true) => consecutive_errors = consecutive_errors.saturating_add(1),
+            Err(error) => {
+                consecutive_errors = consecutive_errors.saturating_add(1);
+                serde_json::to_writer(
+                    io::stderr().lock(),
+                    &json!({
+                        "status": "sync_cycle_error",
+                        "code": error.code,
+                        "consecutive_errors": consecutive_errors,
+                    }),
+                )
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
+                writeln!(io::stderr().lock())
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
+            }
+        }
+        // Every pass releases the catalog lock. A supervisor restarts the
+        // process after a crash; persistent checkpoints make replay safe.
+        thread::sleep(watch_delay(interval, consecutive_errors));
+    }
+}
+
+fn watch_delay(interval: Duration, consecutive_errors: u32) -> Duration {
+    let multiplier = 1u64 << consecutive_errors.min(6);
+    Duration::from_secs(interval.as_secs().saturating_mul(multiplier).min(3600))
+}
 
 struct ConnectedQueryOptions {
     task: String,
@@ -529,6 +592,10 @@ fn render_connected_logs(pack: &ConnectedLogPack) -> Result<Vec<u8>, CliFailure>
 }
 
 fn sync_sources() -> Result<ExitCode, CliFailure> {
+    sync_cycle().map(|had_error| ExitCode::from(u8::from(had_error)))
+}
+
+fn sync_cycle() -> Result<bool, CliFailure> {
     let _catalog_guard = connected_catalog_lock()?;
     let authority = MacOsCorpusKeychainV1::production();
     let tenant = authority
@@ -580,6 +647,16 @@ fn sync_sources() -> Result<ExitCode, CliFailure> {
         let record_count = store
             .record_count()
             .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
+        let coverage = match &sync_result {
+            Ok(progress)
+                if progress.status == "scanned_to_high_water"
+                    && progress.reconciliation == "recent_lookback_scanned" =>
+            {
+                "unverified_provider_consistency"
+            }
+            Ok(_) => "partial",
+            Err(_) => "incomplete",
+        };
         let status = match sync_result {
             Ok(progress) => json!({
                 "status": progress.status,
@@ -600,7 +677,7 @@ fn sync_sources() -> Result<ExitCode, CliFailure> {
             "record_count": record_count,
             "scanned_through_millis": checkpoint.map(|value| value.completed_through_millis),
             "high_water_millis": high_water,
-            "coverage": "unverified_provider_consistency",
+            "coverage": coverage,
             "result": status,
         }));
     }
@@ -622,7 +699,7 @@ fn sync_sources() -> Result<ExitCode, CliFailure> {
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
     writeln!(io::stdout().lock())
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
-    Ok(ExitCode::from(u8::from(had_error)))
+    Ok(had_error)
 }
 
 struct BoundedSyncProgress {
@@ -1544,6 +1621,45 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use evidentrail_ingest::{HistoryPageV1, HistoryRecordV1};
+
+    #[test]
+    fn watch_interval_is_bounded_and_errors_back_off() {
+        assert_eq!(
+            parse_watch_interval(Vec::<OsString>::new().into_iter()).unwrap(),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            parse_watch_interval(
+                [OsString::from("--interval-seconds"), OsString::from("5")].into_iter()
+            )
+            .unwrap(),
+            Duration::from_secs(5)
+        );
+        for invalid in ["0", "4", "3601", "-1", "abc"] {
+            assert!(
+                parse_watch_interval(
+                    [
+                        OsString::from("--interval-seconds"),
+                        OsString::from(invalid)
+                    ]
+                    .into_iter()
+                )
+                .is_err()
+            );
+        }
+        assert_eq!(
+            watch_delay(Duration::from_secs(5), 0),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            watch_delay(Duration::from_secs(5), 3),
+            Duration::from_secs(40)
+        );
+        assert_eq!(
+            watch_delay(Duration::from_secs(60), 100),
+            Duration::from_secs(3600)
+        );
+    }
 
     #[test]
     fn cloudwatch_registration_requires_complete_unfiltered_binding() {

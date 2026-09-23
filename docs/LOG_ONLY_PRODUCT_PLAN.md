@@ -85,7 +85,11 @@ allows bounded expansion of a selected source/native ID into exact chronological
 neighbors. The expansion path rechecks the registered source and live provider
 access, then reads the encrypted corpus; tests cover result scope, expiry,
 ordering, and byte limits. A live connected MCP expansion, scheduler, and
-verified completeness semantics remain missing. The old supplied-log
+verified completeness semantics remain missing. A `sources watch` process now
+repeats bounded, checkpointed sync passes with capped retry backoff and releases
+the source lock between passes. It needs an external process supervisor and has
+not been exercised against a live provider; automatic login-service installation
+remains missing. The old supplied-log
 `evidentrail_logs` tool remains until replacement behavior is verified.
 The corpus still receives its key from a caller; cross-platform key authority,
 query access control, broader graph-aware retrieval, and the complete connected
