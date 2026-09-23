@@ -122,3 +122,28 @@ across services, which preserved access to every labeled-root alert group in
 this dataset. That result does not guarantee coverage on another incident
 distribution. The model may expand at most four groups per run, and no hosted
 model was called for this probe.
+
+## Trace-observed service graph probe
+
+Sock Shop has no traces in this pinned dataset. `six-case-trace-graph.jsonl`
+therefore uses six selected RE2 Online Boutique cases spanning all six fault
+types and five labeled root services. It passes metrics plus in-window trace
+spans, with no logs or hosted model call. Reproduce with:
+
+```sh
+python3 scripts/rcaeval-log-probe.py \
+  --with-metrics --metrics-only --with-traces --generic-question \
+  re2ob_checkoutservice_cpu_1 re2ob_currencyservice_mem_1 \
+  re2ob_emailservice_disk_1 re2ob_productcatalogservice_delay_1 \
+  re2ob_recommendationservice_loss_1 re2ob_checkoutservice_socket_1
+```
+
+All six returned nine observed cross-service edges from unambiguous
+same-trace parent-child span joins. Across 942,308 in-window spans, 883,331
+had matched parents. Another 532 parent references were missing, 23 pointed
+to ambiguous parents, and 96 span rows had duplicated identities; those
+uncertain rows yielded no edge. The labeled service's strongest metric shift
+remained visible in all six cases. Each report records example parent and
+child `T<n>` source-line IDs and SHA-256 digests per edge. These cases demonstrate graph extraction and
+provenance, not cause identification; the six selected cases are not a held-out
+accuracy estimate.

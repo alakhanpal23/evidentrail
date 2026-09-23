@@ -3,7 +3,8 @@
 **Model-assisted incident analysis with source-linked evidence.**
 
 Evidentrail groups noisy alerts, combines logs with optional metric changes
-and a supplied service graph, and asks a model for root-cause hypotheses.
+and supplied or trace-observed service relationships, and asks a model for
+root-cause hypotheses.
 The model can request omitted log groups before answering. Each cited quote
 is checked against its source line, and the report exposes what the model
 did not see. Exact provenance makes an answer auditable; it does not prove
@@ -13,7 +14,9 @@ the proposed cause is correct.
 flowchart LR
     logs[Logs] --> groups[Parse and group alerts]
     metrics[Optional metrics] --> shifts[Before / after signals]
-    topology[Optional service graph] --> context[Dependency context]
+    topology[Optional supplied graph] --> context[Dependency context]
+    traces[Optional trace spans] --> joins[Verified parent-child joins]
+    joins --> context
     groups --> window[Bounded evidence window]
     shifts --> window
     context --> window
@@ -43,7 +46,7 @@ you need byte-exact compression with `E<n>` expansion handles.
 |---|---|
 | Alert reduction | `analyze` groups repeated alerts, including messages with changing request or trace IDs. |
 | Model-guided retrieval | The model may request omitted log groups before forming hypotheses. |
-| Service context | Supplied dependency edges expose direct and transitive dependents. |
+| Service context | Supplied edges or trace-observed parent-child calls expose direct and transitive dependents. |
 | Metric context | Optional before/after medians preserve exact measurement citations. |
 | Checked attribution | Every model quote must occur in a visible source line; omitted evidence is reported. |
 | Offline brief | `brief` compiles byte-exact evidence with expandable `E<n>` references, without a model call. |
@@ -126,7 +129,7 @@ event bytes.
 ## Model-assisted incident analysis (beta)
 
 `analyze` accepts UTF-8 logs on explicit standard input and optionally a JSON
-service graph. It groups alerts by service and severity, ignoring changing
+service graph or trace spans. It groups alerts by service and severity, ignoring changing
 request, trace, and span IDs while keeping diagnostic values such as status
 codes distinct. It keeps rare failures ahead of repeated warnings and sends
 bounded examples to a hosted model. Adjacent lines give each failure local
@@ -154,6 +157,21 @@ time, shows representative source lines under `M<n>` IDs, and checks metric
 citations against those exact lines. The metric file is read only when named;
 the summary does not assume units, thresholds, or causality. Metric-only
 investigations can pass an empty explicit standard input stream.
+
+Pass `--traces spans.ndjson` to derive observed service edges from explicit
+parent-child spans. Each line names `trace_id`, `span_id`, `parent_span_id`
+(null for a root span), and `service`:
+
+```json
+{"trace_id":"t1","span_id":"s2","parent_span_id":"s1","service":"api"}
+```
+
+The caller should select the relevant incident window before passing spans.
+Evidentrail joins a child only to an unambiguous parent in the same trace,
+counts missing or ambiguous parents, and records `T<n>` source-line IDs and
+SHA-256 digests for each observed edge. The model receives service edges and
+span counts, not raw trace IDs. An observed call is dependency evidence, not
+proof of a failure cause. Input is bounded to 64 MiB and 500,000 spans.
 
 ```json
 {
@@ -230,6 +248,11 @@ choose from omitted log groups. Across all 90 pinned Sock Shop cases, every
 alert group from a labeled root service was either initially visible or in the
 group-selection inventory, although only seven cases had such alerts at all.
 This measures access to evidence, not model choice or diagnosis.
+
+The [trace graph probe](reports/rcaeval-selection/README.md#trace-observed-service-graph-probe)
+uses six pinned Online Boutique cases. It recovers nine observed cross-service
+edges in each case from same-trace parent-child spans and records source-line
+proof for every edge. This checks graph extraction, not causal diagnosis.
 
 The generic-question, metric-only probe removes the labeled service from the
 question and excludes logs that may contain credentials. Its selected evidence

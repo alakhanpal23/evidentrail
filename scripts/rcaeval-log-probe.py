@@ -62,7 +62,25 @@ def metric_ndjson(case, injection, window):
     return output.getvalue().encode("utf-8")
 
 
-def probe(case, binary, window, with_metrics, generic_question, metrics_only, live_model):
+def trace_ndjson(case, injection, window):
+    columns = ["traceID", "spanID", "parentSpanID", "serviceName", "startTimeMillis"]
+    table = parquet.read_table(io.BytesIO(fetch(case, "traces.parquet")), columns=columns)
+    output = io.StringIO()
+    for row in table.to_pylist():
+        if row["startTimeMillis"] is None or abs(row["startTimeMillis"] // 1000 - injection) > window:
+            continue
+        if not row["traceID"] or not row["spanID"] or not row["serviceName"]:
+            continue
+        output.write(json.dumps({
+            "trace_id": row["traceID"],
+            "span_id": row["spanID"],
+            "parent_span_id": row["parentSpanID"],
+            "service": row["serviceName"],
+        }) + "\n")
+    return output.getvalue().encode("utf-8")
+
+
+def probe(case, binary, window, with_metrics, generic_question, metrics_only, live_model, with_traces):
     root_service = case.split("_", 1)[1].rsplit("_", 2)[0]
     true_fault = case.rsplit("_", 2)[1]
     injection = int(fetch(case, "inject_time.txt"))
@@ -93,6 +111,14 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
             with open(metric_path, "wb") as output:
                 output.write(metrics)
             command.extend(["--metrics", metric_path, "--incident-time", str(injection)])
+        if with_traces:
+            traces = trace_ndjson(case, injection, window)
+            if len(traces) > 64 * 1024 * 1024:
+                return {"case": case, "status": "trace_window_exceeds_product_limit", "trace_bytes": len(traces)}
+            trace_path = scratch + "/traces.ndjson"
+            with open(trace_path, "wb") as output:
+                output.write(traces)
+            command.extend(["--traces", trace_path])
         start = time.perf_counter()
         run = subprocess.run(
             command,
@@ -148,6 +174,17 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
             "naive_fault_hit": bool(naive and metric_fault_type(naive["metric"]) == true_fault),
             "naive_joint_hit": bool(naive and naive["service"] == root_service and metric_fault_type(naive["metric"]) == true_fault),
         })
+    if with_traces:
+        result.update({
+            "trace_source_lines": report["trace_source_line_count"],
+            "trace_matched_parents": report["trace_matched_parent_count"],
+            "trace_missing_parents": report["trace_missing_parent_count"],
+            "trace_ambiguous_parents": report["trace_ambiguous_parent_count"],
+            "trace_ambiguous_spans": report["trace_ambiguous_span_count"],
+            "observed_service_edges": len(report["observed_dependencies"]),
+            "root_direct_dependents": len(root_signal["direct_dependents"]),
+            "root_transitive_dependents": len(root_signal["transitive_dependents"]),
+        })
     if live_model:
         hypotheses = report["hypotheses"]
         result.update({
@@ -170,6 +207,7 @@ def main():
     parser.add_argument("--binary", default="target/debug/evidentrail")
     parser.add_argument("--window-seconds", type=int, default=300)
     parser.add_argument("--with-metrics", action="store_true")
+    parser.add_argument("--with-traces", action="store_true")
     parser.add_argument("--metrics-only", action="store_true")
     parser.add_argument("--generic-question", action="store_true")
     parser.add_argument("--live-model", action="store_true")
@@ -188,10 +226,12 @@ def main():
         parser.error("--all-re2-ss cannot be combined with explicit cases")
     if args.all_re2_ss and args.live_model:
         parser.error("--live-model requires an explicit case list")
+    if args.all_re2_ss and args.with_traces:
+        parser.error("the pinned RE2-SS cases have no traces; pass explicit RE2-OB or RE2-TT cases")
     cases = all_re2_ss_cases() if args.all_re2_ss else (args.cases or DEFAULT_CASES)
-    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "live_model": args.live_model, "case_count": len(cases)}))
+    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "with_traces": args.with_traces, "live_model": args.live_model, "case_count": len(cases)}))
     for case in cases:
-        print(json.dumps(probe(case, args.binary, args.window_seconds, args.with_metrics, args.generic_question, args.metrics_only, args.live_model), sort_keys=True), flush=True)
+        print(json.dumps(probe(case, args.binary, args.window_seconds, args.with_metrics, args.generic_question, args.metrics_only, args.live_model, args.with_traces), sort_keys=True), flush=True)
 
 
 if __name__ == "__main__":
