@@ -19,7 +19,7 @@ use evidentrail_authority::{CanonicalUnixPathV1, InternalPathPolicyV1, InternalP
 use evidentrail_cli::{
     DEFAULT_TOKEN_BUDGET_V1, HostedRankingDiagnosticRecordV1, MAX_QUESTION_BYTES_V1,
     MAX_STDIN_BYTES_V1, OpenAiEvidenceRankerV1, OpenAiIncidentReasoner, StdinBriefOutcomeV1,
-    analyze_with_reasoner_and_metrics_and_traces,
+    analyze_with_reasoner_and_metrics_and_traces_and_precedents,
     compile_explicit_stdin_retained_with_contended_ranker_v1,
     compile_explicit_stdin_retained_with_contended_shadow_ranker_v1,
     compile_explicit_stdin_retained_with_ranker_v1,
@@ -46,7 +46,7 @@ use evidentrail_store::{
     DurableRepositoryErrorV2, DurableResultRepositoryV2, MacOsKeychainAuthorityV2,
 };
 
-const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank | --llm-rank-if-contended] < logs\n  evidentrail analyze (--question TEXT | --question-file PATH) [--topology PATH] [--metrics PATH --incident-time UNIX] [--traces PATH] [--selection-only] < utf8-logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nAnalyze requires OPENAI_API_KEY for hosted inference, or set\nEVIDENTRAIL_ANALYZE_LOCAL_MODEL to use an Ollama model on 127.0.0.1:11434.\nOllama must load at least 16K for metric-only analysis or 32K when alert groups are present.\n--selection-only previews the exact local evidence selection without a model call.\nAnalyze groups repeated alerts, computes optional metric changes, derives observed\nservice relationships from explicit NDJSON parent-child spans, and checks model\ncitations. Hypotheses and dependency edges do not establish causality. Brief\nreads only explicit standard input and retention defaults to memory. --llm-rank is an\nexplicit memory-mode beta opt-in to one hosted evidence-ordering call.\n--llm-rank-if-contended calls only when deterministic packing excluded a\nmodel-visible optional block. Deterministic compression remains the fallback\nand default. Streaming V3 is behind EVIDENTRAIL_STREAMING_V3=1; durable brief\nretention is explicit and requires external authority. Doctor inspects metadata\nfor one explicit file. The product does not discover files, crawl a workspace,\nor inspect ambient logs. Use --question-file to keep a question out of the process\nargument list. The pinned tokenizer conservatively counts one rendered UTF-8 byte\nas one budget unit; this is not a model-token count.\n";
+const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank | --llm-rank-if-contended] < logs\n  evidentrail analyze (--question TEXT | --question-file PATH) [--topology PATH] [--metrics PATH --incident-time UNIX] [--traces PATH] [--confirmed-incidents PATH] [--selection-only] < utf8-logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nAnalyze requires OPENAI_API_KEY for hosted inference, or set\nEVIDENTRAIL_ANALYZE_LOCAL_MODEL to use an Ollama model on 127.0.0.1:11434.\nOllama must load at least 16K for metric-only analysis or 32K when alert groups are present.\n--selection-only previews the exact local evidence selection without a model call.\nAnalyze groups repeated alerts, computes optional metric changes, derives observed\nservice relationships from explicit NDJSON parent-child spans, optionally compares\noperator-confirmed incident patterns, and checks model citations. Hypotheses and dependency edges do not establish causality. Brief\nreads only explicit standard input and retention defaults to memory. --llm-rank is an\nexplicit memory-mode beta opt-in to one hosted evidence-ordering call.\n--llm-rank-if-contended calls only when deterministic packing excluded a\nmodel-visible optional block. Deterministic compression remains the fallback\nand default. Streaming V3 is behind EVIDENTRAIL_STREAMING_V3=1; durable brief\nretention is explicit and requires external authority. Doctor inspects metadata\nfor one explicit file. The product does not discover files, crawl a workspace,\nor inspect ambient logs. Use --question-file to keep a question out of the process\nargument list. The pinned tokenizer conservatively counts one rendered UTF-8 byte\nas one budget unit; this is not a model-token count.\n";
 
 const DOCTOR_SUCCESS_CODE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_FILE_METADATA_OK";
 const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str =
@@ -64,6 +64,7 @@ struct AnalyzeOptions {
     topology_path: Option<PathBuf>,
     metrics_path: Option<PathBuf>,
     traces_path: Option<PathBuf>,
+    precedents_path: Option<PathBuf>,
     incident_time: Option<i64>,
     selection_only: bool,
 }
@@ -332,6 +333,7 @@ fn parse_analyze_args(
     let mut topology_path = None;
     let mut metrics_path = None;
     let mut traces_path = None;
+    let mut precedents_path = None;
     let mut incident_time = None;
     let mut selection_only = false;
     while let Some(argument) = args.next() {
@@ -352,6 +354,8 @@ fn parse_analyze_args(
             &mut metrics_path
         } else if argument == "--traces" {
             &mut traces_path
+        } else if argument == "--confirmed-incidents" {
+            &mut precedents_path
         } else if argument == "--incident-time" {
             &mut incident_time
         } else if argument == "--help" || argument == "-h" {
@@ -374,6 +378,11 @@ fn parse_analyze_args(
     if metrics_path.is_some() != incident_time.is_some() {
         return Err(CliFailure::usage(
             "EVIDENTRAIL_CLI_METRICS_TIME_PAIR_REQUIRED",
+        ));
+    }
+    if precedents_path.is_some() && metrics_path.is_none() {
+        return Err(CliFailure::usage(
+            "EVIDENTRAIL_CLI_PRECEDENTS_REQUIRE_METRICS",
         ));
     }
     let incident_time = incident_time
@@ -409,6 +418,7 @@ fn parse_analyze_args(
         topology_path: topology_path.map(PathBuf::from),
         metrics_path: metrics_path.map(PathBuf::from),
         traces_path: traces_path.map(PathBuf::from),
+        precedents_path: precedents_path.map(PathBuf::from),
         incident_time,
         selection_only,
     }))
@@ -468,6 +478,20 @@ fn run_analyze(options: AnalyzeOptions) -> Result<ExitCode, CliFailure> {
     } else {
         None
     };
+    let precedents = if let Some(path) = options.precedents_path {
+        let file = File::open(path)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_PRECEDENTS_FILE_OPEN_FAILURE"))?;
+        Some(read_bounded(file, 64 * 1024).map_err(|error| match error {
+            BoundedReadFailure::Io => {
+                CliFailure::runtime("EVIDENTRAIL_CLI_PRECEDENTS_FILE_READ_FAILURE")
+            }
+            BoundedReadFailure::LimitExceeded => {
+                CliFailure::usage("EVIDENTRAIL_CLI_PRECEDENTS_TOO_LARGE")
+            }
+        })?)
+    } else {
+        None
+    };
     let metric_input = metrics
         .as_ref()
         .zip(options.incident_time)
@@ -476,23 +500,25 @@ fn run_analyze(options: AnalyzeOptions) -> Result<ExitCode, CliFailure> {
         .map_err(|_| CliFailure::usage("EVIDENTRAIL_CLI_QUESTION_NOT_UTF8"))?;
     let report = if options.selection_only {
         let mut reasoner = SelectionOnlyReasoner;
-        analyze_with_reasoner_and_metrics_and_traces(
+        analyze_with_reasoner_and_metrics_and_traces_and_precedents(
             &logs,
             question,
             topology.as_deref(),
             metric_input,
             traces.as_deref(),
+            precedents.as_deref(),
             &mut reasoner,
         )
     } else {
         let mut reasoner = OpenAiIncidentReasoner::from_environment()
             .map_err(|error| CliFailure::runtime(error.code()))?;
-        analyze_with_reasoner_and_metrics_and_traces(
+        analyze_with_reasoner_and_metrics_and_traces_and_precedents(
             &logs,
             question,
             topology.as_deref(),
             metric_input,
             traces.as_deref(),
+            precedents.as_deref(),
             &mut reasoner,
         )
     }
@@ -1106,6 +1132,26 @@ mod tests {
                 assert_eq!(options.traces_path, Some(PathBuf::from("spans.ndjson")));
             }
             _ => panic!("expected analysis with trace input"),
+        }
+    }
+
+    #[test]
+    fn parser_accepts_explicit_confirmed_incident_history() {
+        match parse_args([
+            "analyze".into(),
+            "--question".into(),
+            "why?".into(),
+            "--metrics".into(),
+            "metrics.ndjson".into(),
+            "--incident-time".into(),
+            "1000".into(),
+            "--confirmed-incidents".into(),
+            "history.json".into(),
+        ]) {
+            Ok(ParseDecision::Analyze(options)) => {
+                assert_eq!(options.precedents_path, Some(PathBuf::from("history.json")));
+            }
+            _ => panic!("expected analysis with confirmed incidents"),
         }
     }
 

@@ -17,6 +17,7 @@ pub use incident_analysis::{
     IncidentReasoner, ModelAssessment, OpenAiIncidentReasoner, ServiceTopology,
     analyze_with_reasoner, analyze_with_reasoner_and_metrics,
     analyze_with_reasoner_and_metrics_and_traces,
+    analyze_with_reasoner_and_metrics_and_traces_and_precedents,
 };
 
 use std::error::Error as StdError;

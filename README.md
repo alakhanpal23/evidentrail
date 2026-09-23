@@ -202,6 +202,36 @@ citations against those exact lines. The metric file is read only when named;
 the summary does not assume units, thresholds, or causality. Metric-only
 investigations can pass an empty explicit standard input stream.
 
+If operators have independently confirmed earlier incidents, pass an explicit
+`--confirmed-incidents history.json` file alongside metrics. The optional
+history is a bounded JSON object with at most 256 cases:
+
+```json
+{
+  "schema_version": 1,
+  "incidents": [
+    {
+      "id": "incident-2024-017",
+      "service": "catalogue",
+      "fault_type": "cpu",
+      "metric_family_shifts": {"cpu": 4.2, "delay": 1.1}
+    }
+  ]
+}
+```
+
+Each shift is the maximum nonnegative relative before/after change for that
+service and metric family (`cpu`, `mem`, `disk`, `delay`, `loss`, or `socket`).
+For example, `diskio` maps to `disk`, `error` to `loss`, and metrics whose
+names start with `latency-` map to `delay`. Evidentrail matches the current
+service's metric pattern to same-service history and sends up to three closest
+cases to the model. The report exposes those IDs, labels, distances, and the
+SHA-256 digest of the supplied history. This is an **advisory prior**: history
+labels are supplied by the operator, are not
+independently validated, and cannot serve as source citations for the current
+incident. Current `L<n>` or `M<n>` evidence is still required for every
+hypothesis. No history is read unless this option is passed.
+
 Pass `--traces spans.ndjson` to derive observed service edges from explicit
 parent-child spans. Each line names `trace_id`, `span_id`, `parent_span_id`
 (null for a root span), and `service`:

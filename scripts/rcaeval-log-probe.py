@@ -108,7 +108,7 @@ def trace_ndjson(case, injection, window):
     return output.getvalue().encode("utf-8")
 
 
-def probe(case, binary, window, with_metrics, generic_question, metrics_only, live_model, with_traces):
+def probe(case, binary, window, with_metrics, generic_question, metrics_only, live_model, with_traces, precedents_path=None):
     root_service = case.split("_", 1)[1].rsplit("_", 2)[0]
     true_fault = case.rsplit("_", 2)[1]
     injection = int(fetch(case, "inject_time.txt"))
@@ -138,6 +138,8 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
         return {"case": case, "status": "window_exceeds_product_limit", "source_bytes": len(source)}
     question = "Which service and failure mode caused this incident?" if generic_question else f"What caused {root_service} service degradation?"
     command = [binary, "analyze", "--question", question]
+    if precedents_path:
+        command.extend(["--confirmed-incidents", precedents_path])
     if not live_model:
         command.append("--selection-only")
     with tempfile.TemporaryDirectory(prefix="evidentrail-rcaeval-") as scratch:
@@ -198,6 +200,9 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
         "root_service_visible_groups": len(root_group_ids & visible_group_ids),
         "root_service_reachable_groups": len(root_group_ids & (visible_group_ids | inventory_group_ids)),
         "focus_log_signal_absent": report["focus_log_signal_absent"],
+        "precedent_count": report["precedent_count"],
+        "precedent_source_sha256": report["precedent_source_sha256"],
+        "precedent_matches": report["precedent_matches"],
     }
     if with_metrics:
         root_metrics = [signal for signal in report["metric_signals"] if signal["service"] == root_service]
@@ -278,12 +283,15 @@ def main():
     parser.add_argument("--all-re2-ss", action="store_true")
     parser.add_argument("--all-re2-ob", action="store_true")
     parser.add_argument("--all-re2-tt", action="store_true")
+    parser.add_argument("--confirmed-incidents", help="operator-confirmed incident history JSON")
     parser.add_argument("cases", nargs="*")
     args = parser.parse_args()
     if args.window_seconds <= 0 or args.window_seconds > 600:
         parser.error("window must be between 1 and 600 seconds")
     if args.metrics_only and not args.with_metrics:
         parser.error("--metrics-only requires --with-metrics")
+    if args.confirmed_incidents and not args.with_metrics:
+        parser.error("--confirmed-incidents requires --with-metrics")
     if args.live_model and not (args.with_metrics and args.generic_question):
         parser.error("--live-model requires --with-metrics --generic-question")
     if args.live_model and not (os.environ.get("OPENAI_API_KEY") or os.environ.get("EVIDENTRAIL_ANALYZE_LOCAL_MODEL")):
@@ -308,9 +316,13 @@ def main():
         binary_sha256 = hashlib.sha256(executable.read()).hexdigest()
     code_revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     worktree_dirty = bool(subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], text=True).strip())
-    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "evidentrail_revision": code_revision, "binary_sha256": binary_sha256, "worktree_dirty": worktree_dirty, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "with_traces": args.with_traces, "live_model": args.live_model, "model_backend": backend if args.live_model else None, "model_name": model_name if args.live_model else None, "case_count": len(cases)}))
+    precedents_digest = None
+    if args.confirmed_incidents:
+        with open(args.confirmed_incidents, "rb") as source:
+            precedents_digest = hashlib.sha256(source.read()).hexdigest()
+    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "evidentrail_revision": code_revision, "binary_sha256": binary_sha256, "worktree_dirty": worktree_dirty, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "with_traces": args.with_traces, "live_model": args.live_model, "model_backend": backend if args.live_model else None, "model_name": model_name if args.live_model else None, "confirmed_incidents_sha256": precedents_digest, "case_count": len(cases)}))
     for case in cases:
-        print(json.dumps(probe(case, args.binary, args.window_seconds, args.with_metrics, args.generic_question, args.metrics_only, args.live_model, args.with_traces), sort_keys=True), flush=True)
+        print(json.dumps(probe(case, args.binary, args.window_seconds, args.with_metrics, args.generic_question, args.metrics_only, args.live_model, args.with_traces, args.confirmed_incidents), sort_keys=True), flush=True)
 
 
 if __name__ == "__main__":

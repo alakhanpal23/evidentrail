@@ -79,10 +79,33 @@ reproduce the three complete public datasets, use `--all-re2-ss`,
 `--all-re2-ob`, or `--all-re2-tt` with `--with-metrics --metrics-only
 --generic-question`; add `--window-seconds 150` for Train Ticket. Pass each
 resulting JSONL file to `scripts/score-rcaeval-precedents.py`. These findings
-justify testing an explicitly supplied, provenance-checked incident history;
-Evidentrail does not yet use precedents for diagnosis. Cited source lines
-would still need separate verification, and causal fault accuracy needs
-evaluation on independent incidents.
+justify testing an explicitly supplied, operator-labeled incident history.
+Evidentrail's optional `--confirmed-incidents` input now supplies such matches
+as advisory context to its LLM. The input labels are operator assertions, not
+independently verified facts. The model still must cite current source lines,
+and causal fault accuracy needs evaluation on independent incidents.
+
+[`nine-case-local-precedent-paired.jsonl`](nine-case-local-precedent-paired.jsonl)
+records a small paired local-model pilot. The same generic question and
+metric-only ±300-second window were used with and without a 30-case history
+built from replicate-1 injected labels. `qwen3:14b` ran with a loaded 32,768
+token context. The nine replicate-2 cases were selected adaptively during
+development: all six `catalogue` fault types, `carts` memory and disk, and
+`payment` disk. Exact service-plus-fault top-1 hits were **4/9 without**
+history and **5/9 with** history. Memory on `catalogue` changed from an
+incorrect CPU label to the correct memory label. The other eight did not
+change their correctness, including `payment` disk, where the closest prior
+incorrectly suggested memory. All 18 runs returned partial reports with
+source citations. The artifact records case-level outcomes and the exact
+binary SHA-256 of each arm; a CLI parsing/help edit caused one batch to use a
+different binary, without changing the diagnosis logic.
+
+This is a development smoke test, not a reliable estimate of uplift. The
+nearest-neighbor baseline above predicts many faults correctly only because
+the training and test cases repeat synthetic injection patterns. The live LLM
+sometimes ignores a useful prior and sometimes rejects a misleading one. A
+larger frozen test across services and independent, approved real incidents
+is still required before claiming improved diagnosis accuracy.
 
 `ninety-case-metric-only.jsonl` records all 90 pinned RE2 Sock Shop cases at
 Evidentrail revision `7202a7b`. Reproduce with:
