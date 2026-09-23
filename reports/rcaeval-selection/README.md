@@ -251,3 +251,28 @@ remained visible in all six cases. Each report records example parent and
 child `T<n>` source-line IDs and SHA-256 digests per edge. These cases demonstrate graph extraction and
 provenance, not cause identification; the six selected cases are not a held-out
 accuracy estimate.
+
+### One live case with log evidence and a trace graph
+
+[`one-case-local-ob-loss-32k-graph.jsonl`](one-case-local-ob-loss-32k-graph.jsonl)
+records a local `qwen3:14b` run on
+`re2ob_recommendationservice_loss_1` using logs, metrics, and trace spans.
+The artifact records Evidentrail revision `ba04bfe`, the executable digest,
+and a clean worktree. The report derived **nine** service edges, kept all
+**five** alert groups from the labeled root service visible, rejected **two**
+invalid model retrieval IDs, and returned a partial report in **31.247
+seconds**. Its leading service was correct (`recommendationservice`), but
+its fault label was `delay` rather than the injected `loss`. The simple metric
+baseline also chose delay. This single selected case verifies the live
+log-plus-metric-plus-graph path and its safe fallback on invalid group IDs;
+it does not demonstrate a causal accuracy gain from the graph.
+
+Reproduce with a local model and a 32K Ollama context:
+
+```sh
+EVIDENTRAIL_ANALYZE_LOCAL_MODEL=qwen3:14b \
+  python3 scripts/rcaeval-log-probe.py --with-metrics --with-traces \
+  --generic-question --live-model re2ob_recommendationservice_loss_1 \
+  > local-graph.jsonl
+python3 scripts/score-rcaeval-live.py local-graph.jsonl
+```
