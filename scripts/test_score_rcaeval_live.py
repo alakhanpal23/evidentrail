@@ -29,6 +29,8 @@ def fixture():
             "top3_joint_hit": model,
             "top1_root_service_hit": True,
             "top1_fault_hit": model,
+            "top1_fault_type": "mem" if model else "unknown",
+            "model_needs_more_evidence": not model,
             "citation_count": 1,
             "hypothesis_count": 1,
             "top1_support_scope": "direct" if model else "dependent_only",
@@ -57,6 +59,9 @@ class LiveScoreTests(unittest.TestCase):
         self.assertEqual(report["naive_only_joint_hits"], 1)
         self.assertEqual(report["direct_hypotheses"], 1)
         self.assertEqual(report["dependent_only_hypotheses"], 1)
+        self.assertEqual(report["top1_unknown_fault_types"], 1)
+        self.assertEqual(report["top1_specific_fault_types"], 1)
+        self.assertEqual(report["needs_more_evidence"], 1)
 
     def test_rejects_incomplete_duplicate_and_failed_runs(self):
         header, rows = fixture()
@@ -67,6 +72,16 @@ class LiveScoreTests(unittest.TestCase):
         ):
             with self.subTest(modified_rows=modified_rows), self.assertRaises(ValueError):
                 score_rows(modified_header, modified_rows)
+
+    def test_rejects_inconsistent_unknown_and_abstention_scores(self):
+        header, rows = fixture()
+        for changed in (
+            {**rows[0], "top1_fault_hit": True},
+            {**rows[0], "model_needs_more_evidence": "yes"},
+            {**rows[0], "hypothesis_count": 0, "top1_fault_type": None},
+        ):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                score_rows(header, [changed, rows[1]])
 
 
 if __name__ == "__main__":

@@ -49,6 +49,7 @@ def score(path):
         "top1_root_service_hit", "top1_fault_hit", "citation_count",
         "model_latency_seconds", "hypothesis_count", "top1_support_scope",
         "direct_hypothesis_count", "dependent_only_hypothesis_count",
+        "top1_fault_type", "model_needs_more_evidence",
     )
     for row in rows:
         if row.get("status") not in {"partial", "source_linked_hypotheses"}:
@@ -68,6 +69,10 @@ def score(path):
             or row["citation_count"] < row["hypothesis_count"]
             or row["direct_hypothesis_count"] + row["dependent_only_hypothesis_count"] != row["hypothesis_count"]
             or row["top1_support_scope"] not in ({"direct", "dependent_only"} if row["hypothesis_count"] else {None})
+            or row["top1_fault_type"] not in ({"cpu", "mem", "disk", "delay", "loss", "socket", "other", "unknown"} if row["hypothesis_count"] else {None})
+            or type(row["model_needs_more_evidence"]) is not bool
+            or (row["hypothesis_count"] == 0 and not row["model_needs_more_evidence"])
+            or (row["top1_fault_type"] == "unknown" and (row["top1_fault_hit"] or row["top1_joint_hit"]))
         ):
             raise ValueError(f"case {row['case']} has invalid count or latency")
     counts = Counter()
@@ -85,6 +90,10 @@ def score(path):
             counts["naive_only_joint_hits"] += 1
         if row["hypothesis_count"] == 0:
             counts["abstentions"] += 1
+        elif row["top1_fault_type"] == "unknown":
+            counts["top1_unknown_fault_types"] += 1
+        if row["model_needs_more_evidence"]:
+            counts["needs_more_evidence"] += 1
         counts["citations"] += row["citation_count"]
         counts["direct_hypotheses"] += row["direct_hypothesis_count"]
         counts["dependent_only_hypotheses"] += row["dependent_only_hypothesis_count"]
@@ -102,6 +111,9 @@ def score(path):
         "model_only_joint_hits": counts["model_only_joint_hits"],
         "naive_only_joint_hits": counts["naive_only_joint_hits"],
         "abstentions": counts["abstentions"],
+        "top1_unknown_fault_types": counts["top1_unknown_fault_types"],
+        "top1_specific_fault_types": counts["cases"] - counts["abstentions"] - counts["top1_unknown_fault_types"],
+        "needs_more_evidence": counts["needs_more_evidence"],
         "citation_count": counts["citations"],
         "direct_hypotheses": counts["direct_hypotheses"],
         "dependent_only_hypotheses": counts["dependent_only_hypotheses"],

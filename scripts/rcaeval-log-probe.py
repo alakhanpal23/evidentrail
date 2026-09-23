@@ -196,6 +196,7 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
             "top1_service": hypotheses[0]["service"] if hypotheses else None,
             "top1_root_service_hit": bool(hypotheses and hypotheses[0]["service"] == root_service),
             "top1_fault_type": hypotheses[0]["fault_type"] if hypotheses else None,
+            "model_needs_more_evidence": report["needs_more_evidence"],
             "top1_fault_hit": bool(hypotheses and hypotheses[0]["fault_type"] == true_fault),
             "top1_joint_hit": bool(hypotheses and hypotheses[0]["service"] == root_service and hypotheses[0]["fault_type"] == true_fault),
             "top3_root_service_hit": any(hypothesis["service"] == root_service for hypothesis in hypotheses),

@@ -277,7 +277,8 @@ against this baseline and tested on a separate held-out set.
 
 Once `OPENAI_API_KEY` is configured, the same script can run the hosted model
 with `--with-metrics --metrics-only --generic-question --live-model`. It reports
-top-one and top-three service/fault matches, citation count, and latency without
+top-one and top-three service/fault matches, abstentions, `unknown` fault-type
+answers, requests for more evidence, citation count, and latency without
 printing model explanations or raw telemetry. A real accuracy claim needs a
 larger held-out set and comparisons against simple metric and log baselines.
 Save a preselected case list to a JSONL run and score it with
