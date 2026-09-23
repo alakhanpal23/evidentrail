@@ -92,6 +92,13 @@ pub struct CorpusPage {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NearbyRecords {
+    pub records: Vec<StoredHistoryRecord>,
+    pub before_truncated: bool,
+    pub after_truncated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CorpusGroupCard {
     pub group_id: i64,
     pub service: String,
@@ -922,6 +929,73 @@ impl EncryptedHistoryStore {
             .map_err(|_| CorpusError::Storage)
     }
 
+    /// Resolve a source-local anchor and its chronological neighbors. The
+    /// byte budget includes the anchor; no neighboring record is truncated.
+    pub fn read_nearby(
+        &self,
+        native_id: &[u8],
+        before: usize,
+        after: usize,
+        max_bytes: usize,
+    ) -> Result<Option<NearbyRecords>, CorpusError> {
+        if before > 32 || after > 32 || max_bytes == 0 || max_bytes > 256 * 1024 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let Some(anchor) = self.get_record(native_id)? else {
+            return Ok(None);
+        };
+        if anchor.bytes.len() > max_bytes {
+            return Err(CorpusError::RecordExceedsPageBudget);
+        }
+        let mut remaining = max_bytes - anchor.bytes.len();
+        let mut neighbors = Vec::with_capacity(before + after + 1);
+        let mut truncated = [false; 2];
+        for (side, limit) in [(0, before), (1, after)] {
+            let comparison = if side == 0 { "<" } else { ">" };
+            let order = if side == 0 { "DESC" } else { "ASC" };
+            let sql = format!(
+                "SELECT native_id, length(raw) FROM history_records
+                 WHERE (event_timestamp_millis, native_id) {comparison} (?1, ?2)
+                 ORDER BY event_timestamp_millis {order}, native_id {order} LIMIT ?3"
+            );
+            let mut statement = self
+                .connection
+                .prepare(&sql)
+                .map_err(|_| CorpusError::Storage)?;
+            let rows = statement
+                .query_map(
+                    params![anchor.event_timestamp_millis, native_id, (limit + 1) as i64],
+                    |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, usize>(1)?)),
+                )
+                .map_err(|_| CorpusError::Storage)?;
+            let candidates = rows
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| CorpusError::Storage)?;
+            truncated[side] = candidates.len() > limit;
+            let mut selected = Vec::new();
+            for (id, length) in candidates.into_iter().take(limit) {
+                if length > remaining {
+                    truncated[side] = true;
+                    break;
+                }
+                remaining -= length;
+                selected.push(self.get_record(&id)?.ok_or(CorpusError::Storage)?);
+            }
+            if side == 0 {
+                selected.reverse();
+                neighbors.extend(selected);
+                neighbors.push(anchor.clone());
+            } else {
+                neighbors.extend(selected);
+            }
+        }
+        Ok(Some(NearbyRecords {
+            records: neighbors,
+            before_truncated: truncated[0],
+            after_truncated: truncated[1],
+        }))
+    }
+
     /// Read only a bounded prefix for ranking; callers must resolve the full
     /// original record by native ID before including it in a log pack.
     pub fn read_record_sample(
@@ -1388,6 +1462,57 @@ mod tests {
             EncryptedHistoryStore::open(&path, &key, &[3; 32], &source),
             Err(CorpusError::ScopeMismatch)
         ));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn nearby_records_are_exact_ordered_bounded_and_source_scoped() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[7; 32], &[1; 32], &[2; 32]).unwrap();
+        let records = [
+            (b"a", 1, b"aa"),
+            (b"b", 2, b"bb"),
+            (b"c", 2, b"cc"),
+            (b"d", 3, b"dd"),
+        ]
+        .into_iter()
+        .map(|(id, time, bytes)| HistoryRecordV1 {
+            native_id: id.to_vec(),
+            event_timestamp_millis: time,
+            bytes: bytes.to_vec(),
+        })
+        .collect::<Vec<_>>();
+        store.commit_page_checked(&records).unwrap();
+        let nearby = store.read_nearby(b"b", 2, 2, 8).unwrap().unwrap();
+        assert_eq!(
+            nearby
+                .records
+                .iter()
+                .map(|record| record.native_id.as_slice())
+                .collect::<Vec<_>>(),
+            vec![b"a".as_slice(), b"b", b"c", b"d"]
+        );
+        assert!(!nearby.before_truncated && !nearby.after_truncated);
+        let tight = store.read_nearby(b"b", 2, 2, 4).unwrap().unwrap();
+        assert_eq!(
+            tight
+                .records
+                .iter()
+                .map(|record| record.native_id.as_slice())
+                .collect::<Vec<_>>(),
+            vec![b"a".as_slice(), b"b"]
+        );
+        assert!(tight.after_truncated);
+        assert_eq!(store.read_nearby(b"missing", 1, 1, 8).unwrap(), None);
+        assert_eq!(
+            store.read_nearby(b"b", 1, 1, 1),
+            Err(CorpusError::RecordExceedsPageBudget)
+        );
+        assert_eq!(
+            store.read_nearby(b"b", 33, 1, 8),
+            Err(CorpusError::InvalidPageBudget)
+        );
+        drop(store);
         cleanup(&path);
     }
 

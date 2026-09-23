@@ -38,8 +38,11 @@ fully verified. `logs` catches up each source, excludes sources whose current
 authorization or sync fails, selects groups globally, and writes original
 source records as JSON lines on stdout. Source status and retrieval truncation
 go to stderr as JSON. The byte budget counts original log bytes, not rendered
-JSON or model tokens. Background scheduling and source-verified cross-call
-expansion are still under development; no live AWS sandbox has validated this
+JSON or model tokens. The memory-only MCP server supports bounded expansion
+of a selected line into chronological neighbors. Its 30-minute handle is scoped
+to the selected source and native ID, and expansion checks the live source
+connection again before reading the encrypted corpus. Background scheduling
+is still under development; no live AWS sandbox has validated this
 flow yet. Datadog identity and tier coverage have not been verified in a live
 provider sandbox. Missing Datadog tiers appear as partial
 coverage in connected query metadata.
@@ -569,15 +572,19 @@ Run the process-resident MCP server:
 target/release/evidentrail serve-mcp
 ```
 
-On macOS the memory-only server exposes three tools:
+On macOS the memory-only server exposes four tools:
 
 - `evidentrail_logs` compiles explicitly supplied, bounded log bytes.
 - `evidentrail_expand` resolves an advertised result-scoped alias without
   rereading or widening the original source.
 - `evidentrail_connected_logs` takes a task and optional `max_raw_bytes` budget,
   catches up locally connected sources, and returns selected original records
-  as JSONL plus separate coverage metadata. It currently has no cross-call
-  expansion handle.
+  as JSONL plus separate coverage metadata and a 30-minute `result_id`.
+- `evidentrail_connected_expand` takes that `result_id` and a selected
+  `source_id`/`native_id` pair, with optional `before`, `after` (at most 32 each),
+  and `max_raw_bytes` (at most 256 KiB). It returns exact chronological neighbors
+  and reports when either side was truncated. Expansion attempts source catch-up
+  and refuses the read if source authorization or sync cannot be verified.
 
 `ranking_mode` defaults to `deterministic`. The only hosted alternatives are
 `hosted` and `hosted_if_contended`; both require request-level opt-in.

@@ -80,7 +80,11 @@ after rebuilding the binary and was stopped. The connected CLI query has not
 been validated against live AWS. The memory-only macOS MCP server now exposes
 `evidentrail_connected_logs(task, max_raw_bytes)` through the same connected
 query routine as the CLI. A local MCP schema and argument rejection test is
-included, but a live connected MCP call, scheduler, cross-call expansion, and
+included. The memory-only MCP server now returns a 30-minute result handle and
+allows bounded expansion of a selected source/native ID into exact chronological
+neighbors. The expansion path rechecks the registered source and live provider
+access, then reads the encrypted corpus; tests cover result scope, expiry,
+ordering, and byte limits. A live connected MCP expansion, scheduler, and
 verified completeness semantics remain missing. The old supplied-log
 `evidentrail_logs` tool remains until replacement behavior is verified.
 The corpus still receives its key from a caller; cross-platform key authority,
@@ -288,7 +292,7 @@ model/policy version; a changed source invalidates the cache.
 
 | Milestone | Concrete deliverable | Gate |
 | --- | --- | --- |
-| 1. One log-pack contract | CLI/MCP supplied-log prototype; exact line IDs, repeat counts, expansion, metadata outside the log body | Output contains no generated logs or diagnosis; every selected line resolves to an input record; old commands remain only as compatibility wrappers. The current CLI covers selection and line verification; expansion, MCP integration, and completeness metadata remain. |
+| 1. One log-pack contract | Connected CLI/MCP selection; exact source/native IDs, repeat counts, bounded result-scoped expansion, metadata outside the log body | Output contains no generated logs or diagnosis; every selected line resolves to an original stored record. The connected MCP flow now supports local expansion with authorization recheck; live provider validation and complete coverage semantics remain. Old commands remain as compatibility wrappers pending replacement verification. |
 | 2. Full-corpus index and graph | Durable streaming parser, checkpointed template index, evidence-backed service graph, log-only query API | Every acquired record is accounted for; graph edges have source support; a 100K/1M-line corpus is searchable without a user time window or silent truncation. |
 | 3. Model-guided selection | Bounded group cards, retrieval of more examples, verified ID-only selection, local and hosted model options | Rare required clues survive noisy full-corpus tests; graph ablation measures incremental value; output stays within budget. |
 | 4. CloudWatch connection | Real read-only AWS transport, full backfill, incremental sync, and connected-source MCP call | Sandbox account proves empty-page continuation, crash/restart cursors, retention boundaries, permissions/caps, identity checks, and no false-complete result. |

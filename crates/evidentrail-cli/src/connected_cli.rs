@@ -137,6 +137,10 @@ fn parse_source_digest(value: &str) -> Result<[u8; 32], CliFailure> {
     Ok(digest)
 }
 
+pub(crate) fn source_id_for_mcp(source_digest: &[u8; 32]) -> String {
+    hex(source_digest)
+}
+
 const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
 const MAX_SYNC_PAGES: usize = 256;
 
@@ -148,6 +152,7 @@ struct ConnectedQueryOptions {
 pub(crate) struct ConnectedQueryResult {
     pub body: Vec<u8>,
     pub metadata: serde_json::Value,
+    pub selected_refs: Vec<([u8; 32], Vec<u8>)>,
     _catalog_guard: File,
 }
 
@@ -304,6 +309,19 @@ pub(crate) fn query_connected_logs(
     let pack = select_connected_logs(&authorized, task, max_raw_bytes, &mut selector)
         .map_err(|error| query_error(CliFailure::runtime(error.code())))?;
     let body = render_connected_logs(&pack).map_err(query_error)?;
+    let selected_refs = pack
+        .selected
+        .iter()
+        .flat_map(|entry| {
+            std::iter::once((entry.source_digest, entry.first_native_id.clone())).chain(
+                entry
+                    .last_native_id
+                    .iter()
+                    .cloned()
+                    .map(|id| (entry.source_digest, id)),
+            )
+        })
+        .collect();
     let partial_source = source_states
         .iter()
         .any(|state| state["state"] != "scanned_to_high_water")
@@ -324,8 +342,94 @@ pub(crate) fn query_connected_logs(
     Ok(ConnectedQueryResult {
         body,
         metadata,
+        selected_refs,
         _catalog_guard: catalog_guard,
     })
+}
+
+/// Recheck a registered source against its live provider credentials before
+/// resolving any neighboring bytes from its encrypted local corpus.
+pub(crate) fn expand_connected_logs(
+    source_digest: &[u8; 32],
+    native_id: &[u8],
+    before: usize,
+    after: usize,
+    max_raw_bytes: usize,
+) -> Result<(Vec<u8>, serde_json::Value), ConnectedQueryError> {
+    let failure = |code| ConnectedQueryError {
+        code,
+        metadata: None,
+    };
+    let map_failure = |error: CliFailure| failure(error.code);
+    let _guard = connected_catalog_lock().map_err(map_failure)?;
+    let authority = MacOsCorpusKeychainV1::production();
+    let tenant = authority
+        .local_tenant_digest()
+        .map_err(|error| failure(error.code()))?;
+    let entry = authority
+        .list_bound(&tenant)
+        .map_err(|error| failure(error.code()))?
+        .into_iter()
+        .find(|entry| &entry.source_digest == source_digest)
+        .ok_or_else(|| failure("EVIDENTRAIL_CONNECTED_EXPAND_SOURCE_REVOKED"))?;
+    let binding = parse_binding(&entry.descriptor).map_err(map_failure)?;
+    let path = corpus_path(source_digest, false).map_err(map_failure)?;
+    if !corpus_file_exists_safe(&path).map_err(map_failure)? {
+        return Err(failure("EVIDENTRAIL_CONNECTED_EXPAND_CORPUS_MISSING"));
+    }
+    let key = authority
+        .load(&tenant, source_digest)
+        .map_err(|error| failure(error.code()))?;
+    let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, source_digest)
+        .map_err(|_| failure("EVIDENTRAIL_CONNECTED_EXPAND_CORPUS_FAILURE"))?;
+    let high_water = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| failure("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
+        .as_millis() as i64;
+    let progress = sync_binding(&binding, &tenant, source_digest, &mut store, high_water)
+        .map_err(|_| failure("EVIDENTRAIL_CONNECTED_EXPAND_SOURCE_UNAVAILABLE"))?;
+    let nearby = store
+        .read_nearby(native_id, before, after, max_raw_bytes)
+        .map_err(|_| failure("EVIDENTRAIL_CONNECTED_EXPAND_CORPUS_FAILURE"))?
+        .ok_or_else(|| failure("EVIDENTRAIL_CONNECTED_EXPAND_ANCHOR_MISSING"))?;
+    let mut body = Vec::new();
+    for record in &nearby.records {
+        if crate::incident_analysis::contains_sensitive_data(&String::from_utf8_lossy(
+            &record.bytes,
+        )) {
+            return Err(failure("EVIDENTRAIL_CONNECTED_EXPAND_SENSITIVE_RECORD"));
+        }
+        let mut row = json!({
+            "source_id": hex(source_digest),
+            "native_id": URL_SAFE_NO_PAD.encode(&record.native_id),
+            "event_timestamp_millis": record.event_timestamp_millis,
+        });
+        if let Ok(raw) = std::str::from_utf8(&record.bytes) {
+            row["raw"] = json!(raw);
+        } else {
+            row["raw_base64"] = json!(URL_SAFE_NO_PAD.encode(&record.bytes));
+        }
+        serde_json::to_writer(&mut body, &row)
+            .map_err(|_| failure("EVIDENTRAIL_CONNECTED_EXPAND_OUTPUT_FAILURE"))?;
+        body.push(b'\n');
+    }
+    Ok((
+        body,
+        json!({
+            "source_id": hex(source_digest),
+            "anchor_native_id": URL_SAFE_NO_PAD.encode(native_id),
+            "before_truncated": nearby.before_truncated,
+            "after_truncated": nearby.after_truncated,
+            "sync_state": progress.status,
+            "reconciliation": progress.reconciliation,
+        "coverage": if progress.status == "scanned_to_high_water"
+            && progress.reconciliation == "recent_lookback_scanned" {
+            "unverified_provider_consistency"
+        } else {
+            "partial"
+        },
+        }),
+    ))
 }
 
 fn parse_logs_args(
