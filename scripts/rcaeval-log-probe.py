@@ -35,6 +35,18 @@ def fetch(case, name):
                 raise
 
 
+def all_re2_ss_cases():
+    with urllib.request.urlopen(f"{BASE}/cases.parquet", timeout=60) as response:
+        index = parquet.read_table(io.BytesIO(response.read()), columns=["case", "dataset"])
+    return sorted(row["case"] for row in index.to_pylist() if row["dataset"] == "RE2-SS")
+
+
+def metric_fault_type(metric):
+    if metric.startswith("latency-"):
+        return "delay"
+    return {"diskio": "disk", "error": "loss"}.get(metric, metric if metric in {"cpu", "mem", "socket"} else "unknown")
+
+
 def metric_ndjson(case, injection, window):
     table = parquet.read_table(io.BytesIO(fetch(case, "metrics.parquet")))
     output = io.StringIO()
@@ -52,6 +64,7 @@ def metric_ndjson(case, injection, window):
 
 def probe(case, binary, window, with_metrics, generic_question, metrics_only, live_model):
     root_service = case.split("_", 1)[1].rsplit("_", 2)[0]
+    true_fault = case.rsplit("_", 2)[1]
     injection = int(fetch(case, "inject_time.txt"))
     if metrics_only:
         source = b""
@@ -121,6 +134,9 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
             "root_largest_shift_visible": bool(strongest and {strongest["baseline_event_id"], strongest["incident_event_id"]} <= {event["id"] for event in report["evidence"]}),
             "naive_top_service": naive["service"] if naive else None,
             "naive_root_service_hit": bool(naive and naive["service"] == root_service),
+            "naive_top_fault_type": metric_fault_type(naive["metric"]) if naive else None,
+            "naive_fault_hit": bool(naive and metric_fault_type(naive["metric"]) == true_fault),
+            "naive_joint_hit": bool(naive and naive["service"] == root_service and metric_fault_type(naive["metric"]) == true_fault),
         })
     if live_model:
         hypotheses = report["hypotheses"]
@@ -128,7 +144,11 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
             "model_latency_seconds": round(elapsed, 3),
             "top1_service": hypotheses[0]["service"] if hypotheses else None,
             "top1_root_service_hit": bool(hypotheses and hypotheses[0]["service"] == root_service),
+            "top1_fault_type": hypotheses[0]["fault_type"] if hypotheses else None,
+            "top1_fault_hit": bool(hypotheses and hypotheses[0]["fault_type"] == true_fault),
+            "top1_joint_hit": bool(hypotheses and hypotheses[0]["service"] == root_service and hypotheses[0]["fault_type"] == true_fault),
             "top3_root_service_hit": any(hypothesis["service"] == root_service for hypothesis in hypotheses),
+            "top3_joint_hit": any(hypothesis["service"] == root_service and hypothesis["fault_type"] == true_fault for hypothesis in hypotheses),
             "hypothesis_count": len(hypotheses),
             "citation_count": sum(len(hypothesis["evidence"]) for hypothesis in hypotheses),
         })
@@ -143,7 +163,8 @@ def main():
     parser.add_argument("--metrics-only", action="store_true")
     parser.add_argument("--generic-question", action="store_true")
     parser.add_argument("--live-model", action="store_true")
-    parser.add_argument("cases", nargs="*", default=DEFAULT_CASES)
+    parser.add_argument("--all-re2-ss", action="store_true")
+    parser.add_argument("cases", nargs="*")
     args = parser.parse_args()
     if args.window_seconds <= 0 or args.window_seconds > 600:
         parser.error("window must be between 1 and 600 seconds")
@@ -153,8 +174,13 @@ def main():
         parser.error("--live-model requires --metrics-only --with-metrics --generic-question")
     if args.live_model and not os.environ.get("OPENAI_API_KEY"):
         parser.error("--live-model requires OPENAI_API_KEY in the environment")
-    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "live_model": args.live_model}))
-    for case in args.cases:
+    if args.all_re2_ss and args.cases:
+        parser.error("--all-re2-ss cannot be combined with explicit cases")
+    if args.all_re2_ss and args.live_model:
+        parser.error("--live-model requires an explicit case list")
+    cases = all_re2_ss_cases() if args.all_re2_ss else (args.cases or DEFAULT_CASES)
+    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "live_model": args.live_model, "case_count": len(cases)}))
+    for case in cases:
         print(json.dumps(probe(case, args.binary, args.window_seconds, args.with_metrics, args.generic_question, args.metrics_only, args.live_model), sort_keys=True), flush=True)
 
 

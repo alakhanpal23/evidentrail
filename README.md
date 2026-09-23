@@ -119,7 +119,9 @@ counts alerts by service and lists direct and transitive dependents derived
 from the supplied graph, so a failing dependency and affected callers can be
 examined together. The output includes group counts, omitted-group counts,
 source-line IDs, source-line SHA-256 digests, and hypotheses with exact checked
-quotes. A fabricated line ID or quote fails the request. When groups were
+quotes. Each hypothesis has a service and a fault type (`cpu`, `mem`, `disk`,
+`delay`, `loss`, `socket`, `other`, or `unknown`) so RCA evaluations can score
+the pair. A fabricated line ID or quote fails the request. When groups were
 omitted, the report says `partial` and `needs_more_evidence: true`.
 
 When the logs do not show the failure, an explicit metric file can add
@@ -216,7 +218,7 @@ against it and tested on a broader held-out set.
 
 Once `OPENAI_API_KEY` is configured, the same script can run the hosted model
 with `--with-metrics --metrics-only --generic-question --live-model`. It reports
-top-one and top-three root-service matches, citation count, and latency without
+top-one and top-three service/fault matches, citation count, and latency without
 printing model explanations or raw telemetry. A real accuracy claim needs a
 larger held-out set and comparisons against simple metric and log baselines.
 
