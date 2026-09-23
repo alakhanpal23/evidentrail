@@ -5,13 +5,13 @@ use evidentrail_core::{DeterministicPolicy, LedgerBuilder, PolicyAuthorization};
 use evidentrail_ingest::{
     CLOUDWATCH_ADAPTER_KIND_V1, CLOUDWATCH_ADAPTER_VERSION_V1, CancellationToken,
     CloudWatchAdapterV1, CloudWatchCapsV1, CloudWatchEventV1, CloudWatchFilterRequestV1,
-    CloudWatchPageV1, CloudWatchPlanV1, CloudWatchTransportErrorV1, CloudWatchTransportV1,
-    ExecutionContext, KUBERNETES_ADAPTER_KIND_V1, KUBERNETES_ADAPTER_VERSION_V1,
-    KubernetesAdapterV1, KubernetesCapsV1, KubernetesContainerInstanceKindV1,
-    KubernetesContainerInstanceV1, KubernetesContainerObservationV1, KubernetesLogRecordV1,
-    KubernetesLogRequestV1, KubernetesLogResponseV1, KubernetesLogStreamV1, KubernetesPlanV1,
-    KubernetesTransportErrorV1, KubernetesTransportV1, SingleEnvelopeSourceAdapterV1,
-    SourceAdapter,
+    CloudWatchHistorySourceV1, CloudWatchPageV1, CloudWatchPlanV1, CloudWatchTransportErrorV1,
+    CloudWatchTransportV1, ExecutionContext, HistoryPageSourceV1, HistoryPartitionV1,
+    KUBERNETES_ADAPTER_KIND_V1, KUBERNETES_ADAPTER_VERSION_V1, KubernetesAdapterV1,
+    KubernetesCapsV1, KubernetesContainerInstanceKindV1, KubernetesContainerInstanceV1,
+    KubernetesContainerObservationV1, KubernetesLogRecordV1, KubernetesLogRequestV1,
+    KubernetesLogResponseV1, KubernetesLogStreamV1, KubernetesPlanV1, KubernetesTransportErrorV1,
+    KubernetesTransportV1, SingleEnvelopeSourceAdapterV1, SourceAdapter,
 };
 use evidentrail_schema::{
     AdapterIdentity, AdapterOutcome, FetchCompleteness, FetchIdentity, FetchPartialReason,
@@ -61,6 +61,65 @@ fn cloudwatch_event(id: &[u8], timestamp: i64, message: &[u8]) -> CloudWatchEven
         ingestion_timestamp_millis: timestamp + 1,
         message: message.to_vec(),
     }
+}
+
+#[test]
+fn history_source_reads_whole_group_with_internal_partition_and_native_identity() {
+    struct WholeGroupTransport;
+    impl CloudWatchTransportV1 for WholeGroupTransport {
+        fn filter_log_events(
+            &self,
+            request: &CloudWatchFilterRequestV1,
+        ) -> Result<CloudWatchPageV1, CloudWatchTransportErrorV1> {
+            assert!(request.plan().log_streams().is_empty());
+            assert!(request.plan().filter_pattern().is_none());
+            assert_eq!(request.plan().start_time_millis(), Some(0));
+            assert_eq!(request.plan().end_time_millis(), Some(10));
+            assert_eq!(request.next_token(), None);
+            Ok(CloudWatchPageV1::new(
+                vec![cloudwatch_event(b"id", 5, b"original")],
+                None,
+            ))
+        }
+    }
+    let caps = CloudWatchCapsV1::new(100, 10_000, 10, 1_000).unwrap();
+    let binding = CloudWatchPlanV1::new(
+        b"account".to_vec(),
+        b"region".to_vec(),
+        b"group".to_vec(),
+        [],
+        None,
+        None,
+        None,
+        caps,
+    )
+    .unwrap();
+    let mut source = CloudWatchHistorySourceV1::new(binding.clone(), WholeGroupTransport).unwrap();
+    let page = source
+        .fetch_page(
+            HistoryPartitionV1 {
+                start_millis: 0,
+                end_millis: 10,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(page.records.len(), 1);
+    assert_eq!(page.records[0].bytes, b"original");
+    assert!(!page.records[0].native_id.is_empty());
+
+    let narrowed = CloudWatchPlanV1::new(
+        b"account".to_vec(),
+        b"region".to_vec(),
+        b"group".to_vec(),
+        [b"one-stream".to_vec()],
+        None,
+        None,
+        None,
+        caps,
+    )
+    .unwrap();
+    assert!(CloudWatchHistorySourceV1::new(narrowed, WholeGroupTransport).is_err());
 }
 
 struct ScriptedCloudWatch {

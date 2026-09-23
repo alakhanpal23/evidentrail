@@ -18,6 +18,16 @@ are release requirements, not existing capabilities. The current group-card
 selection also needs held-out relevance tests before it can be trusted to
 preserve rare clues in very large histories.
 
+The ingestion crate now also has a provider-neutral full-history sync contract.
+It paginates internal time partitions from a store checkpoint to a frozen
+high-water mark, continues through empty pages, and advances the checkpoint
+only after the final page of a partition. Its test store verifies replay and
+deduplication. A production durable encrypted store and live provider
+transport are still missing; this seam alone is not a connected source. A
+CloudWatch history-source adapter now maps the internal partitions to
+unfiltered log-group page requests, but it does not provide AWS credentials or
+network calls yet.
+
 ## One product contract
 
 Connect read-only log sources once. Evidentrail backfills **all logs available

@@ -10,6 +10,7 @@ mod batch;
 mod cloudwatch;
 mod deadline;
 mod error;
+mod full_history;
 mod kubernetes;
 mod replay;
 
@@ -22,14 +23,20 @@ pub use batch::{
 };
 pub use cloudwatch::{
     CLOUDWATCH_ADAPTER_KIND_V1, CLOUDWATCH_ADAPTER_VERSION_V1, CloudWatchAdapterV1,
-    CloudWatchCapsV1, CloudWatchEventV1, CloudWatchFilterRequestV1, CloudWatchPageV1,
-    CloudWatchPlanErrorV1, CloudWatchPlanV1, CloudWatchTransportErrorV1, CloudWatchTransportV1,
+    CloudWatchCapsV1, CloudWatchEventV1, CloudWatchFilterRequestV1, CloudWatchHistorySourceV1,
+    CloudWatchPageV1, CloudWatchPlanErrorV1, CloudWatchPlanV1, CloudWatchTransportErrorV1,
+    CloudWatchTransportV1,
 };
 pub use deadline::{
     CooperativeDeadline, CooperativeStopReason, DeadlineConstructionError, MonotonicClock,
     SystemMonotonicClock,
 };
 pub use error::IngestError;
+pub use full_history::{
+    HistoryCheckpointV1, HistoryPageSourceV1, HistoryPageStoreV1, HistoryPageV1,
+    HistoryPartitionV1, HistoryRecordV1, HistorySyncErrorV1, HistorySyncLimitsV1,
+    HistorySyncReceiptV1, HistorySyncStatusV1, synchronize_history_v1,
+};
 pub use kubernetes::{
     KUBERNETES_ADAPTER_KIND_V1, KUBERNETES_ADAPTER_VERSION_V1, KubernetesAdapterV1,
     KubernetesCapsV1, KubernetesContainerInstanceKindV1, KubernetesContainerInstanceV1,

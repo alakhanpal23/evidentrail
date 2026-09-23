@@ -14,6 +14,9 @@ use evidentrail_schema::{
 use sha2::{Digest as _, Sha256};
 
 use crate::adapter::{AcceptStatus, ExecutionSession};
+use crate::full_history::{
+    HistoryPageSourceV1, HistoryPageV1, HistoryPartitionV1, HistoryRecordV1, HistorySyncErrorV1,
+};
 use crate::{
     Cancellation, EnvelopeBatchSinkV1, EnvelopeBatchV1, ExecutionContext, FetchCompletion,
     IngestError, SourceBatchAdapterV1,
@@ -321,6 +324,78 @@ impl fmt::Display for CloudWatchTransportErrorV1 {
 }
 
 impl StdError for CloudWatchTransportErrorV1 {}
+
+/// Adapts a complete log-group binding to the provider-neutral history sync.
+/// Internal partitions are chosen by the synchronizer; no caller task window,
+/// stream subset, or filter pattern can narrow this source.
+pub struct CloudWatchHistorySourceV1<T> {
+    binding: CloudWatchPlanV1,
+    transport: T,
+}
+
+impl<T> CloudWatchHistorySourceV1<T> {
+    pub fn new(binding: CloudWatchPlanV1, transport: T) -> Result<Self, CloudWatchPlanErrorV1> {
+        if !binding.log_streams.is_empty()
+            || binding.filter_pattern.is_some()
+            || binding.start_time_millis.is_some()
+            || binding.end_time_millis.is_some()
+        {
+            return Err(CloudWatchPlanErrorV1::InvalidScope);
+        }
+        Ok(Self { binding, transport })
+    }
+}
+
+impl<T: CloudWatchTransportV1> HistoryPageSourceV1 for CloudWatchHistorySourceV1<T> {
+    fn fetch_page(
+        &mut self,
+        partition: HistoryPartitionV1,
+        next_token: Option<&[u8]>,
+    ) -> Result<HistoryPageV1, HistorySyncErrorV1> {
+        let plan = CloudWatchPlanV1::new(
+            self.binding.account.clone(),
+            self.binding.region.clone(),
+            self.binding.log_group.clone(),
+            [],
+            Some(partition.start_millis),
+            Some(partition.end_millis),
+            None,
+            self.binding.caps,
+        )
+        .map_err(|_| HistorySyncErrorV1::InvalidConfiguration)?;
+        let request = CloudWatchFilterRequestV1 {
+            plan,
+            next_token: next_token.map(<[u8]>::to_vec),
+        };
+        let page = self
+            .transport
+            .filter_log_events(&request)
+            .map_err(|error| match error {
+                CloudWatchTransportErrorV1::PermissionDenied => {
+                    HistorySyncErrorV1::PermissionDenied
+                }
+                CloudWatchTransportErrorV1::AuthenticationChanged => {
+                    HistorySyncErrorV1::AuthenticationChanged
+                }
+                CloudWatchTransportErrorV1::TokenExpired => HistorySyncErrorV1::TokenExpired,
+                CloudWatchTransportErrorV1::ThrottlingExhausted => HistorySyncErrorV1::Throttled,
+                CloudWatchTransportErrorV1::NetworkFailure => HistorySyncErrorV1::Network,
+                CloudWatchTransportErrorV1::ProviderFailure => HistorySyncErrorV1::Provider,
+            })?;
+        Ok(HistoryPageV1 {
+            records: page
+                .events
+                .into_iter()
+                .map(|event| HistoryRecordV1 {
+                    native_id: cloudwatch_native_identity(&request.plan, &event),
+                    event_timestamp_millis: event.event_timestamp_millis,
+                    bytes: event.message,
+                })
+                .collect(),
+            next_token: page.next_token,
+        })
+    }
+}
 
 pub struct CloudWatchAdapterV1<T> {
     plan: CloudWatchPlanV1,
