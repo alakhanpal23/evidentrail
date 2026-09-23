@@ -3,13 +3,17 @@
 
 use std::env;
 use std::ffi::OsString;
-use std::fs::{self, DirBuilder, OpenOptions};
-use std::io::{self, Write as _};
+use std::fs::{self, DirBuilder, File, OpenOptions};
+use std::io::{self, Read as _, Write as _};
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use evidentrail_cli::{
+    AuthorizedCorpus, ConnectedLogPack, OpenAiIncidentReasoner, select_connected_logs,
+};
 use evidentrail_corpus::{EncryptedHistoryStore, MacOsCorpusKeychainV1};
 use evidentrail_ingest::{
     AwsCloudWatchTransportV1, CloudWatchCapsV1, CloudWatchHistorySourceV1, CloudWatchPlanV1,
@@ -56,6 +60,233 @@ pub(super) fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
 
 const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
 const MAX_SYNC_PAGES: usize = 256;
+
+struct ConnectedQueryOptions {
+    task: String,
+    max_raw_bytes: usize,
+}
+
+pub(super) fn run_logs(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
+    let options = parse_logs_args(args.into_iter())?;
+    let authority = MacOsCorpusKeychainV1::production();
+    let tenant = authority
+        .local_tenant_digest()
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let entries = authority
+        .list_bound(&tenant)
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    if entries.is_empty() || entries.len() > 32 {
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_LOGS_SOURCE_COUNT_UNSUPPORTED",
+        ));
+    }
+    let high_water = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
+        .as_millis() as i64;
+    let mut stores = Vec::new();
+    let mut source_states = Vec::new();
+    for entry in entries {
+        let binding: CloudWatchDescriptor = serde_json::from_slice(&entry.descriptor)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+        validate_binding(&binding)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+        let source_id = hex(&entry.source_digest);
+        let path = corpus_path(&entry.source_digest, false)?;
+        if !path.is_file() {
+            source_states.push(json!({
+                "source_id": source_id,
+                "state": "excluded_corpus_missing"
+            }));
+            continue;
+        }
+        let key = authority
+            .load(&tenant, &entry.source_digest)
+            .map_err(|error| CliFailure::runtime(error.code()))?;
+        let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &entry.source_digest)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
+        let source_plan = plan(&binding)?;
+        let progress = AwsCloudWatchTransportV1::connect(
+            source_plan.clone(),
+            &binding.account,
+            binding.profile.as_deref(),
+        )
+        .map_err(|error| format!("{error:?}"))
+        .and_then(|transport| {
+            let mut source = CloudWatchHistorySourceV1::new(source_plan, transport)
+                .map_err(|_| "InvalidConfiguration".to_owned())?;
+            bounded_sync(&mut source, &mut store, high_water).map_err(|error| format!("{error:?}"))
+        });
+        match progress {
+            Ok(progress) => {
+                source_states.push(json!({
+                    "source_id": source_id,
+                    "state": progress.status,
+                    "reconciliation": progress.reconciliation,
+                    "scanned_through_millis": store.read_checkpoint().map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?.map(|value| value.completed_through_millis),
+                    "high_water_millis": high_water,
+                }));
+                stores.push((entry.source_digest, store));
+            }
+            Err(error) => {
+                source_states.push(json!({
+                    "source_id": source_id,
+                    "state": "excluded_sync_error",
+                    "error": error,
+                }));
+            }
+        }
+    }
+    if stores.is_empty() {
+        serde_json::to_writer(
+            io::stderr().lock(),
+            &json!({"sources": source_states, "coverage": "no_authorized_source"}),
+        )
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_METADATA_WRITE_FAILED"))?;
+        writeln!(io::stderr().lock())
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_METADATA_WRITE_FAILED"))?;
+        return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_NO_AUTHORIZED_SOURCE"));
+    }
+    let authorized = stores
+        .iter()
+        .map(|(source_digest, store)| AuthorizedCorpus {
+            source_digest: *source_digest,
+            store,
+        })
+        .collect::<Vec<_>>();
+    let mut selector = OpenAiIncidentReasoner::from_compact_environment()
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let pack = select_connected_logs(
+        &authorized,
+        &options.task,
+        options.max_raw_bytes,
+        &mut selector,
+    )
+    .map_err(|error| CliFailure::runtime(error.code()))?;
+    let body = render_connected_logs(&pack)?;
+    let partial_source = source_states
+        .iter()
+        .any(|state| state["state"] != "scanned_to_high_water")
+        || source_states
+            .iter()
+            .any(|state| state["reconciliation"] != "recent_lookback_scanned");
+    let metadata = json!({
+        "sources": source_states,
+        "coverage": if partial_source { "partial" } else { "unverified_provider_consistency" },
+        "candidate_count": pack.candidate_count,
+        "graph_candidate_count": pack.graph_candidate_count,
+        "candidate_pool_truncated": pack.candidate_pool_truncated,
+        "output_budget_truncated": pack.output_budget_truncated,
+        "selected_groups": pack.selected.len(),
+        "total_groups": pack.total_groups,
+        "raw_byte_budget": options.max_raw_bytes,
+    });
+    serde_json::to_writer(io::stderr().lock(), &metadata)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_METADATA_WRITE_FAILED"))?;
+    writeln!(io::stderr().lock())
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_METADATA_WRITE_FAILED"))?;
+    io::stdout()
+        .lock()
+        .write_all(&body)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_OUTPUT_FAILED"))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+fn parse_logs_args(
+    mut args: impl Iterator<Item = OsString>,
+) -> Result<ConnectedQueryOptions, CliFailure> {
+    let mut task = None;
+    let mut task_file = None;
+    let mut max_raw_bytes = None;
+    while let Some(option) = args.next() {
+        let target = if option == "--task" {
+            &mut task
+        } else if option == "--task-file" {
+            &mut task_file
+        } else if option == "--max-raw-bytes" {
+            &mut max_raw_bytes
+        } else {
+            return Err(CliFailure::usage("EVIDENTRAIL_LOGS_UNKNOWN_OPTION"));
+        };
+        let value = args
+            .next()
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_LOGS_MISSING_VALUE"))?
+            .into_string()
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_LOGS_INVALID_VALUE"))?;
+        if target.replace(value).is_some() {
+            return Err(CliFailure::usage("EVIDENTRAIL_LOGS_DUPLICATE_OPTION"));
+        }
+    }
+    if task.is_some() == task_file.is_some() {
+        return Err(CliFailure::usage("EVIDENTRAIL_LOGS_TASK_REQUIRED"));
+    }
+    let task = if let Some(path) = task_file {
+        let file = File::open(path)
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_LOGS_TASK_FILE_UNAVAILABLE"))?;
+        let mut bytes = Vec::new();
+        file.take(4097)
+            .read_to_end(&mut bytes)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_TASK_FILE_READ_FAILED"))?;
+        String::from_utf8(bytes).map_err(|_| CliFailure::usage("EVIDENTRAIL_LOGS_TASK_INVALID"))?
+    } else {
+        task.expect("one task source")
+    };
+    if task.trim().is_empty() || task.len() > 4096 {
+        return Err(CliFailure::usage("EVIDENTRAIL_LOGS_TASK_INVALID"));
+    }
+    let max_raw_bytes = if let Some(value) = max_raw_bytes {
+        value
+            .parse::<usize>()
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_LOGS_BUDGET_INVALID"))?
+    } else {
+        32 * 1024
+    };
+    if max_raw_bytes == 0 || max_raw_bytes > 256 * 1024 {
+        return Err(CliFailure::usage("EVIDENTRAIL_LOGS_BUDGET_INVALID"));
+    }
+    Ok(ConnectedQueryOptions {
+        task,
+        max_raw_bytes,
+    })
+}
+
+fn render_connected_logs(pack: &ConnectedLogPack) -> Result<Vec<u8>, CliFailure> {
+    let mut output = Vec::new();
+    for entry in &pack.selected {
+        let source_id = hex(&entry.source_digest);
+        for (position, native_id, raw) in [
+            (
+                "first",
+                entry.first_native_id.as_slice(),
+                entry.first_raw.as_slice(),
+            ),
+            (
+                "last",
+                entry.last_native_id.as_deref().unwrap_or_default(),
+                entry.last_raw.as_deref().unwrap_or_default(),
+            ),
+        ] {
+            if position == "last" && entry.last_native_id.is_none() {
+                continue;
+            }
+            let mut row = json!({
+                "source_id": source_id,
+                "native_id": URL_SAFE_NO_PAD.encode(native_id),
+                "position": position,
+                "repeat_count": entry.repeat_count,
+            });
+            if let Ok(original) = std::str::from_utf8(raw) {
+                row["raw"] = json!(original);
+            } else {
+                row["raw_base64"] = json!(URL_SAFE_NO_PAD.encode(raw));
+            }
+            serde_json::to_writer(&mut output, &row)
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_OUTPUT_FAILED"))?;
+            output.push(b'\n');
+        }
+    }
+    Ok(output)
+}
 
 fn sync_sources() -> Result<ExitCode, CliFailure> {
     let authority = MacOsCorpusKeychainV1::production();
@@ -524,6 +755,48 @@ mod tests {
         assert!(
             parse_cloudwatch_args(["--account", "123"].into_iter().map(OsString::from)).is_err()
         );
+    }
+
+    #[test]
+    fn connected_logs_require_task_and_render_exact_source_bytes() {
+        assert!(parse_logs_args(Vec::<OsString>::new().into_iter()).is_err());
+        assert!(parse_logs_args(["--task", "  "].into_iter().map(OsString::from)).is_err());
+        let parsed = parse_logs_args(
+            ["--task", "reservation failure", "--max-raw-bytes", "1024"]
+                .into_iter()
+                .map(OsString::from),
+        )
+        .unwrap();
+        assert_eq!(parsed.task, "reservation failure");
+        assert_eq!(parsed.max_raw_bytes, 1024);
+        let pack = ConnectedLogPack {
+            source_record_counts: vec![([2; 32], 2)],
+            total_groups: 1,
+            candidate_count: 1,
+            graph_candidate_count: 0,
+            candidate_pool_truncated: false,
+            output_budget_truncated: false,
+            selected: vec![evidentrail_cli::ConnectedLogEntry {
+                source_digest: [2; 32],
+                first_native_id: b"event-1".to_vec(),
+                first_raw: b"error\nline".to_vec(),
+                last_native_id: Some(b"event-2".to_vec()),
+                last_raw: Some(vec![0xff, 0x00]),
+                repeat_count: 2,
+            }],
+        };
+        let body = render_connected_logs(&pack).unwrap();
+        let lines = body
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+        let first: serde_json::Value = serde_json::from_slice(lines[0]).unwrap();
+        let last: serde_json::Value = serde_json::from_slice(lines[1]).unwrap();
+        assert_eq!(first["raw"], "error\nline");
+        assert_eq!(first["repeat_count"], 2);
+        assert_eq!(last["raw_base64"], URL_SAFE_NO_PAD.encode([0xff, 0x00]));
+        assert_eq!(last["native_id"], URL_SAFE_NO_PAD.encode(b"event-2"));
     }
 
     #[test]

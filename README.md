@@ -16,6 +16,9 @@ target/release/evidentrail sources connect-cloudwatch \
   --log-group /aws/example --profile my-readonly-profile
 target/release/evidentrail sources list
 target/release/evidentrail sources sync
+EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
+  target/release/evidentrail logs --task "Find checkout failures" \
+  --max-raw-bytes 32768
 ```
 
 Registration verifies the AWS caller and log-group read access, then creates a
@@ -24,8 +27,12 @@ source-bound Keychain key and encrypted local corpus. It reports
 durable checkpoint and replays recent history after reaching its high-water
 mark. Run it again to continue a partial backfill. It reports provisional
 coverage because provider consistency and older late arrivals are not yet
-fully verified. Background scheduling, connected query, and MCP access are
-still under development.
+fully verified. `logs` catches up each source, excludes sources whose current
+authorization or sync fails, selects groups globally, and writes original
+source records as JSON lines on stdout. Source status and retrieval truncation
+go to stderr as JSON. The byte budget counts original log bytes, not rendered
+JSON or model tokens. Background scheduling and connected MCP access are still
+under development; no live AWS sandbox has validated this flow yet.
 
 The first log-only prototype is available as `compact`. It accepts an explicit
 log stream with no time-window parameter and returns model-selected original

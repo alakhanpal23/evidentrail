@@ -65,12 +65,20 @@ explicitly reports backfill pending. A manual `sources sync` command now makes
 bounded forward progress with adaptive partition widths and replays a recent
 lookback when it reaches the high-water mark. An encrypted-corpus fixture proves
 forward scan plus deduplicated replay, and an endless-pagination fixture proves
-the per-source page cap preserves a partial status and checkpoint. The current
+the per-source page cap preserves a partial status and checkpoint. A connected
+`logs` CLI command now attempts catch-up, excludes a source when current access
+or sync cannot be verified, and selects from all remaining same-tenant corpora
+in one model pass. Model IDs include a source index; code checks each selection
+and resolves original records within that source. CLI stdout contains JSON lines
+with exact source text or Base64 for non-UTF-8 records, while stderr carries
+coverage and truncation metadata. Unit tests cover same native IDs in different
+sources and exact rendering. The current
 scan starts at epoch because a verified provider availability boundary is not
 yet persisted; coarse partitions may spend calls on empty early history. A
 `sources sync` smoke run on this Mac waited for a Keychain authorization prompt
-after rebuilding the binary and was stopped. It reports provisional coverage; the
-connected scheduler, query, and verified completeness semantics remain missing.
+after rebuilding the binary and was stopped. The connected CLI query has not
+been validated against live AWS, and a connected MCP tool, scheduler, and
+verified completeness semantics remain missing.
 The corpus still receives its key from a caller; cross-platform key authority,
 query access control, broader graph-aware retrieval, and the complete connected
 user flow are missing. The login Keychain is used because this

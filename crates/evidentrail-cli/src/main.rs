@@ -49,7 +49,7 @@ use evidentrail_store::{
     DurableRepositoryErrorV2, DurableResultRepositoryV2, MacOsKeychainAuthorityV2,
 };
 
-const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail sources connect-cloudwatch --account ID --region REGION --log-group GROUP [--profile PROFILE]\n  evidentrail sources list\n  evidentrail sources sync\n  evidentrail compact [--task TEXT | --task-file PATH] < utf8-logs\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank | --llm-rank-if-contended] < logs\n  evidentrail analyze (--question TEXT | --question-file PATH) [--topology PATH] [--metrics PATH --incident-time UNIX] [--traces PATH] [--confirmed-incidents PATH] [--selection-only] < utf8-logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nSources registration and bounded manual sync are macOS-only. Sync reports provisional coverage; connected query and background scheduling are not yet wired.\nCompact selects log groups with EVIDENTRAIL_COMPACT_LOCAL_MODEL on Ollama or hosted GPT-6 Sol (OPENAI_API_KEY) and emits only original log lines with repeat counts.\nThe explicit stdin prototype is bounded to 16 MiB; connected full-history indexing is not yet shipped.\nAnalyze requires OPENAI_API_KEY for hosted inference, or set\nEVIDENTRAIL_ANALYZE_LOCAL_MODEL to use an Ollama model on 127.0.0.1:11434.\nOllama must load at least 16K for metric-only analysis or 32K when alert groups are present.\n--selection-only previews the exact local evidence selection without a model call.\nAnalyze groups repeated alerts, computes optional metric changes, derives observed\nservice relationships from explicit NDJSON parent-child spans, optionally compares\noperator-confirmed incident patterns, and checks model citations. Hypotheses and dependency edges do not establish causality. Brief\nreads only explicit standard input and retention defaults to memory. --llm-rank is an\nexplicit memory-mode beta opt-in to one hosted evidence-ordering call.\n--llm-rank-if-contended calls only when deterministic packing excluded a\nmodel-visible optional block. Deterministic compression remains the fallback\nand default. Streaming V3 is behind EVIDENTRAIL_STREAMING_V3=1; durable brief\nretention is explicit and requires external authority. Doctor inspects metadata\nfor one explicit file. The product does not discover files, crawl a workspace,\nor inspect ambient logs. Use --question-file to keep a question out of the process\nargument list. The pinned tokenizer conservatively counts one rendered UTF-8 byte\nas one budget unit; this is not a model-token count.\n";
+const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail sources connect-cloudwatch --account ID --region REGION --log-group GROUP [--profile PROFILE]\n  evidentrail sources list\n  evidentrail sources sync\n  evidentrail logs (--task TEXT | --task-file PATH) [--max-raw-bytes N]\n  evidentrail compact [--task TEXT | --task-file PATH] < utf8-logs\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank | --llm-rank-if-contended] < logs\n  evidentrail analyze (--question TEXT | --question-file PATH) [--topology PATH] [--metrics PATH --incident-time UNIX] [--traces PATH] [--confirmed-incidents PATH] [--selection-only] < utf8-logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nSources and connected logs are macOS-only. Logs catches up authorized sources before global selection, prints original source records on stdout and provisional coverage metadata on stderr. Background scheduling and connected MCP are not yet wired.\nCompact selects log groups with EVIDENTRAIL_COMPACT_LOCAL_MODEL on Ollama or hosted GPT-6 Sol (OPENAI_API_KEY) and emits only original log lines with repeat counts.\nThe explicit stdin prototype is bounded to 16 MiB; connected full-history indexing is not yet shipped.\nAnalyze requires OPENAI_API_KEY for hosted inference, or set\nEVIDENTRAIL_ANALYZE_LOCAL_MODEL to use an Ollama model on 127.0.0.1:11434.\nOllama must load at least 16K for metric-only analysis or 32K when alert groups are present.\n--selection-only previews the exact local evidence selection without a model call.\nAnalyze groups repeated alerts, computes optional metric changes, derives observed\nservice relationships from explicit NDJSON parent-child spans, optionally compares\noperator-confirmed incident patterns, and checks model citations. Hypotheses and dependency edges do not establish causality. Brief\nreads only explicit standard input and retention defaults to memory. --llm-rank is an\nexplicit memory-mode beta opt-in to one hosted evidence-ordering call.\n--llm-rank-if-contended calls only when deterministic packing excluded a\nmodel-visible optional block. Deterministic compression remains the fallback\nand default. Streaming V3 is behind EVIDENTRAIL_STREAMING_V3=1; durable brief\nretention is explicit and requires external authority. Doctor inspects metadata\nfor one explicit file. The product does not discover files, crawl a workspace,\nor inspect ambient logs. Use --question-file to keep a question out of the process\nargument list. The pinned tokenizer conservatively counts one rendered UTF-8 byte\nas one budget unit; this is not a model-token count.\n";
 
 const DOCTOR_SUCCESS_CODE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_FILE_METADATA_OK";
 const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str =
@@ -105,6 +105,7 @@ enum ParseDecision {
     Doctor(DoctorOptions),
     ServeMcp(ServeMcpOptions),
     Sources(Vec<std::ffi::OsString>),
+    ConnectedLogs(Vec<std::ffi::OsString>),
     Help,
     Version,
 }
@@ -175,6 +176,17 @@ fn run() -> Result<ExitCode, CliFailure> {
                 Err(CliFailure::runtime("EVIDENTRAIL_SOURCES_UNSUPPORTED_HOST"))
             }
         }
+        ParseDecision::ConnectedLogs(args) => {
+            #[cfg(target_os = "macos")]
+            {
+                connected_cli::run_logs(args)
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = args;
+                Err(CliFailure::runtime("EVIDENTRAIL_LOGS_UNSUPPORTED_HOST"))
+            }
+        }
     }
 }
 
@@ -193,6 +205,9 @@ fn parse_args(
     }
     if command == "sources" {
         return Ok(ParseDecision::Sources(args.collect()));
+    }
+    if command == "logs" {
+        return Ok(ParseDecision::ConnectedLogs(args.collect()));
     }
     if command == "serve-mcp" {
         let mut retention = McpRetentionSelectionV1::Memory;

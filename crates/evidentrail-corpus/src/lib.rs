@@ -528,6 +528,22 @@ impl EncryptedHistoryStore {
         }))
     }
 
+    /// Return the immutable tenant/source binding recorded in this encrypted
+    /// file so a query coordinator can reject mislabeled or mixed-scope stores.
+    pub fn scope_digests(&self) -> Result<([u8; 32], [u8; 32]), CorpusError> {
+        let (tenant, source): (Vec<u8>, Vec<u8>) = self
+            .connection
+            .query_row(
+                "SELECT tenant_digest, source_digest FROM corpus_scope WHERE singleton = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let tenant = tenant.try_into().map_err(|_| CorpusError::ScopeMismatch)?;
+        let source = source.try_into().map_err(|_| CorpusError::ScopeMismatch)?;
+        Ok((tenant, source))
+    }
+
     pub fn commit_page_checked(&mut self, records: &[HistoryRecordV1]) -> Result<(), CorpusError> {
         let transaction = self
             .connection

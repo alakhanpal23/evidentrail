@@ -5,6 +5,7 @@
 //! connection ownership, catch-up, and query authorization are not yet wired
 //! into the public CLI or MCP surface.
 
+mod connected_compaction;
 mod corpus_compaction;
 mod external_corpus_v3;
 mod hosted_ranking;
@@ -12,6 +13,9 @@ mod incident_analysis;
 mod log_compaction;
 mod mcp;
 
+pub use connected_compaction::{
+    AuthorizedCorpus, ConnectedLogEntry, ConnectedLogPack, select_connected_logs,
+};
 pub use corpus_compaction::{IndexedLogEntry, IndexedLogPack, select_indexed_logs};
 pub use incident_analysis::{
     AnalysisError, AnalysisReport, EvidenceCitation, EvidenceEvent, EvidenceHighlight, FaultType,
