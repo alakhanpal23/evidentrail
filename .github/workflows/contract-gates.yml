@@ -24,7 +24,9 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt --all -- --check
       - run: bash -n scripts/production-qualification.sh
+      # Keep warnings-as-errors linting reproducible as new stable Clippy adds lints.
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        if: matrix.toolchain == '1.88.0'
       - run: cargo test --workspace --all-targets
       - run: cargo run -p evidentrail-wire --all-features --bin evidentrail-wire-schema -- --check
 
