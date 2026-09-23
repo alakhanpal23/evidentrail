@@ -371,6 +371,8 @@ dependencies = [
  "evidentrail-authority",
  "evidentrail-compile",
  "evidentrail-core",
+ "evidentrail-corpus",
+ "evidentrail-ingest",
  "evidentrail-local-file",
  "evidentrail-log-model",
  "evidentrail-product",

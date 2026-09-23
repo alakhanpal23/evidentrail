@@ -14,6 +14,7 @@ base64.workspace = true
 evidentrail-authority.workspace = true
 evidentrail-compile.workspace = true
 evidentrail-core.workspace = true
+evidentrail-corpus.workspace = true
 evidentrail-local-file.workspace = true
 evidentrail-log-model.workspace = true
 evidentrail-product.workspace = true
@@ -28,6 +29,7 @@ zeroize.workspace = true
 reqwest.workspace = true
 
 [dev-dependencies]
+evidentrail-ingest.workspace = true
 evidentrail-store = { workspace = true, features = ["internal-test-provider"] }
 
 [lints]

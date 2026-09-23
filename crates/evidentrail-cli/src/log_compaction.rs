@@ -26,6 +26,7 @@ pub enum CompactionError {
     Provider,
     SensitiveInput,
     LocalContextTooSmall,
+    Corpus,
 }
 
 impl CompactionError {
@@ -39,6 +40,7 @@ impl CompactionError {
             Self::Provider => "EVIDENTRAIL_COMPACT_PROVIDER_FAILURE",
             Self::SensitiveInput => "EVIDENTRAIL_COMPACT_SENSITIVE_INPUT",
             Self::LocalContextTooSmall => "EVIDENTRAIL_COMPACT_LOCAL_CONTEXT_TOO_SMALL",
+            Self::Corpus => "EVIDENTRAIL_COMPACT_CORPUS_FAILURE",
         }
     }
 }

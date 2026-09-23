@@ -62,6 +62,12 @@ pub struct StoredHistoryRecord {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordSample {
+    pub prefix: Vec<u8>,
+    pub original_byte_len: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CorpusCursor {
     pub event_timestamp_millis: i64,
     pub native_id: Vec<u8>,
@@ -788,6 +794,31 @@ impl EncryptedHistoryStore {
             .map_err(|_| CorpusError::Storage)
     }
 
+    /// Read only a bounded prefix for ranking; callers must resolve the full
+    /// original record by native ID before including it in a log pack.
+    pub fn read_record_sample(
+        &self,
+        native_id: &[u8],
+        max_bytes: usize,
+    ) -> Result<Option<RecordSample>, CorpusError> {
+        if max_bytes == 0 || max_bytes > 4096 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        self.connection
+            .query_row(
+                "SELECT substr(raw, 1, ?2), length(raw) FROM history_records WHERE native_id = ?1",
+                params![native_id, max_bytes as i64],
+                |row| {
+                    Ok(RecordSample {
+                        prefix: row.get(0)?,
+                        original_byte_len: row.get(1)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|_| CorpusError::Storage)
+    }
+
     /// Read a bounded page in stable `(event timestamp, native ID)` order.
     /// The cursor names the last returned record; replaying it is harmless.
     pub fn read_page(
@@ -1190,6 +1221,13 @@ mod tests {
                 .commit_page_checked(std::slice::from_ref(&record))
                 .unwrap();
             assert_eq!(store.record_count().unwrap(), 1);
+            assert_eq!(
+                store.read_record_sample(b"event-1", 6).unwrap().unwrap(),
+                RecordSample {
+                    prefix: b"secret".to_vec(),
+                    original_byte_len: 19
+                }
+            );
             store
                 .complete_partition_checked(HistoryCheckpointV1 {
                     completed_through_millis: 10,

@@ -29,7 +29,13 @@ The corpus now maintains exact template-group counts and first/last source
 references in the same transaction as raw ingestion, using the same parser as
 the CLI. It has an encrypted lexical group index and a bounded task-query API
 that reports candidate truncation; this is an unvalidated candidate stage,
-not yet the connected model-guided retrieval product. It also maintains
+not yet the connected product. The CLI library now has an internal indexed
+selector that gives a local or hosted model bounded group cards, validates
+selected group IDs, and resolves selected first/last records to their original
+bytes and exact repeat counts. Its output metadata reports candidate and output
+budget truncation. It operates on one already-authorized store; the public
+connected query, multi-source catch-up, completeness receipt, and source-level
+query authorization remain missing. The corpus also maintains
 versioned, explicitly observed service edges whose counts and endpoint records
 resolve to original logs; unrelated service co-occurrence does not create an
 edge. Older corpora rebuild missing groups, graph evidence, and lexical terms

@@ -1,18 +1,18 @@
-//! Bounded memory and durable product entry points for explicit standard input.
+//! Supplied-log entry points and an internal indexed-corpus selector.
 //!
-//! Neither mode reopens a source path, crawls a workspace, nor inspects ambient
-//! logs. The caller owns the exact bytes, supplies one question, and receives
-//! either the canonical deterministic Log Brief or an honest `needs_more`
-//! decision. Memory remains the binary default. On Unix, injected V1 and V2
-//! backends provide authenticated exact expansion; V2 returns a rendered result
-//! only after repository publication authority has been verified.
+//! The legacy memory and durable modes accept only explicit standard input.
+//! The indexed selector operates on a caller-authorized encrypted corpus;
+//! connection ownership, catch-up, and query authorization are not yet wired
+//! into the public CLI or MCP surface.
 
+mod corpus_compaction;
 mod external_corpus_v3;
 mod hosted_ranking;
 mod incident_analysis;
 mod log_compaction;
 mod mcp;
 
+pub use corpus_compaction::{IndexedLogEntry, IndexedLogPack, select_indexed_logs};
 pub use incident_analysis::{
     AnalysisError, AnalysisReport, EvidenceCitation, EvidenceEvent, EvidenceHighlight, FaultType,
     Hypothesis, HypothesisSupport, IncidentReasoner, ModelAssessment, OpenAiIncidentReasoner,
