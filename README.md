@@ -69,6 +69,12 @@ A six-case [log-and-metric pilot](reports/rcaeval-selection/README.md#local-log-
 localized the service in every case but got only two fault types right, again
 matching the simple metric baseline. Its mean local latency was about two
 minutes per case.
+An [independent 18-case log-only abstention pilot](reports/independent-log-abstention/README.md)
+found that a revised causal-limit prompt kept the same two correct top-service
+answers among six log-informative incidents and abstained on four of five
+unresolvable cases, versus two of five before the change. It still made five
+wrong top-service attributions across the set. The prompt was tuned on these
+same cases, so this is a development result, not held-out validation.
 
 The offline brief's matched-budget and executable results below are
 **synthetic**. Real-incident accuracy remains unproven. The next release gate
