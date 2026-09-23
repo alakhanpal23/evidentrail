@@ -75,6 +75,16 @@ its service-plus-fault score remains unmeasured. The baseline shows that a
 model must add value beyond a strong service-localization heuristic, especially
 for fault-type discrimination.
 
+The six `catalogue` fault-1 cases illustrate why service localization and
+failure-mode diagnosis need separate scores. In the metric-only selection
+window, the disk case has no `diskio` signal for `catalogue`, and the loss case
+has no `error` signal for that service. The socket case does expose a socket
+change, but its CPU relative shift is much larger. These are properties of the
+selected summaries, not evidence that the injected faults did not occur. A
+metric-only model should be allowed to return `unknown` or abstain when the
+visible signals cannot distinguish the failure mode; a fault-type hit rate
+without that abstention count would overstate diagnostic usefulness.
+
 ## Combined log-and-metric selection probe
 
 `six-case-combined.jsonl` records the six `catalogue` fault types with both
