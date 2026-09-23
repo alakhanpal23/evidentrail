@@ -120,14 +120,17 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
                 output.write(traces)
             command.extend(["--traces", trace_path])
         start = time.perf_counter()
-        run = subprocess.run(
-            command,
-            input=source,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            timeout=60,
-        )
+        try:
+            run = subprocess.run(
+                command,
+                input=source,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=75,
+            )
+        except subprocess.TimeoutExpired:
+            return {"case": case, "status": "product_error", "error_code": "EVIDENTRAIL_PROBE_TIMEOUT"}
         elapsed = time.perf_counter() - start
     if run.returncode:
         return {"case": case, "status": "product_error", "error_code": run.stderr.decode("utf-8", "replace").strip()}
