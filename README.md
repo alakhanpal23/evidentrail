@@ -210,11 +210,11 @@ question and excludes logs that may contain credentials. Its selected evidence
 still contains a measurement from the labeled service in these six cases and four
 additional cases from other Sock Shop services. The benchmark script uses the
 labels only after selection to score coverage; no LLM diagnosis result has
-been measured. The [ten-case selection report](reports/rcaeval-selection/README.md)
-records the pinned cases and case-level aggregate output.
-In that selected sample, a simple largest-metric-shift baseline identifies
-the labeled service in 9 of 10 cases; a future LLM result must be compared
-against it and tested on a broader held-out set.
+been measured. The [RCAEval selection report](reports/rcaeval-selection/README.md)
+records pinned case-level aggregate output. Across all 90 RE2 Sock Shop cases,
+a simple largest-metric-shift baseline identifies the labeled service in 84
+but the service-and-fault pair in only 37. A future LLM result must be compared
+against this baseline and tested on a separate held-out set.
 
 Once `OPENAI_API_KEY` is configured, the same script can run the hosted model
 with `--with-metrics --metrics-only --generic-question --live-model`. It reports

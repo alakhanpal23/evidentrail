@@ -41,3 +41,36 @@ cases. That is a small, selected sample, not a general accuracy estimate, but
 it sets a concrete bar for the hosted model. The metric selected as largest
 within the correct service can still be a symptom of a different injected
 fault.
+
+## Expanded RE2 Sock Shop probe
+
+`ninety-case-metric-only.jsonl` records all 90 pinned RE2 Sock Shop cases at
+Evidentrail revision `7202a7b`. Reproduce with:
+
+```sh
+python3 scripts/rcaeval-log-probe.py \
+  --with-metrics --metrics-only --generic-question --all-re2-ss
+```
+
+The 24-summary model context contained a metric from the labeled service in
+all 90 cases. The largest-shift metric for that service was visible in all 90.
+A naive baseline that selects the service of the single largest bounded metric
+shift identifies the labeled service in **84/90** cases. If it also maps that
+metric's name to a fault (`cpu`, `mem`, `socket` directly; `diskio` to `disk`,
+`latency-*` to `delay`, `error` to `loss`), it predicts the injected fault type
+in **42/90** and the correct service-plus-fault pair in **37/90**.
+
+| Fault | Cases | Naive service | Naive fault | Joint |
+|---|---:|---:|---:|---:|
+| CPU | 15 | 15 | 15 | 15 |
+| Delay | 15 | 12 | 15 | 12 |
+| Disk | 15 | 14 | 7 | 7 |
+| Loss | 15 | 13 | 2 | 0 |
+| Memory | 15 | 15 | 3 | 3 |
+| Socket | 15 | 15 | 0 | 0 |
+
+This is an exploratory public-data baseline, not a hidden test. We previously
+inspected and adjusted selection on a subset of these cases. No LLM was run;
+its service-plus-fault score remains unmeasured. The baseline shows that a
+model must add value beyond a strong service-localization heuristic, especially
+for fault-type discrimination.
