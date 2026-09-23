@@ -15,6 +15,7 @@ evidentrail-authority.workspace = true
 evidentrail-compile.workspace = true
 evidentrail-core.workspace = true
 evidentrail-local-file.workspace = true
+evidentrail-log-model.workspace = true
 evidentrail-product.workspace = true
 evidentrail-schema.workspace = true
 evidentrail-snapshot-format.workspace = true

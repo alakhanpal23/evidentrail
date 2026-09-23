@@ -372,6 +372,7 @@ dependencies = [
  "evidentrail-compile",
  "evidentrail-core",
  "evidentrail-local-file",
+ "evidentrail-log-model",
  "evidentrail-product",
  "evidentrail-schema",
  "evidentrail-snapshot-format",
@@ -410,7 +411,9 @@ name = "evidentrail-corpus"
 version = "0.1.0"
 dependencies = [
  "evidentrail-ingest",
+ "evidentrail-log-model",
  "rusqlite",
+ "sha2",
  "zeroize",
 ]
 
@@ -451,6 +454,13 @@ dependencies = [
  "evidentrail-wire",
  "rustix",
  "sha2",
+]
+
+[[package]]
+name = "evidentrail-log-model"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

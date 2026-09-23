@@ -11,8 +11,13 @@ use std::time::Duration;
 use evidentrail_ingest::{
     HistoryCheckpointV1, HistoryPageStoreV1, HistoryRecordV1, HistorySyncErrorV1,
 };
-use rusqlite::{Connection, OptionalExtension as _, TransactionBehavior, params};
+use evidentrail_log_model::parse_event;
+use rusqlite::{Connection, OptionalExtension as _, Transaction, TransactionBehavior, params};
+use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
+
+const PARSER_INDEX_VERSION: i64 = 1;
+const MAX_RAW_RECORD_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CorpusError {
@@ -23,6 +28,8 @@ pub enum CorpusError {
     InvalidCheckpoint,
     InvalidPageBudget,
     RecordExceedsPageBudget,
+    RecordTooLarge,
+    IndexVersionMismatch,
     Storage,
 }
 
@@ -37,6 +44,8 @@ impl CorpusError {
             Self::InvalidCheckpoint => "EVIDENTRAIL_CORPUS_INVALID_CHECKPOINT",
             Self::InvalidPageBudget => "EVIDENTRAIL_CORPUS_INVALID_PAGE_BUDGET",
             Self::RecordExceedsPageBudget => "EVIDENTRAIL_CORPUS_RECORD_EXCEEDS_PAGE_BUDGET",
+            Self::RecordTooLarge => "EVIDENTRAIL_CORPUS_RECORD_TOO_LARGE",
+            Self::IndexVersionMismatch => "EVIDENTRAIL_CORPUS_INDEX_VERSION_MISMATCH",
             Self::Storage => "EVIDENTRAIL_CORPUS_STORAGE_FAILURE",
         }
     }
@@ -60,6 +69,18 @@ pub struct CorpusPage {
     pub records: Vec<StoredHistoryRecord>,
     /// `None` means the end was reached at the moment of this read.
     pub next_cursor: Option<CorpusCursor>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CorpusGroupCard {
+    pub group_id: i64,
+    pub service: String,
+    pub role: String,
+    pub repeat_count: u64,
+    pub first_timestamp_millis: i64,
+    pub last_timestamp_millis: i64,
+    pub first_native_id: Vec<u8>,
+    pub last_native_id: Vec<u8>,
 }
 
 pub struct EncryptedHistoryStore {
@@ -109,6 +130,7 @@ impl EncryptedHistoryStore {
                 "PRAGMA journal_mode=WAL;
                  PRAGMA synchronous=FULL;
                  PRAGMA secure_delete=ON;
+                 PRAGMA foreign_keys=ON;
                  CREATE TABLE IF NOT EXISTS corpus_scope (
                      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                      tenant_digest BLOB NOT NULL,
@@ -121,7 +143,24 @@ impl EncryptedHistoryStore {
                      raw BLOB NOT NULL
                  );
                  CREATE INDEX IF NOT EXISTS history_records_time
-                     ON history_records(event_timestamp_millis, native_id);",
+                     ON history_records(event_timestamp_millis, native_id);
+                 CREATE TABLE IF NOT EXISTS log_groups (
+                     group_id INTEGER PRIMARY KEY,
+                     service TEXT NOT NULL,
+                     role TEXT NOT NULL,
+                     fingerprint_digest BLOB NOT NULL,
+                     repeat_count INTEGER NOT NULL,
+                     first_timestamp_millis INTEGER NOT NULL,
+                     first_native_id BLOB NOT NULL,
+                     last_timestamp_millis INTEGER NOT NULL,
+                     last_native_id BLOB NOT NULL,
+                     UNIQUE(service, role, fingerprint_digest)
+                 );
+                 CREATE TABLE IF NOT EXISTS group_members (
+                     native_id BLOB PRIMARY KEY REFERENCES history_records(native_id),
+                     group_id INTEGER NOT NULL REFERENCES log_groups(group_id)
+                 );
+                 CREATE INDEX IF NOT EXISTS group_members_group ON group_members(group_id);",
             )
             .map_err(|_| CorpusError::Storage)?;
         connection
@@ -141,7 +180,93 @@ impl EncryptedHistoryStore {
         if bound.0 != tenant_digest || bound.1 != source_digest {
             return Err(CorpusError::ScopeMismatch);
         }
-        Ok(Self { connection })
+        connection
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS index_metadata (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    parser_version INTEGER NOT NULL
+                 );",
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO index_metadata(singleton, parser_version) VALUES (1, ?1)",
+                [PARSER_INDEX_VERSION],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let version: i64 = connection
+            .query_row(
+                "SELECT parser_version FROM index_metadata WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        if version != PARSER_INDEX_VERSION {
+            return Err(CorpusError::IndexVersionMismatch);
+        }
+        let mut store = Self { connection };
+        store.index_unindexed_records()?;
+        Ok(store)
+    }
+
+    fn index_unindexed_records(&mut self) -> Result<(), CorpusError> {
+        let (records, members) = self.index_membership_counts()?;
+        if records == members {
+            return Ok(());
+        }
+        let mut cursor = None::<CorpusCursor>;
+        loop {
+            let page = self.read_page(cursor.as_ref(), 64, MAX_RAW_RECORD_BYTES)?;
+            if page.records.is_empty() {
+                break;
+            }
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|_| CorpusError::Storage)?;
+            for record in &page.records {
+                let indexed = transaction
+                    .query_row(
+                        "SELECT 1 FROM group_members WHERE native_id = ?1",
+                        [&record.native_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()
+                    .map_err(|_| CorpusError::Storage)?
+                    .is_some();
+                if !indexed {
+                    index_new_record(
+                        &transaction,
+                        &HistoryRecordV1 {
+                            native_id: record.native_id.clone(),
+                            event_timestamp_millis: record.event_timestamp_millis,
+                            bytes: record.bytes.clone(),
+                        },
+                    )?;
+                }
+            }
+            transaction.commit().map_err(|_| CorpusError::Storage)?;
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        let (records, members) = self.index_membership_counts()?;
+        if records != members {
+            return Err(CorpusError::Storage);
+        }
+        Ok(())
+    }
+
+    fn index_membership_counts(&self) -> Result<(i64, i64), CorpusError> {
+        self.connection
+            .query_row(
+                "SELECT (SELECT count(*) FROM history_records),
+                        (SELECT count(*) FROM group_members)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| CorpusError::Storage)
     }
 
     pub fn read_checkpoint(&self) -> Result<Option<HistoryCheckpointV1>, CorpusError> {
@@ -166,6 +291,9 @@ impl EncryptedHistoryStore {
         for record in records {
             if record.native_id.is_empty() || record.event_timestamp_millis < 0 {
                 return Err(CorpusError::Storage);
+            }
+            if record.bytes.len() > MAX_RAW_RECORD_BYTES {
+                return Err(CorpusError::RecordTooLarge);
             }
             let prior = transaction
                 .query_row(
@@ -194,6 +322,7 @@ impl EncryptedHistoryStore {
                             ],
                         )
                         .map_err(|_| CorpusError::Storage)?;
+                    index_new_record(&transaction, record)?;
                 }
             }
         }
@@ -225,6 +354,49 @@ impl EncryptedHistoryStore {
             .map_err(|_| CorpusError::Storage)
     }
 
+    pub fn group_count(&self) -> Result<u64, CorpusError> {
+        self.connection
+            .query_row("SELECT count(*) FROM log_groups", [], |row| row.get(0))
+            .map_err(|_| CorpusError::Storage)
+    }
+
+    /// Stable, bounded group-card scan. Cards contain no generated log text;
+    /// callers resolve the native IDs through `get_record` when needed.
+    pub fn read_group_cards(
+        &self,
+        after_group_id: i64,
+        limit: usize,
+    ) -> Result<Vec<CorpusGroupCard>, CorpusError> {
+        if after_group_id < 0 || limit == 0 || limit > 256 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT group_id, service, role, repeat_count,
+                        first_timestamp_millis, last_timestamp_millis,
+                        first_native_id, last_native_id
+                 FROM log_groups WHERE group_id > ?1 ORDER BY group_id LIMIT ?2",
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let rows = statement
+            .query_map(params![after_group_id, limit as i64], |row| {
+                Ok(CorpusGroupCard {
+                    group_id: row.get(0)?,
+                    service: row.get(1)?,
+                    role: row.get(2)?,
+                    repeat_count: row.get(3)?,
+                    first_timestamp_millis: row.get(4)?,
+                    last_timestamp_millis: row.get(5)?,
+                    first_native_id: row.get(6)?,
+                    last_native_id: row.get(7)?,
+                })
+            })
+            .map_err(|_| CorpusError::Storage)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)
+    }
+
     pub fn get_record(&self, native_id: &[u8]) -> Result<Option<StoredHistoryRecord>, CorpusError> {
         self.connection
             .query_row(
@@ -251,7 +423,11 @@ impl EncryptedHistoryStore {
         max_records: usize,
         max_bytes: usize,
     ) -> Result<CorpusPage, CorpusError> {
-        if max_records == 0 || max_records > 256 || max_bytes == 0 || max_bytes > 16 * 1024 * 1024 {
+        if max_records == 0
+            || max_records > 256
+            || max_bytes == 0
+            || max_bytes > MAX_RAW_RECORD_BYTES
+        {
             return Err(CorpusError::InvalidPageBudget);
         }
         let timestamp = after.map(|cursor| cursor.event_timestamp_millis);
@@ -309,6 +485,95 @@ impl EncryptedHistoryStore {
             next_cursor,
         })
     }
+}
+
+fn index_new_record(
+    transaction: &Transaction<'_>,
+    record: &HistoryRecordV1,
+) -> Result<(), CorpusError> {
+    // The parser is advisory metadata. Invalid UTF-8 is lossily interpreted
+    // here, while the authoritative bytes remain untouched in history_records.
+    let text = String::from_utf8_lossy(&record.bytes);
+    let parsed = parse_event(0, &text);
+    let digest = Sha256::digest(parsed.fingerprint.as_bytes());
+    let prior = transaction
+        .query_row(
+            "SELECT group_id, repeat_count, first_timestamp_millis, first_native_id,
+                    last_timestamp_millis, last_native_id
+             FROM log_groups
+             WHERE service = ?1 AND role = ?2 AND fingerprint_digest = ?3",
+            params![&parsed.service, parsed.role, digest.as_slice()],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Vec<u8>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, Vec<u8>>(5)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|_| CorpusError::Storage)?;
+    let group_id = if let Some((id, count, first_time, first_id, last_time, last_id)) = prior {
+        let next_count = count.checked_add(1).ok_or(CorpusError::Storage)?;
+        let current_key = (record.event_timestamp_millis, record.native_id.as_slice());
+        let first_key = (first_time, first_id.as_slice());
+        let last_key = (last_time, last_id.as_slice());
+        let (next_first_time, next_first_id) = if current_key < first_key {
+            (record.event_timestamp_millis, record.native_id.as_slice())
+        } else {
+            (first_time, first_id.as_slice())
+        };
+        let (next_last_time, next_last_id) = if current_key > last_key {
+            (record.event_timestamp_millis, record.native_id.as_slice())
+        } else {
+            (last_time, last_id.as_slice())
+        };
+        transaction
+            .execute(
+                "UPDATE log_groups SET repeat_count = ?1,
+                    first_timestamp_millis = ?2, first_native_id = ?3,
+                    last_timestamp_millis = ?4, last_native_id = ?5
+                 WHERE group_id = ?6",
+                params![
+                    next_count,
+                    next_first_time,
+                    next_first_id,
+                    next_last_time,
+                    next_last_id,
+                    id
+                ],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        id
+    } else {
+        transaction
+            .execute(
+                "INSERT INTO log_groups(
+                    service, role, fingerprint_digest, repeat_count,
+                    first_timestamp_millis, first_native_id,
+                    last_timestamp_millis, last_native_id
+                 ) VALUES (?1, ?2, ?3, 1, ?4, ?5, ?4, ?5)",
+                params![
+                    &parsed.service,
+                    parsed.role,
+                    digest.as_slice(),
+                    record.event_timestamp_millis,
+                    &record.native_id
+                ],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        transaction.last_insert_rowid()
+    };
+    transaction
+        .execute(
+            "INSERT INTO group_members(native_id, group_id) VALUES (?1, ?2)",
+            params![&record.native_id, group_id],
+        )
+        .map_err(|_| CorpusError::Storage)?;
+    Ok(())
 }
 
 impl HistoryPageStoreV1 for EncryptedHistoryStore {
@@ -525,6 +790,102 @@ mod tests {
             store.read_page(None, 2, 2),
             Err(CorpusError::RecordExceedsPageBudget)
         );
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn group_index_is_atomic_idempotent_and_orders_late_records() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[12; 32], &[1; 32], &[2; 32]).unwrap();
+        let first = HistoryRecordV1 {
+            native_id: b"late".to_vec(),
+            event_timestamp_millis: 20,
+            bytes: b"[checkout] ERROR: request trace_id=bbb status=503".to_vec(),
+        };
+        let earlier = HistoryRecordV1 {
+            native_id: b"early".to_vec(),
+            event_timestamp_millis: 10,
+            bytes: b"[checkout] ERROR: request trace_id=aaa status=503".to_vec(),
+        };
+        store
+            .commit_page_checked(std::slice::from_ref(&first))
+            .unwrap();
+        store
+            .commit_page_checked(std::slice::from_ref(&earlier))
+            .unwrap();
+        store
+            .commit_page_checked(std::slice::from_ref(&earlier))
+            .unwrap();
+        assert_eq!(store.record_count().unwrap(), 2);
+        assert_eq!(store.group_count().unwrap(), 1);
+        let cards = store.read_group_cards(0, 64).unwrap();
+        assert_eq!(cards[0].repeat_count, 2);
+        assert_eq!(cards[0].first_native_id, b"early");
+        assert_eq!(cards[0].last_native_id, b"late");
+        let distinct = HistoryRecordV1 {
+            native_id: b"other".to_vec(),
+            event_timestamp_millis: 30,
+            bytes: b"[checkout] ERROR: request trace_id=ccc status=429".to_vec(),
+        };
+        store.commit_page_checked(&[distinct]).unwrap();
+        assert_eq!(store.group_count().unwrap(), 2);
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn reopen_rebuilds_missing_group_members_and_rejects_unknown_parser_version() {
+        let path = test_path();
+        let key = [13; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            store
+                .commit_page_checked(&[HistoryRecordV1 {
+                    native_id: b"event".to_vec(),
+                    event_timestamp_millis: 5,
+                    bytes: b"[api] ERROR: failed".to_vec(),
+                }])
+                .unwrap();
+            store
+                .connection
+                .execute("DELETE FROM group_members", [])
+                .unwrap();
+            store
+                .connection
+                .execute("DELETE FROM log_groups", [])
+                .unwrap();
+        }
+        {
+            let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert_eq!(store.record_count().unwrap(), 1);
+            assert_eq!(store.group_count().unwrap(), 1);
+            assert_eq!(store.read_group_cards(0, 64).unwrap()[0].repeat_count, 1);
+            store
+                .connection
+                .execute("UPDATE index_metadata SET parser_version = 999", [])
+                .unwrap();
+        }
+        assert!(matches!(
+            EncryptedHistoryStore::open(&path, &key, &tenant, &source),
+            Err(CorpusError::IndexVersionMismatch)
+        ));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn oversized_record_cannot_make_a_corpus_unreadable_on_reopen() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[14; 32], &[1; 32], &[2; 32]).unwrap();
+        let result = store.commit_page_checked(&[HistoryRecordV1 {
+            native_id: b"too-large".to_vec(),
+            event_timestamp_millis: 1,
+            bytes: vec![b'x'; MAX_RAW_RECORD_BYTES + 1],
+        }]);
+        assert_eq!(result, Err(CorpusError::RecordTooLarge));
+        assert_eq!(store.record_count().unwrap(), 0);
         drop(store);
         cleanup(&path);
     }

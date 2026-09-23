@@ -11,7 +11,9 @@ description = "Encrypted full-history log corpus for Evidentrail"
 
 [dependencies]
 evidentrail-ingest.workspace = true
+evidentrail-log-model.workspace = true
 rusqlite.workspace = true
+sha2.workspace = true
 zeroize.workspace = true
 
 [lints]

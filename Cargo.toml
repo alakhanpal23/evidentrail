@@ -12,6 +12,7 @@ members = [
     "crates/evidentrail-framing",
     "crates/evidentrail-ingest",
     "crates/evidentrail-local-file",
+    "crates/evidentrail-log-model",
     "crates/evidentrail-product",
     "crates/evidentrail-schema",
     "crates/evidentrail-select",
@@ -45,6 +46,7 @@ evidentrail-evidence = { path = "crates/evidentrail-evidence" }
 evidentrail-framing = { path = "crates/evidentrail-framing" }
 evidentrail-ingest = { path = "crates/evidentrail-ingest" }
 evidentrail-local-file = { path = "crates/evidentrail-local-file" }
+evidentrail-log-model = { path = "crates/evidentrail-log-model" }
 evidentrail-product = { path = "crates/evidentrail-product" }
 evidentrail-schema = { path = "crates/evidentrail-schema" }
 evidentrail-select = { path = "crates/evidentrail-select" }

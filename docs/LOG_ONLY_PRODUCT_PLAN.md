@@ -11,7 +11,7 @@ lines, asks a local or hosted model to select group IDs, verifies the IDs, and
 emits selected original lines with repeat counts. Its in-process API can
 expand an advertised line to bounded original neighbors; no cross-call
 expansion handle is shipped. Its graph currently consists only of explicitly
-named peer services in JSON log records. It has no searchable full-history index,
+named peer services in JSON log records. It has no task-searchable full-history retrieval path,
 connector credentials, background synchronization, cross-call graph memory,
 or verified learning loop. These
 are release requirements, not existing capabilities. The current group-card
@@ -25,9 +25,13 @@ only after the final page of a partition. A SQLCipher-encrypted per-source
 corpus now durably stores raw records and completed-partition checkpoints.
 Reopening after an incomplete partition replays pages idempotently, while
 conflicting native IDs, wrong keys, and tenant/source mismatches fail closed.
-The key is still supplied by a caller; production key authority, index
-construction, query access control, and a live provider transport are
-missing. A CloudWatch history-source adapter maps internal partitions to
+The corpus now maintains exact template-group counts and first/last source
+references in the same transaction as raw ingestion, using the same parser as
+the CLI. An older raw-only corpus rebuilds missing groups on reopen; an
+unknown parser-index version fails closed. The key is still supplied by a
+caller; production key authority, task-based index retrieval, query access
+control, and a live provider transport are missing. A CloudWatch
+history-source adapter maps internal partitions to
 unfiltered log-group page requests, but it does not provide AWS credentials or
 network calls yet. One scan to a high-water mark does not prove complete
 coverage under provider eventual consistency; reconciliation is required.

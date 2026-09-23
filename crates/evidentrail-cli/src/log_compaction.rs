@@ -5,7 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::incident_analysis::{ParsedEvent, contains_sensitive_data, parse_event};
+use evidentrail_log_model::{ParsedEvent, parse_event};
+
+use crate::incident_analysis::contains_sensitive_data;
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_INPUT_LINES: usize = 100_000;

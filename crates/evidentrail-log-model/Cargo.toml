@@ -1,0 +1,16 @@
+[package]
+name = "evidentrail-log-model"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "Shared log parsing and template normalization for Evidentrail"
+
+[dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
