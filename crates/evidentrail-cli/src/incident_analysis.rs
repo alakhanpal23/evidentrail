@@ -2097,6 +2097,7 @@ fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         })
         .filter(|name| valid_service(name))
         .map(str::to_owned)
+        .or_else(|| bracketed_service(raw).map(str::to_owned))
         .or_else(|| field_value(raw, "service="))
         .unwrap_or_else(|| "unknown".to_owned());
     let level = parsed
@@ -2122,6 +2123,7 @@ fn parse_event(line: usize, raw: &str) -> ParsedEvent {
                 })
                 .map(str::to_owned)
         })
+        .or_else(|| bracketed_level(raw).map(str::to_owned))
         .or_else(|| field_value(raw, "level="))
         .unwrap_or_default();
     let role = classify_role(&level, message);
@@ -2164,6 +2166,24 @@ fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         fingerprint,
         timestamp,
     }
+}
+
+fn bracketed_service(raw: &str) -> Option<&str> {
+    let (name, _) = raw.strip_prefix('[')?.split_once(']')?;
+    valid_service(name).then_some(name)
+}
+
+fn bracketed_level(raw: &str) -> Option<&str> {
+    let (_, suffix) = raw.strip_prefix('[')?.split_once(']')?;
+    let level = suffix
+        .split_ascii_whitespace()
+        .next()?
+        .trim_end_matches(':');
+    matches!(
+        level.to_ascii_lowercase().as_str(),
+        "fatal" | "critical" | "panic" | "error" | "err" | "warn" | "warning" | "info" | "debug"
+    )
+    .then_some(level)
 }
 
 fn otel_resource_service(value: &Value) -> Option<&str> {
@@ -2832,6 +2852,20 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::thread;
+
+    #[test]
+    fn bracketed_service_logs_keep_service_severity_and_source_line() {
+        let raw = "[frontend] ERROR: TraceID: abc Failed to call service=checkoutservice";
+        let event = parse_event(7, raw);
+        assert_eq!(event.id, "L7");
+        assert_eq!(event.raw, raw);
+        assert_eq!(event.service, "frontend");
+        assert_eq!(event.role, "error");
+
+        let warning = parse_event(8, "[checkoutservice] WARN: upstream timeout");
+        assert_eq!(warning.service, "checkoutservice");
+        assert_eq!(warning.role, "warning");
+    }
 
     struct CheckingReasoner {
         expected_group_count: usize,
