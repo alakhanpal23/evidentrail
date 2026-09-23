@@ -35,6 +35,16 @@ pub fn explicit_peer_service(raw: &str) -> Option<String> {
     .iter()
     .find_map(|key| value.get(*key).and_then(Value::as_str))
     .or_else(|| value.pointer("/peer/service").and_then(Value::as_str))
+    .or_else(|| {
+        value
+            .pointer("/attributes/attributes/peer.service")
+            .and_then(Value::as_str)
+    })
+    .or_else(|| {
+        value
+            .pointer("/attributes/attributes/peer/service")
+            .and_then(Value::as_str)
+    })
     .filter(|name| valid_service(name))
     .map(str::to_owned)
 }
@@ -65,6 +75,7 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
                 .and_then(Value::as_str)
                 .or_else(|| value.get("body").and_then(Value::as_str))
                 .or_else(|| value.pointer("/body/stringValue").and_then(Value::as_str))
+                .or_else(|| value.pointer("/attributes/message").and_then(Value::as_str))
         })
         .unwrap_or(raw);
     let service = parsed
@@ -79,6 +90,7 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
                         .and_then(Value::as_str)
                 })
                 .or_else(|| value.get("service.name").and_then(Value::as_str))
+                .or_else(|| value.pointer("/attributes/service").and_then(Value::as_str))
                 .or_else(|| otel_resource_service(value))
         })
         .filter(|name| valid_service(name))
@@ -93,6 +105,7 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
                 .get("severity_text")
                 .or_else(|| value.get("severityText"))
                 .or_else(|| value.get("level"))
+                .or_else(|| value.pointer("/attributes/status"))
                 .and_then(Value::as_str)
         })
         .map(str::to_owned)
@@ -374,5 +387,22 @@ fn classify_role(level: &str, message: &str) -> &'static str {
         "change"
     } else {
         "context"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn datadog_source_record_groups_by_nested_message_and_explicit_peer() {
+        let raw = r#"{"id":"evt-1","type":"log","attributes":{"service":"checkout","status":"error","message":"inventory reservation failed","attributes":{"peer.service":"database"}}}"#;
+        let event = parse_event(1, raw);
+        assert_eq!(event.service, "checkout");
+        assert_eq!(event.role, "error");
+        assert_eq!(event.fingerprint, "inventory reservation failed");
+        assert_eq!(explicit_peer_service(raw).as_deref(), Some("database"));
+        let unrelated = r#"{"id":"evt-2","type":"log","attributes":{"service":"checkout","message":"database is mentioned only in text"}}"#;
+        assert_eq!(explicit_peer_service(unrelated), None);
     }
 }

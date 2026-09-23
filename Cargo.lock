@@ -907,8 +907,13 @@ dependencies = [
  "aws-sdk-sts",
  "evidentrail-core",
  "evidentrail-schema",
+ "reqwest",
+ "serde",
+ "serde_json",
  "sha2",
+ "time",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]

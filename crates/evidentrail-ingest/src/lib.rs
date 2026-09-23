@@ -10,6 +10,7 @@ mod batch;
 mod cloudwatch;
 #[cfg(feature = "cloudwatch-sdk")]
 mod cloudwatch_sdk;
+mod datadog;
 mod deadline;
 mod error;
 mod full_history;
@@ -31,6 +32,7 @@ pub use cloudwatch::{
 };
 #[cfg(feature = "cloudwatch-sdk")]
 pub use cloudwatch_sdk::AwsCloudWatchTransportV1;
+pub use datadog::{DatadogHistorySourceV1, DatadogSiteV1, DatadogStorageTierV1};
 pub use deadline::{
     CooperativeDeadline, CooperativeStopReason, DeadlineConstructionError, MonotonicClock,
     SystemMonotonicClock,

@@ -17,8 +17,8 @@ use rusqlite::{Connection, OptionalExtension as _, Transaction, TransactionBehav
 use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
 
-const PARSER_INDEX_VERSION: i64 = 1;
-const GRAPH_INDEX_VERSION: i64 = 1;
+const PARSER_INDEX_VERSION: i64 = 2;
+const GRAPH_INDEX_VERSION: i64 = 2;
 const TERM_INDEX_VERSION: i64 = 1;
 const MAX_RAW_RECORD_BYTES: usize = 16 * 1024 * 1024;
 
@@ -273,7 +273,7 @@ impl EncryptedHistoryStore {
                 |row| row.get(0),
             )
             .map_err(|_| CorpusError::Storage)?;
-        if version != PARSER_INDEX_VERSION {
+        if !matches!(version, 1 | PARSER_INDEX_VERSION) {
             return Err(CorpusError::IndexVersionMismatch);
         }
         connection
@@ -291,7 +291,7 @@ impl EncryptedHistoryStore {
                 |row| row.get(0),
             )
             .map_err(|_| CorpusError::Storage)?;
-        if graph_extractor_version != GRAPH_INDEX_VERSION {
+        if !matches!(graph_extractor_version, 1 | GRAPH_INDEX_VERSION) {
             return Err(CorpusError::IndexVersionMismatch);
         }
         connection
@@ -310,6 +310,37 @@ impl EncryptedHistoryStore {
             .map_err(|_| CorpusError::Storage)?;
         if term_version != TERM_INDEX_VERSION {
             return Err(CorpusError::IndexVersionMismatch);
+        }
+        if version == 1 {
+            // Reset derived state atomically. A crash during the subsequent
+            // bounded backfill leaves version 2 with missing memberships,
+            // which `index_unindexed_records` resumes on the next open.
+            connection
+                .execute_batch(
+                    "BEGIN IMMEDIATE;
+                 DELETE FROM group_members;
+                 DELETE FROM group_terms;
+                 DELETE FROM log_groups;
+                 DELETE FROM edge_evidence;
+                 DELETE FROM service_edges;
+                 UPDATE index_metadata SET parser_version = 2 WHERE singleton = 1;
+                 UPDATE graph_metadata SET extractor_version = 2,
+                     graph_version = 0, backfill_complete = 0 WHERE singleton = 1;
+                 UPDATE term_metadata SET backfill_complete = 0 WHERE singleton = 1;
+                 COMMIT;",
+                )
+                .map_err(|_| CorpusError::Storage)?;
+        } else if graph_extractor_version == 1 {
+            connection
+                .execute_batch(
+                    "BEGIN IMMEDIATE;
+                 DELETE FROM edge_evidence;
+                 DELETE FROM service_edges;
+                 UPDATE graph_metadata SET extractor_version = 2,
+                     graph_version = 0, backfill_complete = 0 WHERE singleton = 1;
+                 COMMIT;",
+                )
+                .map_err(|_| CorpusError::Storage)?;
         }
         let mut store = Self { connection };
         store.index_unindexed_records()?;
@@ -1526,6 +1557,58 @@ mod tests {
             EncryptedHistoryStore::open(&path, &key, &tenant, &source),
             Err(CorpusError::IndexVersionMismatch)
         ));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn v1_index_migrates_nested_datadog_fields_without_changing_source_bytes() {
+        let path = test_path();
+        let key = [25; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        let raw = br#"{"id":"evt-1","type":"log","attributes":{"service":"checkout","status":"error","message":"inventory failed","attributes":{"peer.service":"database"}}}"#.to_vec();
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            store
+                .commit_page_checked(&[HistoryRecordV1 {
+                    native_id: b"evt-1".to_vec(),
+                    event_timestamp_millis: 5,
+                    bytes: raw.clone(),
+                }])
+                .unwrap();
+            store
+                .connection
+                .execute("UPDATE log_groups SET service = 'unknown'", [])
+                .unwrap();
+            store
+                .connection
+                .execute("UPDATE index_metadata SET parser_version = 1", [])
+                .unwrap();
+            store
+                .connection
+                .execute("UPDATE graph_metadata SET extractor_version = 1", [])
+                .unwrap();
+        }
+        {
+            let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert_eq!(store.get_record(b"evt-1").unwrap().unwrap().bytes, raw);
+            assert_eq!(
+                store.read_group_cards(0, 10).unwrap()[0].service,
+                "checkout"
+            );
+            let edges = store.read_edge_cards(None, 10).unwrap();
+            assert_eq!(edges.len(), 1);
+            assert_eq!(edges[0].source_service, "checkout");
+            assert_eq!(edges[0].target_service, "database");
+            assert_eq!(
+                store
+                    .search_candidate_groups("inventory", 10)
+                    .unwrap()
+                    .groups
+                    .len(),
+                1
+            );
+        }
         cleanup(&path);
     }
 

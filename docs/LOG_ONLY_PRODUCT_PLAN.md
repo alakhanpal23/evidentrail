@@ -38,8 +38,10 @@ connected query, multi-source catch-up, completeness receipt, and source-level
 query authorization remain missing. The corpus also maintains
 versioned, explicitly observed service edges whose counts and endpoint records
 resolve to original logs; unrelated service co-occurrence does not create an
-edge. Older corpora rebuild missing groups, graph evidence, and lexical terms
-on reopen; unknown index versions fail closed. The key is still supplied by a
+edge. The parser now recognizes Datadog's nested message, service, severity,
+and explicit peer fields while the corpus retains the exact API log record.
+Existing v1 corpora transactionally reset derived indexes and rebuild them
+under parser/graph v2; unknown versions fail closed. The key is still supplied by a
 caller; production key authority, query access control, graph-aware candidate
 retrieval, and a connected user flow are missing. A CloudWatch history-source
 adapter maps internal partitions to unfiltered log-group page requests. An
@@ -50,6 +52,13 @@ empty-page continuation and exact event mapping. Live AWS sandbox validation,
 user-facing connection setup, and reconciliation are still missing. One scan
 to a high-water mark does not prove complete
 coverage under provider eventual consistency; reconciliation is required.
+The Datadog source now queries `*` across all indexes for one explicitly
+chosen storage tier, pages by `meta.page.after`, and rejects partial warnings
+or malformed events before checkpoint advancement. A connected run must cover
+each authorized tier (indexes, online archives, and Flex) and report tiers it
+cannot access. Local HTTP fixtures cover empty-page continuation and exact
+source JSON retention; live Datadog validation and credential/org binding are
+still missing.
 
 ## One product contract
 
