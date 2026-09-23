@@ -25,6 +25,11 @@ only after the final page of a partition. A SQLCipher-encrypted per-source
 corpus now durably stores raw records and completed-partition checkpoints.
 Reopening after an incomplete partition replays pages idempotently, while
 conflicting native IDs, wrong keys, and tenant/source mismatches fail closed.
+The ingestion contract now supports a bounded reconciliation replay of
+already-checkpointed partitions to capture late provider arrivals without
+moving the forward checkpoint. It reports partial replay on page or partition
+limits. This is not wired to a connected scheduler and cannot establish full
+coverage of arbitrarily late records or history already expired at the source.
 The corpus now maintains exact template-group counts and first/last source
 references in the same transaction as raw ingestion, using the same parser as
 the CLI. It has an encrypted lexical group index and a bounded task-query API
@@ -123,7 +128,10 @@ is simpler.
    stable event identities, and continuously catch up after backfill. Do not
    assume a provider page token survives a process restart: resume from a
    durable timestamp partition with overlap, deduplicate by source-native ID,
-   and reconcile late arrivals. Preserve original bytes, source identity,
+   and reconcile late arrivals. The initial reconciliation replay covers a
+   configured recent lookback; add a durable reconciliation cursor and
+   provider-specific consistency tests before claiming full accessible-history
+   coverage. Preserve original bytes, source identity,
    provider event ID/cursor, timestamps when present, and parse confidence.
    Group by stable template, service, severity, and diagnostic fields. Repeated
    request IDs and timestamps should collapse; distinct error codes and

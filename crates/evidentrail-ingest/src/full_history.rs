@@ -73,6 +73,9 @@ pub enum HistorySyncStatusV1 {
     ScannedToHighWater,
     Backfilling,
     PartialPageLimit,
+    /// A completed replay of a bounded lookback. Older late arrivals remain
+    /// possible, so this does not certify complete provider coverage.
+    ReconciledLookback,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,6 +186,87 @@ pub fn synchronize_history_v1(
     }
     receipt.status = if completed_through == high_water_millis {
         HistorySyncStatusV1::ScannedToHighWater
+    } else {
+        HistorySyncStatusV1::Backfilling
+    };
+    Ok(receipt)
+}
+
+/// Replay a bounded portion of already-checkpointed history to discover late
+/// arrivals. The durable forward checkpoint is never moved by this pass. The
+/// caller chooses a system lookback policy, not a user query time window, and
+/// must report that records older than the lookback can still be missing.
+pub fn reconcile_history_v1(
+    source: &mut impl HistoryPageSourceV1,
+    store: &mut impl HistoryPageStoreV1,
+    lookback_millis: i64,
+    limits: HistorySyncLimitsV1,
+) -> Result<HistorySyncReceiptV1, HistorySyncErrorV1> {
+    if !limits.valid() || lookback_millis <= 0 {
+        return Err(HistorySyncErrorV1::InvalidConfiguration);
+    }
+    let high_water_millis = store
+        .checkpoint()?
+        .ok_or(HistorySyncErrorV1::InvalidConfiguration)?
+        .completed_through_millis;
+    if high_water_millis <= 0 {
+        return Err(HistorySyncErrorV1::InvalidConfiguration);
+    }
+    let start_millis = high_water_millis.saturating_sub(lookback_millis).max(0);
+    let mut cursor = start_millis;
+    let mut receipt = HistorySyncReceiptV1 {
+        status: HistorySyncStatusV1::Backfilling,
+        completed_through_millis: start_millis,
+        high_water_millis,
+        completed_partitions: 0,
+        committed_pages: 0,
+        submitted_records: 0,
+    };
+    while cursor < high_water_millis && receipt.completed_partitions < limits.max_partitions {
+        let end = cursor
+            .saturating_add(limits.partition_millis)
+            .min(high_water_millis);
+        let partition = HistoryPartitionV1 {
+            start_millis: cursor,
+            end_millis: end,
+        };
+        let mut next_token = None::<Vec<u8>>;
+        let mut seen_tokens = BTreeSet::new();
+        let mut pages = 0;
+        loop {
+            if pages == limits.max_pages_per_partition {
+                receipt.status = HistorySyncStatusV1::PartialPageLimit;
+                return Ok(receipt);
+            }
+            let page = source.fetch_page(partition, next_token.as_deref())?;
+            pages += 1;
+            if page.records.len() > limits.max_records_per_page
+                || page.records.iter().any(|record| {
+                    record.native_id.is_empty()
+                        || record.bytes.len() > limits.max_record_bytes
+                        || record.event_timestamp_millis < partition.start_millis
+                        || record.event_timestamp_millis > partition.end_millis
+                })
+            {
+                return Err(HistorySyncErrorV1::InvalidPage);
+            }
+            store.commit_page(&page.records)?;
+            receipt.committed_pages += 1;
+            receipt.submitted_records += page.records.len();
+            match page.next_token {
+                None => break,
+                Some(token) if token.is_empty() || !seen_tokens.insert(token.clone()) => {
+                    return Err(HistorySyncErrorV1::InvalidPage);
+                }
+                Some(token) => next_token = Some(token),
+            }
+        }
+        cursor = end;
+        receipt.completed_through_millis = end;
+        receipt.completed_partitions += 1;
+    }
+    receipt.status = if cursor == high_water_millis {
+        HistorySyncStatusV1::ReconciledLookback
     } else {
         HistorySyncStatusV1::Backfilling
     };
@@ -381,5 +465,72 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn reconciliation_captures_late_record_without_moving_forward_checkpoint() {
+        struct RecordingSource {
+            requested: Vec<HistoryPartitionV1>,
+        }
+        impl HistoryPageSourceV1 for RecordingSource {
+            fn fetch_page(
+                &mut self,
+                partition: HistoryPartitionV1,
+                _: Option<&[u8]>,
+            ) -> Result<HistoryPageV1, HistorySyncErrorV1> {
+                self.requested.push(partition);
+                let records = if partition.start_millis <= 15 && partition.end_millis >= 15 {
+                    vec![HistoryRecordV1 {
+                        native_id: b"late".to_vec(),
+                        event_timestamp_millis: 15,
+                        bytes: b"[checkout] ERROR late arrival".to_vec(),
+                    }]
+                } else {
+                    vec![]
+                };
+                Ok(HistoryPageV1 {
+                    records,
+                    next_token: None,
+                })
+            }
+        }
+        let mut source = RecordingSource { requested: vec![] };
+        let mut store = Store {
+            checkpoint: Some(HistoryCheckpointV1 {
+                completed_through_millis: 30,
+            }),
+            ..Store::default()
+        };
+        let mut scan_limits = limits(3);
+        scan_limits.max_partitions = 3;
+        let receipt = reconcile_history_v1(&mut source, &mut store, 20, scan_limits).unwrap();
+        assert_eq!(receipt.status, HistorySyncStatusV1::ReconciledLookback);
+        assert_eq!(receipt.completed_through_millis, 30);
+        assert_eq!(receipt.submitted_records, 1);
+        assert_eq!(store.records.len(), 1);
+        assert_eq!(store.checkpoint.unwrap().completed_through_millis, 30);
+        assert_eq!(source.requested[0].start_millis, 10);
+
+        let receipt = reconcile_history_v1(&mut source, &mut store, 20, scan_limits).unwrap();
+        assert_eq!(receipt.status, HistorySyncStatusV1::ReconciledLookback);
+        assert_eq!(store.records.len(), 1);
+    }
+
+    #[test]
+    fn incomplete_reconciliation_reports_partial_and_preserves_checkpoint() {
+        let mut source = Source(VecDeque::from([HistoryPageV1 {
+            records: vec![record()],
+            next_token: Some(b"next".to_vec()),
+        }]));
+        let mut store = Store {
+            checkpoint: Some(HistoryCheckpointV1 {
+                completed_through_millis: 10,
+            }),
+            ..Store::default()
+        };
+        let receipt = reconcile_history_v1(&mut source, &mut store, 10, limits(1)).unwrap();
+        assert_eq!(receipt.status, HistorySyncStatusV1::PartialPageLimit);
+        assert_eq!(receipt.completed_through_millis, 0);
+        assert_eq!(store.checkpoint.unwrap().completed_through_millis, 10);
     }
 }

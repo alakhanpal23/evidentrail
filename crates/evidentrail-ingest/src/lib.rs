@@ -41,7 +41,7 @@ pub use error::IngestError;
 pub use full_history::{
     HistoryCheckpointV1, HistoryPageSourceV1, HistoryPageStoreV1, HistoryPageV1,
     HistoryPartitionV1, HistoryRecordV1, HistorySyncErrorV1, HistorySyncLimitsV1,
-    HistorySyncReceiptV1, HistorySyncStatusV1, synchronize_history_v1,
+    HistorySyncReceiptV1, HistorySyncStatusV1, reconcile_history_v1, synchronize_history_v1,
 };
 pub use kubernetes::{
     KUBERNETES_ADAPTER_KIND_V1, KUBERNETES_ADAPTER_VERSION_V1, KubernetesAdapterV1,
