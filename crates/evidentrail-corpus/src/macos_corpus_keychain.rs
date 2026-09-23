@@ -80,6 +80,25 @@ impl MacOsCorpusKeychainV1 {
         })
     }
 
+    /// Stable random local tenant identity kept in this OS user's Keychain.
+    /// It is a namespace, not a substitute for server-side authorization.
+    pub fn local_tenant_digest(&self) -> Result<[u8; 32], CorpusKeychainErrorV1> {
+        let root_tenant = [0u8; 32];
+        let installation_source: [u8; 32] =
+            Sha256::digest(b"evidentrail/local-installation-key/v1\0").into();
+        let secret = match self.create(&root_tenant, &installation_source) {
+            Ok(created) => created,
+            Err(CorpusKeychainErrorV1::AlreadyExists) => {
+                self.load(&root_tenant, &installation_source)?
+            }
+            Err(error) => return Err(error),
+        };
+        let mut hash = Sha256::new();
+        hash.update(b"evidentrail/local-tenant-digest/v1\0");
+        hash.update(*secret);
+        Ok(hash.finalize().into())
+    }
+
     fn account(tenant_digest: &[u8; 32], source_digest: &[u8; 32]) -> String {
         let mut hash = Sha256::new();
         hash.update(b"evidentrail/corpus-key-account/v1\0");
@@ -380,6 +399,12 @@ mod tests {
                 .unwrap();
         let tenant = [1; 32];
         let source = [2; 32];
+        let installation_tenant = authority.local_tenant_digest().unwrap();
+        assert_eq!(
+            installation_tenant,
+            authority.local_tenant_digest().unwrap()
+        );
+        assert_ne!(installation_tenant, tenant);
         let created = authority.create(&tenant, &source).unwrap();
         assert_eq!(authority.load(&tenant, &source).unwrap(), created);
         assert_eq!(
@@ -409,5 +434,8 @@ mod tests {
         assert!(authority.list_bound(&[5; 32]).unwrap().is_empty());
         authority.destroy(&tenant, &bound_source).unwrap();
         assert!(authority.list_bound(&tenant).unwrap().is_empty());
+        let installation_source: [u8; 32] =
+            Sha256::digest(b"evidentrail/local-installation-key/v1\0").into();
+        authority.destroy(&[0; 32], &installation_source).unwrap();
     }
 }

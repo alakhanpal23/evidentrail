@@ -8,6 +8,21 @@
 > [implementation plan](docs/LOG_ONLY_PRODUCT_PLAN.md). The commands described
 > below are the current prototype and do not yet implement that connected flow.
 
+On macOS, CloudWatch connection registration is available with an AWS profile:
+
+```sh
+target/release/evidentrail sources connect-cloudwatch \
+  --account 123456789012 --region us-west-2 \
+  --log-group /aws/example --profile my-readonly-profile
+target/release/evidentrail sources list
+```
+
+Registration verifies the AWS caller and log-group read access, then creates a
+source-bound Keychain key and encrypted local corpus. It reports
+`registered_backfill_pending`: connected backfill, query, and MCP access are
+still under development. Do not use this registration command as a claim that
+historical logs have been ingested.
+
 The first log-only prototype is available as `compact`. It accepts an explicit
 log stream with no time-window parameter and returns model-selected original
 log lines with source IDs and repeat counts. Build it with Rust 1.88 or newer:

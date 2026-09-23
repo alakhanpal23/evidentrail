@@ -28,6 +28,9 @@ sha2.workspace = true
 zeroize.workspace = true
 reqwest.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+evidentrail-ingest = { workspace = true, features = ["cloudwatch-sdk"] }
+
 [dev-dependencies]
 evidentrail-ingest.workspace = true
 evidentrail-store = { workspace = true, features = ["internal-test-provider"] }

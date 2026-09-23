@@ -56,9 +56,15 @@ authority can also register and list bounded, non-secret source descriptors
 without returning keys, deriving each source digest from its descriptor. A
 live macOS create/list/reopen/revoke check passed. Provider-specific descriptor
 validation and credential storage are still caller responsibilities. The
-corpus still receives its key from a caller; connection setup, cross-platform
-key authority, query access control, broader graph-aware retrieval, and a
-connected user flow are missing. The login Keychain is used because this
+macOS CLI now offers `sources connect-cloudwatch` and `sources list`. Registration
+checks the AWS caller account and probes unfiltered log-group read access before
+creating a source-bound Keychain entry and private SQLCipher corpus. A live
+local Keychain/corpus reopen test passed, while `sources list` returned an empty
+catalog on this host. No AWS sandbox connection has been validated. Registration
+explicitly reports backfill pending; there is no connected sync or query yet.
+The corpus still receives its key from a caller; cross-platform key authority,
+query access control, broader graph-aware retrieval, and the complete connected
+user flow are missing. The login Keychain is used because this
 unsigned development binary cannot access the entitlement-gated macOS data
 protection Keychain; the login Keychain choice must be documented in the user
 security model. A CloudWatch history-source
@@ -67,7 +73,7 @@ optional AWS SDK transport now loads a configured identity, verifies its STS
 caller account on each page, binds source account/region/log group, and makes
 signed `FilterLogEvents` requests. A local HTTP contract test exercises
 empty-page continuation and exact event mapping. Live AWS sandbox validation,
-user-facing connection setup, and reconciliation are still missing. One scan
+connected backfill/catch-up, and scheduled reconciliation are still missing. One scan
 to a high-water mark does not prove complete
 coverage under provider eventual consistency; reconciliation is required.
 The Datadog source now queries `*` across all indexes for one explicitly
