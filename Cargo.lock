@@ -837,6 +837,7 @@ dependencies = [
  "evidentrail-store",
  "getrandom 0.4.3",
  "reqwest",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

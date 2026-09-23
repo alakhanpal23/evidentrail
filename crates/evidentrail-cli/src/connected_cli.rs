@@ -16,7 +16,8 @@ use crate::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use evidentrail_corpus::{
-    EncryptedHistoryStore, MacOsConnectedCredentialKeychainV1, MacOsCorpusKeychainV1,
+    ConnectedSourceDescriptorV1, CorpusKeychainErrorV1, EncryptedHistoryStore,
+    MacOsConnectedCredentialKeychainV1, MacOsCorpusKeychainV1,
 };
 use evidentrail_ingest::{
     AwsCloudWatchTransportV1, CloudWatchCapsV1, CloudWatchHistorySourceV1, CloudWatchPlanV1,
@@ -24,6 +25,7 @@ use evidentrail_ingest::{
     HistoryPartitionV1, HistorySyncErrorV1, HistorySyncLimitsV1, HistorySyncStatusV1,
     reconcile_history_v1, synchronize_history_v1,
 };
+use rustix::fs::{CWD, FlockOperation, Mode, OFlags, flock, openat};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use zeroize::Zeroizing;
@@ -98,9 +100,41 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
             return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
         }
         sync_sources()
+    } else if command == "disconnect" {
+        let option = args
+            .next()
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_SOURCES_SOURCE_ID_REQUIRED"))?;
+        if option != "--source-id" {
+            return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
+        }
+        let value = args
+            .next()
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_SOURCES_SOURCE_ID_REQUIRED"))?
+            .into_string()
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_SOURCES_SOURCE_ID_INVALID"))?;
+        if args.next().is_some() {
+            return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
+        }
+        disconnect_source(parse_source_digest(&value)?)
     } else {
         Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_COMMAND"))
     }
+}
+
+fn parse_source_digest(value: &str) -> Result<[u8; 32], CliFailure> {
+    if value.len() != 64
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_SOURCE_ID_INVALID"));
+    }
+    let mut digest = [0u8; 32];
+    for (index, byte) in digest.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_SOURCES_SOURCE_ID_INVALID"))?;
+    }
+    Ok(digest)
 }
 
 const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
@@ -114,6 +148,7 @@ struct ConnectedQueryOptions {
 pub(crate) struct ConnectedQueryResult {
     pub body: Vec<u8>,
     pub metadata: serde_json::Value,
+    _catalog_guard: File,
 }
 
 pub(crate) struct ConnectedQueryError {
@@ -165,6 +200,7 @@ pub(crate) fn query_connected_logs(
         code: failure.code,
         metadata: None,
     };
+    let catalog_guard = connected_catalog_lock().map_err(query_error)?;
     let authority = MacOsCorpusKeychainV1::production();
     let tenant = authority
         .local_tenant_digest()
@@ -285,7 +321,11 @@ pub(crate) fn query_connected_logs(
         "total_groups": pack.total_groups,
         "raw_byte_budget": max_raw_bytes,
     });
-    Ok(ConnectedQueryResult { body, metadata })
+    Ok(ConnectedQueryResult {
+        body,
+        metadata,
+        _catalog_guard: catalog_guard,
+    })
 }
 
 fn parse_logs_args(
@@ -385,6 +425,7 @@ fn render_connected_logs(pack: &ConnectedLogPack) -> Result<Vec<u8>, CliFailure>
 }
 
 fn sync_sources() -> Result<ExitCode, CliFailure> {
+    let _catalog_guard = connected_catalog_lock()?;
     let authority = MacOsCorpusKeychainV1::production();
     let tenant = authority
         .local_tenant_digest()
@@ -899,6 +940,7 @@ fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailur
             "EVIDENTRAIL_DATADOG_READ_VERIFICATION_FAILED",
         ));
     }
+    let _catalog_guard = connected_catalog_lock()?;
     let corpus_authority = MacOsCorpusKeychainV1::production();
     let credential_authority = MacOsConnectedCredentialKeychainV1::production();
     let tenant = corpus_authority
@@ -999,7 +1041,7 @@ fn rollback_datadog_registration(
     registered: &[([u8; 32], PathBuf)],
 ) -> Result<(), CliFailure> {
     for (source_digest, path) in registered {
-        remove_corpus_files(path)?;
+        remove_corpus_files(path, "EVIDENTRAIL_DATADOG_ROLLBACK_FAILED")?;
         corpus_authority
             .destroy(tenant, source_digest)
             .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROLLBACK_FAILED"))?;
@@ -1010,19 +1052,22 @@ fn rollback_datadog_registration(
     Ok(())
 }
 
-fn remove_corpus_files(path: &Path) -> Result<(), CliFailure> {
-    fs::remove_file(path)
-        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROLLBACK_FAILED"))?;
+fn remove_corpus_files(path: &Path, error_code: &'static str) -> Result<(), CliFailure> {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(_) => return Err(CliFailure::runtime(error_code)),
+    }
     let file_name = path
         .file_name()
-        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROLLBACK_FAILED"))?
+        .ok_or_else(|| CliFailure::runtime(error_code))?
         .to_string_lossy();
     for suffix in ["-wal", "-shm", "-journal"] {
         let sidecar = path.with_file_name(format!("{file_name}{suffix}"));
         match fs::remove_file(sidecar) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(_) => return Err(CliFailure::runtime("EVIDENTRAIL_DATADOG_ROLLBACK_FAILED")),
+            Err(_) => return Err(CliFailure::runtime(error_code)),
         }
     }
     Ok(())
@@ -1069,6 +1114,7 @@ fn connect_cloudwatch(binding: CloudWatchDescriptor) -> Result<ExitCode, CliFail
         )
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_READ_VERIFICATION_FAILED"))?;
 
+    let _catalog_guard = connected_catalog_lock()?;
     let authority = MacOsCorpusKeychainV1::production();
     let tenant = authority
         .local_tenant_digest()
@@ -1126,6 +1172,7 @@ fn register_corpus(
 }
 
 fn list_sources() -> Result<ExitCode, CliFailure> {
+    let _catalog_guard = connected_catalog_lock()?;
     let authority = MacOsCorpusKeychainV1::production();
     let tenant = authority
         .local_tenant_digest()
@@ -1182,6 +1229,112 @@ fn list_sources() -> Result<ExitCode, CliFailure> {
     Ok(ExitCode::SUCCESS)
 }
 
+fn disconnect_source(requested_source: [u8; 32]) -> Result<ExitCode, CliFailure> {
+    let _catalog_guard = connected_catalog_lock()?;
+    let corpus_authority = MacOsCorpusKeychainV1::production();
+    let credential_authority = MacOsConnectedCredentialKeychainV1::production();
+    let tenant = corpus_authority
+        .local_tenant_digest()
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let source_ids = revoke_registered_sources(
+        requested_source,
+        &tenant,
+        &corpus_authority,
+        &credential_authority,
+        |digest| corpus_path(digest, false),
+    )?;
+    serde_json::to_writer(
+        io::stdout().lock(),
+        &json!({"status": "disconnected", "source_ids": source_ids}),
+    )
+    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
+    writeln!(io::stdout().lock())
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+fn revoke_registered_sources(
+    requested_source: [u8; 32],
+    tenant: &[u8; 32],
+    corpus_authority: &MacOsCorpusKeychainV1,
+    credential_authority: &MacOsConnectedCredentialKeychainV1,
+    path_for_source: impl Fn(&[u8; 32]) -> Result<PathBuf, CliFailure>,
+) -> Result<Vec<String>, CliFailure> {
+    let entries = corpus_authority
+        .list_bound(tenant)
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let bindings = entries
+        .iter()
+        .map(|entry| parse_binding(&entry.descriptor))
+        .collect::<Result<Vec<_>, _>>()?;
+    let selected = revocation_indices(requested_source, &entries, &bindings)?;
+    let mut paths = Vec::with_capacity(selected.len());
+    for index in &selected {
+        let entry = &entries[*index];
+        let path = path_for_source(&entry.source_digest)?;
+        corpus_file_exists_safe(&path)?;
+        paths.push(path);
+    }
+    // Remove provider credentials before deleting any corpus. A partial
+    // failure then excludes the affected Datadog source from future queries.
+    for index in &selected {
+        if matches!(&bindings[*index], SourceBinding::Datadog(_)) {
+            match credential_authority.destroy(tenant, &entries[*index].source_digest) {
+                Ok(()) | Err(CorpusKeychainErrorV1::NotFound) => {}
+                Err(_) => return Err(CliFailure::runtime("EVIDENTRAIL_SOURCES_REVOKE_FAILED")),
+            }
+        }
+    }
+    for path in &paths {
+        remove_corpus_files(path, "EVIDENTRAIL_SOURCES_REVOKE_FAILED")?;
+    }
+    for index in &selected {
+        match corpus_authority.destroy(tenant, &entries[*index].source_digest) {
+            Ok(()) | Err(CorpusKeychainErrorV1::NotFound) => {}
+            Err(_) => return Err(CliFailure::runtime("EVIDENTRAIL_SOURCES_REVOKE_FAILED")),
+        }
+    }
+    let source_ids = selected
+        .iter()
+        .map(|index| hex(&entries[*index].source_digest))
+        .collect::<Vec<_>>();
+    Ok(source_ids)
+}
+
+fn revocation_indices(
+    requested_source: [u8; 32],
+    entries: &[ConnectedSourceDescriptorV1],
+    bindings: &[SourceBinding],
+) -> Result<Vec<usize>, CliFailure> {
+    if entries.len() != bindings.len() {
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE",
+        ));
+    }
+    let requested_index = entries
+        .iter()
+        .position(|entry| entry.source_digest == requested_source)
+        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_SOURCES_NOT_FOUND"))?;
+    let selected = match &bindings[requested_index] {
+        SourceBinding::CloudWatch(_) => vec![requested_index],
+        SourceBinding::Datadog(target) => bindings
+            .iter()
+            .enumerate()
+            .filter_map(|(index, binding)| match binding {
+                SourceBinding::Datadog(candidate)
+                    if candidate.connection_id == target.connection_id
+                        && candidate.site == target.site
+                        && candidate.org_id == target.org_id =>
+                {
+                    Some(index)
+                }
+                _ => None,
+            })
+            .collect(),
+    };
+    Ok(selected)
+}
+
 fn corpus_path(source_digest: &[u8; 32], create_dirs: bool) -> Result<PathBuf, CliFailure> {
     let home = env::var_os("HOME")
         .map(PathBuf::from)
@@ -1201,6 +1354,35 @@ fn corpus_path(source_digest: &[u8; 32], create_dirs: bool) -> Result<PathBuf, C
         check_private_directory_if_present(&corpus)?;
     }
     Ok(corpus.join(format!("{}.db", hex(source_digest))))
+}
+
+fn connected_catalog_lock() -> Result<File, CliFailure> {
+    let corpus = corpus_path(&[0u8; 32], true)?;
+    let lock_path = corpus
+        .parent()
+        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_SOURCES_DATA_DIR_UNSAFE"))?
+        .join(".connections.lock");
+    acquire_connected_lock(&lock_path)
+}
+
+fn acquire_connected_lock(lock_path: &Path) -> Result<File, CliFailure> {
+    let handle = openat(
+        CWD,
+        lock_path,
+        OFlags::RDWR | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::RUSR | Mode::WUSR,
+    )
+    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_LOCK_UNAVAILABLE"))?;
+    let file = File::from(handle);
+    let metadata = file
+        .metadata()
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_LOCK_UNAVAILABLE"))?;
+    if !metadata.is_file() || metadata.permissions().mode() & 0o077 != 0 {
+        return Err(CliFailure::runtime("EVIDENTRAIL_SOURCES_LOCK_UNSAFE"));
+    }
+    flock(&file, FlockOperation::NonBlockingLockExclusive)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_BUSY"))?;
+    Ok(file)
 }
 
 fn corpus_file_exists_safe(path: &Path) -> Result<bool, CliFailure> {
@@ -1355,6 +1537,154 @@ mod tests {
         assert!(corpus_file_exists_safe(&file).is_err());
         fs::remove_file(link).unwrap();
         fs::remove_file(file).unwrap();
+        fs::remove_dir(base).unwrap();
+    }
+
+    #[test]
+    fn connected_lock_excludes_concurrent_mutation_and_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let base = env::temp_dir().join(format!(
+            "evidentrail-connected-lock-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&base).unwrap();
+        let path = base.join("catalog.lock");
+        let guard = acquire_connected_lock(&path).unwrap();
+        assert_eq!(
+            acquire_connected_lock(&path).err().unwrap().code,
+            "EVIDENTRAIL_SOURCES_BUSY"
+        );
+        drop(guard);
+        let guard = acquire_connected_lock(&path).unwrap();
+        drop(guard);
+        let link = base.join("link.lock");
+        symlink(&path, &link).unwrap();
+        assert!(acquire_connected_lock(&link).is_err());
+        fs::remove_file(link).unwrap();
+        fs::remove_file(path).unwrap();
+        fs::remove_dir(base).unwrap();
+    }
+
+    #[test]
+    fn revocation_selects_one_cloudwatch_source_or_one_datadog_connection() {
+        let entries = [1u8, 2, 3, 4]
+            .into_iter()
+            .map(|byte| ConnectedSourceDescriptorV1 {
+                source_digest: [byte; 32],
+                descriptor: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        let datadog = |tier: &str, connection_id: &str| {
+            SourceBinding::Datadog(DatadogDescriptor {
+                schema_version: 1,
+                provider: "datadog".to_owned(),
+                site: "us1".to_owned(),
+                tier: tier.to_owned(),
+                connection_id: connection_id.to_owned(),
+                org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+            })
+        };
+        let bindings = vec![
+            SourceBinding::CloudWatch(CloudWatchDescriptor {
+                schema_version: 1,
+                provider: "cloudwatch".to_owned(),
+                account: "123456789012".to_owned(),
+                region: "us-west-2".to_owned(),
+                log_group: "/aws/test".to_owned(),
+                profile: None,
+            }),
+            datadog("indexes", "a"),
+            datadog("flex", "a"),
+            datadog("indexes", "b"),
+        ];
+        assert_eq!(
+            revocation_indices([1; 32], &entries, &bindings).unwrap(),
+            [0]
+        );
+        assert_eq!(
+            revocation_indices([2; 32], &entries, &bindings).unwrap(),
+            [1, 2]
+        );
+        assert_eq!(
+            revocation_indices([4; 32], &entries, &bindings).unwrap(),
+            [3]
+        );
+        assert!(revocation_indices([5; 32], &entries, &bindings).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires an unlocked macOS login Keychain"]
+    fn disconnect_removes_all_datadog_tiers_but_preserves_other_sources() {
+        let suffix = format!(
+            "revoke-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let corpus_authority = MacOsCorpusKeychainV1::isolated_for_tests(&suffix).unwrap();
+        let credential_authority =
+            MacOsConnectedCredentialKeychainV1::isolated_for_tests(&suffix).unwrap();
+        let base = env::temp_dir().join(format!("evidentrail-{suffix}"));
+        fs::create_dir(&base).unwrap();
+        let tenant = [17; 32];
+        let mut connected = Vec::new();
+        for tier in ["indexes", "flex"] {
+            let binding = DatadogDescriptor {
+                schema_version: 1,
+                provider: "datadog".to_owned(),
+                site: "us1".to_owned(),
+                tier: tier.to_owned(),
+                connection_id: "a".repeat(32),
+                org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+            };
+            let descriptor = serde_json::to_vec(&binding).unwrap();
+            let source_digest =
+                MacOsCorpusKeychainV1::source_digest_for_descriptor(&descriptor).unwrap();
+            let path = base.join(format!("{}.db", hex(&source_digest)));
+            credential_authority
+                .create(&tenant, &source_digest, b"api:app")
+                .unwrap();
+            register_corpus(&corpus_authority, &tenant, &descriptor, &path).unwrap();
+            connected.push((source_digest, path));
+        }
+        let cloudwatch = CloudWatchDescriptor {
+            schema_version: 1,
+            provider: "cloudwatch".to_owned(),
+            account: "123456789012".to_owned(),
+            region: "us-west-2".to_owned(),
+            log_group: "/aws/other".to_owned(),
+            profile: None,
+        };
+        let descriptor = serde_json::to_vec(&cloudwatch).unwrap();
+        let other = MacOsCorpusKeychainV1::source_digest_for_descriptor(&descriptor).unwrap();
+        let other_path = base.join(format!("{}.db", hex(&other)));
+        register_corpus(&corpus_authority, &tenant, &descriptor, &other_path).unwrap();
+
+        let removed = revoke_registered_sources(
+            connected[0].0,
+            &tenant,
+            &corpus_authority,
+            &credential_authority,
+            |digest| Ok(base.join(format!("{}.db", hex(digest)))),
+        )
+        .unwrap();
+        assert_eq!(removed.len(), 2);
+        assert_eq!(corpus_authority.list_bound(&tenant).unwrap().len(), 1);
+        for (source_digest, path) in connected {
+            assert!(!path.exists());
+            assert!(corpus_authority.load(&tenant, &source_digest).is_err());
+            assert!(credential_authority.load(&tenant, &source_digest).is_err());
+        }
+        assert!(other_path.exists());
+        remove_corpus_files(&other_path, "EVIDENTRAIL_TEST_CLEANUP_FAILED").unwrap();
+        corpus_authority.destroy(&tenant, &other).unwrap();
         fs::remove_dir(base).unwrap();
     }
 

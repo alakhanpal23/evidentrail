@@ -30,6 +30,7 @@ reqwest.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 evidentrail-ingest = { workspace = true, features = ["cloudwatch-sdk"] }
+rustix.workspace = true
 
 [dev-dependencies]
 evidentrail-ingest.workspace = true

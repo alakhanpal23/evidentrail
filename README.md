@@ -17,6 +17,7 @@ target/release/evidentrail sources connect-cloudwatch \
 target/release/evidentrail sources connect-datadog --site us1
 target/release/evidentrail sources list
 target/release/evidentrail sources sync
+target/release/evidentrail sources disconnect --source-id SOURCE_ID_FROM_LIST
 EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
   target/release/evidentrail logs --task "Find checkout failures" \
   --max-raw-bytes 32768
@@ -42,6 +43,11 @@ expansion are still under development; no live AWS sandbox has validated this
 flow yet. Datadog identity and tier coverage have not been verified in a live
 provider sandbox. Missing Datadog tiers appear as partial
 coverage in connected query metadata.
+`sources disconnect` revokes a CloudWatch source or all tiers in one Datadog
+connection, removes its encrypted local corpus and Keychain entries, and
+rejects concurrent connected operations with a busy error. In-flight MCP
+responses constructed before revocation may still be delivered. This
+development CLI has no credential rotation or background scheduler yet.
 
 The first log-only prototype is available as `compact`. It accepts an explicit
 log stream with no time-window parameter and returns model-selected original

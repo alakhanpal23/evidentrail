@@ -111,7 +111,15 @@ create/load/revoke check passed for the source-bound credential item.
 `sources sync`, `logs`, and connected MCP
 calls can use those entries, and missing tiers are reported as partial
 coverage. A live Datadog account test, credential rotation,
-revocation, and complete tier coverage are still missing.
+and complete tier coverage are still missing. A `sources disconnect`
+command now removes one CloudWatch source or all registered tiers of a
+Datadog connection, deleting source-bound Keychain items and encrypted corpus
+files. Connected operations use a nonblocking process lock to keep disconnect
+from racing a local sync or query; an MCP response already constructed before
+revocation can still be delivered afterward. An isolated live macOS Keychain
+test removed all Datadog tiers and their corpus files while preserving an
+unrelated source. A production-provider revocation exercise and cross-process
+stress validation remain release gates.
 
 ## One product contract
 
