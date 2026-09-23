@@ -13,7 +13,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use evidentrail_corpus::{EncryptedHistoryStore, MacOsCorpusKeychainV1};
 use evidentrail_ingest::{
     AwsCloudWatchTransportV1, CloudWatchCapsV1, CloudWatchHistorySourceV1, CloudWatchPlanV1,
-    HistoryPageSourceV1, HistoryPartitionV1,
+    HistoryPageSourceV1, HistoryPartitionV1, HistorySyncErrorV1, HistorySyncLimitsV1,
+    HistorySyncStatusV1, reconcile_history_v1, synchronize_history_v1,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -43,9 +44,185 @@ pub(super) fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
             return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
         }
         list_sources()
+    } else if command == "sync" {
+        if args.next().is_some() {
+            return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
+        }
+        sync_sources()
     } else {
         Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_COMMAND"))
     }
+}
+
+const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
+const MAX_SYNC_PAGES: usize = 256;
+
+fn sync_sources() -> Result<ExitCode, CliFailure> {
+    let authority = MacOsCorpusKeychainV1::production();
+    let tenant = authority
+        .local_tenant_digest()
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let high_water = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
+        .as_millis() as i64;
+    let mut outcomes = Vec::new();
+    let mut had_error = false;
+    for entry in authority
+        .list_bound(&tenant)
+        .map_err(|error| CliFailure::runtime(error.code()))?
+    {
+        let binding: CloudWatchDescriptor = serde_json::from_slice(&entry.descriptor)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+        validate_binding(&binding)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+        let path = corpus_path(&entry.source_digest, false)?;
+        if !path.is_file() {
+            had_error = true;
+            outcomes.push(json!({
+                "source_id": hex(&entry.source_digest),
+                "status": "corpus_missing",
+                "coverage": "incomplete"
+            }));
+            continue;
+        }
+        let key = authority
+            .load(&tenant, &entry.source_digest)
+            .map_err(|error| CliFailure::runtime(error.code()))?;
+        let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &entry.source_digest)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
+        let source_plan = plan(&binding)?;
+        let sync_result = AwsCloudWatchTransportV1::connect(
+            source_plan.clone(),
+            &binding.account,
+            binding.profile.as_deref(),
+        )
+        .map_err(|error| format!("{error:?}"))
+        .and_then(|transport| {
+            let mut source = CloudWatchHistorySourceV1::new(source_plan, transport)
+                .map_err(|_| "InvalidConfiguration".to_owned())?;
+            bounded_sync(&mut source, &mut store, high_water).map_err(|error| format!("{error:?}"))
+        });
+        let checkpoint = store
+            .read_checkpoint()
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
+        let record_count = store
+            .record_count()
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
+        let status = match sync_result {
+            Ok(progress) => json!({
+                "status": progress.status,
+                "pages": progress.pages,
+                "reconciliation": progress.reconciliation,
+            }),
+            Err(error) => {
+                had_error = true;
+                json!({
+                    "status": "sync_error",
+                    "error": error,
+                })
+            }
+        };
+        outcomes.push(json!({
+            "source_id": hex(&entry.source_digest),
+            "provider": "cloudwatch",
+            "record_count": record_count,
+            "scanned_through_millis": checkpoint.map(|value| value.completed_through_millis),
+            "high_water_millis": high_water,
+            "coverage": "unverified_provider_consistency",
+            "result": status,
+        }));
+    }
+    serde_json::to_writer(io::stdout().lock(), &outcomes)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
+    writeln!(io::stdout().lock())
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
+    Ok(ExitCode::from(u8::from(had_error)))
+}
+
+struct BoundedSyncProgress {
+    status: &'static str,
+    pages: usize,
+    reconciliation: &'static str,
+}
+
+fn bounded_sync(
+    source: &mut impl HistoryPageSourceV1,
+    store: &mut EncryptedHistoryStore,
+    high_water: i64,
+) -> Result<BoundedSyncProgress, HistorySyncErrorV1> {
+    let mut partition_millis = 365 * DAY_MILLIS;
+    let mut pages = 0;
+    let mut reached = false;
+    while pages < MAX_SYNC_PAGES {
+        let receipt = synchronize_history_v1(
+            source,
+            store,
+            high_water,
+            HistorySyncLimitsV1 {
+                partition_millis,
+                max_partitions: 1,
+                max_pages_per_partition: (MAX_SYNC_PAGES - pages).min(32),
+                max_records_per_page: 10_000,
+                max_record_bytes: 8 * 1024 * 1024,
+            },
+        )?;
+        pages += receipt.committed_pages;
+        match receipt.status {
+            HistorySyncStatusV1::ScannedToHighWater => {
+                reached = true;
+                break;
+            }
+            HistorySyncStatusV1::PartialPageLimit => {
+                if partition_millis <= 1 {
+                    break;
+                }
+                partition_millis = (partition_millis / 2).max(1);
+            }
+            HistorySyncStatusV1::Backfilling => {}
+            HistorySyncStatusV1::ReconciledLookback => {
+                return Err(HistorySyncErrorV1::InvalidConfiguration);
+            }
+        }
+    }
+    if !reached {
+        return Ok(BoundedSyncProgress {
+            status: "backfilling",
+            pages,
+            reconciliation: "not_run",
+        });
+    }
+    let remaining = MAX_SYNC_PAGES - pages;
+    if remaining == 0 {
+        return Ok(BoundedSyncProgress {
+            status: "scanned_to_high_water",
+            pages,
+            reconciliation: "not_run_budget_exhausted",
+        });
+    }
+    let reconciliation = reconcile_history_v1(
+        source,
+        store,
+        7 * DAY_MILLIS,
+        HistorySyncLimitsV1 {
+            partition_millis: 7 * DAY_MILLIS,
+            max_partitions: 1,
+            max_pages_per_partition: remaining,
+            max_records_per_page: 10_000,
+            max_record_bytes: 8 * 1024 * 1024,
+        },
+    )?;
+    pages += reconciliation.committed_pages;
+    let reconciliation_status = match reconciliation.status {
+        HistorySyncStatusV1::ReconciledLookback => "recent_lookback_scanned",
+        HistorySyncStatusV1::Backfilling | HistorySyncStatusV1::PartialPageLimit => "partial",
+        HistorySyncStatusV1::ScannedToHighWater => "partial",
+    };
+    Ok(BoundedSyncProgress {
+        status: "scanned_to_high_water",
+        pages,
+        reconciliation: reconciliation_status,
+    })
 }
 
 fn parse_cloudwatch_args(
@@ -323,6 +500,7 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use evidentrail_ingest::{HistoryPageV1, HistoryRecordV1};
 
     #[test]
     fn cloudwatch_registration_requires_complete_unfiltered_binding() {
@@ -346,6 +524,91 @@ mod tests {
         assert!(
             parse_cloudwatch_args(["--account", "123"].into_iter().map(OsString::from)).is_err()
         );
+    }
+
+    #[test]
+    fn bounded_sync_scans_then_reconciles_without_duplicate_records() {
+        struct ReplaySource;
+        impl HistoryPageSourceV1 for ReplaySource {
+            fn fetch_page(
+                &mut self,
+                _: HistoryPartitionV1,
+                _: Option<&[u8]>,
+            ) -> Result<HistoryPageV1, HistorySyncErrorV1> {
+                Ok(HistoryPageV1 {
+                    records: vec![HistoryRecordV1 {
+                        native_id: b"one".to_vec(),
+                        event_timestamp_millis: 5,
+                        bytes: b"[checkout] ERROR: reservation failed".to_vec(),
+                    }],
+                    next_token: None,
+                })
+            }
+        }
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = env::temp_dir().join(format!(
+            "evidentrail-sync-{}-{suffix}.db",
+            std::process::id()
+        ));
+        let mut store = EncryptedHistoryStore::open(&path, &[9; 32], &[1; 32], &[2; 32]).unwrap();
+        let progress = bounded_sync(&mut ReplaySource, &mut store, 10).unwrap();
+        assert_eq!(progress.status, "scanned_to_high_water");
+        assert_eq!(progress.reconciliation, "recent_lookback_scanned");
+        assert_eq!(progress.pages, 2);
+        assert_eq!(store.record_count().unwrap(), 1);
+        assert_eq!(
+            store
+                .read_checkpoint()
+                .unwrap()
+                .unwrap()
+                .completed_through_millis,
+            10
+        );
+        drop(store);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = fs::remove_file(format!("{}{suffix}", path.display()));
+        }
+    }
+
+    #[test]
+    fn bounded_sync_never_claims_completion_when_pagination_budget_is_exhausted() {
+        struct EndlessPages;
+        impl HistoryPageSourceV1 for EndlessPages {
+            fn fetch_page(
+                &mut self,
+                _: HistoryPartitionV1,
+                token: Option<&[u8]>,
+            ) -> Result<HistoryPageV1, HistorySyncErrorV1> {
+                let ordinal = token
+                    .map(|value| std::str::from_utf8(value).unwrap().parse::<u32>().unwrap())
+                    .unwrap_or(0);
+                Ok(HistoryPageV1 {
+                    records: vec![],
+                    next_token: Some((ordinal + 1).to_string().into_bytes()),
+                })
+            }
+        }
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = env::temp_dir().join(format!(
+            "evidentrail-cap-{}-{suffix}.db",
+            std::process::id()
+        ));
+        let mut store = EncryptedHistoryStore::open(&path, &[8; 32], &[1; 32], &[2; 32]).unwrap();
+        let progress = bounded_sync(&mut EndlessPages, &mut store, 10).unwrap();
+        assert_eq!(progress.status, "backfilling");
+        assert_eq!(progress.pages, MAX_SYNC_PAGES);
+        assert_eq!(progress.reconciliation, "not_run");
+        assert_eq!(store.read_checkpoint().unwrap(), None);
+        drop(store);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = fs::remove_file(format!("{}{suffix}", path.display()));
+        }
     }
 
     #[test]

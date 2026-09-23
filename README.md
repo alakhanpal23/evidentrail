@@ -15,13 +15,17 @@ target/release/evidentrail sources connect-cloudwatch \
   --account 123456789012 --region us-west-2 \
   --log-group /aws/example --profile my-readonly-profile
 target/release/evidentrail sources list
+target/release/evidentrail sources sync
 ```
 
 Registration verifies the AWS caller and log-group read access, then creates a
 source-bound Keychain key and encrypted local corpus. It reports
-`registered_backfill_pending`: connected backfill, query, and MCP access are
-still under development. Do not use this registration command as a claim that
-historical logs have been ingested.
+`registered_backfill_pending`. `sources sync` makes bounded progress from each
+durable checkpoint and replays recent history after reaching its high-water
+mark. Run it again to continue a partial backfill. It reports provisional
+coverage because provider consistency and older late arrivals are not yet
+fully verified. Background scheduling, connected query, and MCP access are
+still under development.
 
 The first log-only prototype is available as `compact`. It accepts an explicit
 log stream with no time-window parameter and returns model-selected original
