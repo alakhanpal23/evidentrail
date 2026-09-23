@@ -354,3 +354,33 @@ EVIDENTRAIL_ANALYZE_LOCAL_MODEL=qwen3:14b \
   > local-graph.jsonl
 python3 scripts/score-rcaeval-live.py local-graph.jsonl
 ```
+
+### Full Online Boutique trace selection scan
+
+[`ninety-ob-trace-operation-selection.jsonl`](ninety-ob-trace-operation-selection.jsonl)
+records a fixed-binary, selection-only pass over all 90 pinned RE2 Online
+Boutique injections (15 each of CPU, memory, disk, delay, loss, and socket).
+The header records Evidentrail revision `d87c8f1`, a clean worktree at launch,
+and the SHA-256 of the immutable executable copy. All **90/90** reports
+completed without product errors. The 14,494,071 in-window span rows yielded
+nine observed cross-service edges per case; 13,601,395 rows had matched
+parents. Missing, ambiguous, or duplicated span identities were excluded from
+edge construction.
+
+Operation-level nonzero status was present in **12/15 loss** cases and **6/15
+memory** cases, and absent in the other four fault families. The strongest
+operation signal carried an explicitly typed gRPC `UNAVAILABLE` status in
+11/15 loss and 3/15 memory cases. This is a useful retrieval signal for a
+diagnostician to inspect alongside metrics, logs, and dependency direction;
+it does not uniquely identify packet loss. This pass contains no LLM
+diagnosis and is **not** an accuracy score.
+
+Reproduce after building the CLI by copying the executable to a fixed path
+before the scan:
+
+```sh
+cp target/debug/evidentrail /tmp/evidentrail-fixed
+python3 scripts/rcaeval-log-probe.py --binary /tmp/evidentrail-fixed \
+  --with-metrics --metrics-only --with-traces --generic-question --all-re2-ob \
+  > ninety-ob-trace-operation-selection.jsonl
+```
