@@ -68,7 +68,9 @@ pub enum HistorySyncErrorV1 {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HistorySyncStatusV1 {
-    CaughtUp,
+    /// Provider pagination reached the frozen mark; eventual consistency and
+    /// later arrivals still require reconciliation before claiming coverage.
+    ScannedToHighWater,
     Backfilling,
     PartialPageLimit,
 }
@@ -180,7 +182,7 @@ pub fn synchronize_history_v1(
         receipt.completed_partitions += 1;
     }
     receipt.status = if completed_through == high_water_millis {
-        HistorySyncStatusV1::CaughtUp
+        HistorySyncStatusV1::ScannedToHighWater
     } else {
         HistorySyncStatusV1::Backfilling
     };
@@ -273,7 +275,7 @@ mod tests {
         ]));
         let mut store = Store::default();
         let receipt = synchronize_history_v1(&mut source, &mut store, 10, limits(3)).unwrap();
-        assert_eq!(receipt.status, HistorySyncStatusV1::CaughtUp);
+        assert_eq!(receipt.status, HistorySyncStatusV1::ScannedToHighWater);
         assert_eq!(receipt.committed_pages, 2);
         assert_eq!(store.records.len(), 1);
         assert_eq!(store.checkpoint.unwrap().completed_through_millis, 10);
@@ -299,7 +301,7 @@ mod tests {
             },
         ]));
         let receipt = synchronize_history_v1(&mut resumed, &mut store, 10, limits(3)).unwrap();
-        assert_eq!(receipt.status, HistorySyncStatusV1::CaughtUp);
+        assert_eq!(receipt.status, HistorySyncStatusV1::ScannedToHighWater);
         assert_eq!(store.records.len(), 1);
     }
 
@@ -360,7 +362,7 @@ mod tests {
         assert_eq!(first.status, HistorySyncStatusV1::Backfilling);
         assert_eq!(first.completed_through_millis, 20);
         let second = synchronize_history_v1(&mut source, &mut store, 25, limits(2)).unwrap();
-        assert_eq!(second.status, HistorySyncStatusV1::CaughtUp);
+        assert_eq!(second.status, HistorySyncStatusV1::ScannedToHighWater);
         assert_eq!(second.completed_through_millis, 25);
         assert_eq!(
             source.requested,
