@@ -41,10 +41,14 @@ resolve to original logs; unrelated service co-occurrence does not create an
 edge. Older corpora rebuild missing groups, graph evidence, and lexical terms
 on reopen; unknown index versions fail closed. The key is still supplied by a
 caller; production key authority, query access control, graph-aware candidate
-retrieval, and a live provider transport are missing. A CloudWatch
-history-source adapter maps internal partitions to
-unfiltered log-group page requests, but it does not provide AWS credentials or
-network calls yet. One scan to a high-water mark does not prove complete
+retrieval, and a connected user flow are missing. A CloudWatch history-source
+adapter maps internal partitions to unfiltered log-group page requests. An
+optional AWS SDK transport now loads a configured identity, verifies its STS
+caller account on each page, binds source account/region/log group, and makes
+signed `FilterLogEvents` requests. A local HTTP contract test exercises
+empty-page continuation and exact event mapping. Live AWS sandbox validation,
+user-facing connection setup, and reconciliation are still missing. One scan
+to a high-water mark does not prove complete
 coverage under provider eventual consistency; reconciliation is required.
 
 ## One product contract

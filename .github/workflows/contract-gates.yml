@@ -30,6 +30,8 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
         if: matrix.toolchain == '1.88.0'
       - run: cargo test --workspace --all-targets
+      - run: cargo test -p evidentrail-ingest --features cloudwatch-sdk
+        if: matrix.toolchain == '1.88.0'
       - run: cargo run -p evidentrail-wire --all-features --bin evidentrail-wire-schema -- --check
 
   feature-partition:

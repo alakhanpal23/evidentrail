@@ -8,6 +8,8 @@
 mod adapter;
 mod batch;
 mod cloudwatch;
+#[cfg(feature = "cloudwatch-sdk")]
+mod cloudwatch_sdk;
 mod deadline;
 mod error;
 mod full_history;
@@ -27,6 +29,8 @@ pub use cloudwatch::{
     CloudWatchPageV1, CloudWatchPlanErrorV1, CloudWatchPlanV1, CloudWatchTransportErrorV1,
     CloudWatchTransportV1,
 };
+#[cfg(feature = "cloudwatch-sdk")]
+pub use cloudwatch_sdk::AwsCloudWatchTransportV1;
 pub use deadline::{
     CooperativeDeadline, CooperativeStopReason, DeadlineConstructionError, MonotonicClock,
     SystemMonotonicClock,
