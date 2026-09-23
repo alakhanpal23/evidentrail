@@ -298,8 +298,11 @@ A first [frozen connected retrieval fixture](../reports/connected-retrieval-v1.m
 now runs through the encrypted corpus and compares graph-enabled candidates,
 graph ablation, and recent-log selection under the same raw-byte cap. It
 exposed a zero-term-match omission; the connected path now uses a bounded
-high-severity fallback and reports its candidate count and truncation. The
-fixture is synthetic and uses an all-candidate selector. It does not satisfy
+high-severity fallback and reports its candidate count and truncation. A fourth
+case exposed an old-clue miss under 300 newer errors; the fallback now samples
+both ends of severe-log history, but its output still contains 11 irrelevant
+lines in that case. The fixture is synthetic and tests an all-candidate upper
+bound plus a simple deterministic severity selector. It does not satisfy
 the model, live-provider, downstream-task, scale, latency, cost, or security
 evaluation gates below.
 

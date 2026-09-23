@@ -209,8 +209,10 @@ impl EncryptedHistoryStore {
                      last_native_id BLOB NOT NULL,
                      UNIQUE(service, role, fingerprint_digest)
                  );
-                 CREATE INDEX IF NOT EXISTS log_groups_priority
-                     ON log_groups(role, last_timestamp_millis DESC, group_id DESC);
+                 CREATE INDEX IF NOT EXISTS log_groups_severe_time
+                     ON log_groups(last_timestamp_millis DESC, group_id DESC)
+                     WHERE role IN ('critical', 'error', 'warning');
+                 DROP INDEX IF EXISTS log_groups_priority;
                  CREATE TABLE IF NOT EXISTS group_members (
                      native_id BLOB PRIMARY KEY REFERENCES history_records(native_id),
                      group_id INTEGER NOT NULL REFERENCES log_groups(group_id)
@@ -859,25 +861,70 @@ impl EncryptedHistoryStore {
     }
 
     /// Fallback when task terms do not match any indexed group. This is a
-    /// bounded high-severity sample, never a completeness claim.
+    /// bounded high-severity sample from both ends of accessible history,
+    /// never a completeness claim.
     pub fn search_priority_groups(&self, limit: usize) -> Result<CandidateGroupPage, CorpusError> {
         if limit == 0 || limit > 256 {
             return Err(CorpusError::InvalidPageBudget);
         }
         let total_groups = self.group_count()?;
-        let mut statement = self
-            .connection
-            .prepare(
-                "SELECT group_id, service, role, repeat_count,
+        let mut newest = self.read_severe_groups(limit + 1, true)?;
+        let candidate_pool_truncated = newest.len() > limit;
+        if !candidate_pool_truncated {
+            return Ok(CandidateGroupPage {
+                groups: newest,
+                total_groups,
+                candidate_pool_truncated: false,
+            });
+        }
+        newest.truncate(limit.div_ceil(2));
+        let oldest = self.read_severe_groups(limit / 2, false)?;
+        let mut groups = Vec::with_capacity(limit);
+        let mut seen = BTreeSet::new();
+        let mut recent = newest.into_iter();
+        let mut early = oldest.into_iter();
+        loop {
+            let mut advanced = false;
+            for next in [early.next(), recent.next()].into_iter().flatten() {
+                advanced = true;
+                if seen.insert(next.group_id) {
+                    groups.push(next);
+                }
+            }
+            if !advanced {
+                break;
+            }
+        }
+        Ok(CandidateGroupPage {
+            groups,
+            total_groups,
+            candidate_pool_truncated,
+        })
+    }
+
+    fn read_severe_groups(
+        &self,
+        limit: usize,
+        newest_first: bool,
+    ) -> Result<Vec<CorpusGroupCard>, CorpusError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let direction = if newest_first { "DESC" } else { "ASC" };
+        let sql = format!(
+            "SELECT group_id, service, role, repeat_count,
                     first_timestamp_millis, last_timestamp_millis,
                     first_native_id, last_native_id
              FROM log_groups WHERE role IN ('critical', 'error', 'warning')
-             ORDER BY role, last_timestamp_millis DESC, group_id DESC LIMIT ?1",
-            )
+             ORDER BY last_timestamp_millis {direction}, group_id {direction} LIMIT ?1"
+        );
+        let mut statement = self
+            .connection
+            .prepare(&sql)
             .map_err(|_| CorpusError::Storage)?;
         let rows = statement
             .query_map(
-                [i64::try_from(limit + 1).map_err(|_| CorpusError::Storage)?],
+                [i64::try_from(limit).map_err(|_| CorpusError::Storage)?],
                 |row| {
                     Ok(CorpusGroupCard {
                         group_id: row.get(0)?,
@@ -892,16 +939,8 @@ impl EncryptedHistoryStore {
                 },
             )
             .map_err(|_| CorpusError::Storage)?;
-        let mut groups = rows
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| CorpusError::Storage)?;
-        let candidate_pool_truncated = groups.len() > limit;
-        groups.truncate(limit);
-        Ok(CandidateGroupPage {
-            groups,
-            total_groups,
-            candidate_pool_truncated,
-        })
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)
     }
 
     /// Retrieve groups from services connected to lexical hits by an
@@ -1949,6 +1988,16 @@ mod tests {
         assert_eq!(page.total_groups, 3);
         assert!(page.candidate_pool_truncated);
         assert_eq!(page.groups[0].first_native_id, b"error-2");
+        let stratified = store.search_priority_groups(2).unwrap();
+        assert!(stratified.candidate_pool_truncated);
+        assert_eq!(
+            stratified
+                .groups
+                .iter()
+                .map(|card| card.first_native_id.as_slice())
+                .collect::<Vec<_>>(),
+            vec![b"error-0".as_slice(), b"error-2"]
+        );
         drop(store);
         cleanup(&path);
     }

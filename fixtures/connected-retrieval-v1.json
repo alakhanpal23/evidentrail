@@ -28,6 +28,15 @@
       "records": [
         {"native_id": "billing", "timestamp_millis": 1, "raw": "{\"service\":\"billing\",\"status\":\"error\",\"message\":\"downstream call blocked\"}"}
       ]
+    },
+    {
+      "id": "wording_mismatch_error_storm",
+      "task": "payment hangs",
+      "noise_status": "error",
+      "required_native_ids": ["billing"],
+      "records": [
+        {"native_id": "billing", "timestamp_millis": 1, "raw": "{\"service\":\"billing\",\"status\":\"error\",\"message\":\"downstream call blocked\"}"}
+      ]
     }
   ]
 }

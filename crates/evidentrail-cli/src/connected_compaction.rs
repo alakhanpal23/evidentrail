@@ -361,6 +361,7 @@ mod tests {
     use std::path::Path;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
 
     use evidentrail_ingest::HistoryRecordV1;
     use serde::Deserialize;
@@ -423,6 +424,8 @@ mod tests {
     struct RetrievalCase {
         id: String,
         task: String,
+        #[serde(default)]
+        noise_status: Option<String>,
         required_native_ids: Vec<String>,
         records: Vec<RetrievalRecord>,
     }
@@ -532,7 +535,7 @@ mod tests {
                 records.push(HistoryRecordV1 {
                     native_id: format!("noise-{index}").into_bytes(),
                     event_timestamp_millis: 100 + index as i64,
-                    bytes: format!("{{\"service\":\"noise\",\"status\":\"info\",\"message\":\"heartbeat filler{}\"}}", noise_word(index)).into_bytes(),
+                    bytes: format!("{{\"service\":\"noise\",\"status\":\"{}\",\"message\":\"heartbeat filler{}\"}}", case.noise_status.as_deref().unwrap_or("info"), noise_word(index)).into_bytes(),
                 });
             }
             store.commit_page_checked(&records).unwrap();
@@ -559,6 +562,16 @@ mod tests {
             .unwrap();
             let graph_lines = pack_lines(&graph);
             let lexical_lines = pack_lines(&lexical);
+            let severity_started = Instant::now();
+            let severity = select_connected_logs(
+                &sources,
+                &case.task,
+                fixture.raw_byte_budget,
+                &mut SelectErrors,
+            )
+            .unwrap();
+            let severity_micros = severity_started.elapsed().as_micros();
+            let severity_lines = pack_lines(&severity);
             for (id, raw) in &graph_lines {
                 assert_eq!(store.get_record(id).unwrap().unwrap().bytes, *raw);
             }
@@ -567,6 +580,8 @@ mod tests {
                 "case": case.id,
                 "graph": eval_metrics(&graph_lines, &case.required_native_ids, fixture.raw_byte_budget),
                 "lexical_only": eval_metrics(&lexical_lines, &case.required_native_ids, fixture.raw_byte_budget),
+                "severity_selector": eval_metrics(&severity_lines, &case.required_native_ids, fixture.raw_byte_budget),
+                "severity_selector_micros": severity_micros,
                 "recent_baseline": eval_metrics(&recent, &case.required_native_ids, fixture.raw_byte_budget),
                 "candidate_pool_truncated": graph.candidate_pool_truncated,
                 "graph_candidate_count": graph.graph_candidate_count,
@@ -581,6 +596,10 @@ mod tests {
             } else if case.id == "wording_mismatch" {
                 assert_eq!(result["graph"]["required_found"], 1);
                 assert_eq!(result["graph"]["selected_lines"], 1);
+            } else if case.id == "wording_mismatch_error_storm" {
+                assert!(graph.candidate_pool_truncated);
+                assert_eq!(result["graph"]["required_found"], 1);
+                assert_eq!(result["severity_selector"]["required_found"], 1);
             }
             drop(store);
             cleanup(&path);
