@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "dataset": "phamquiluan/RCAEval",
+  "dataset_revision": "afeacb11bcc94dadfd1c8f483ee4377b2b8b614e",
+  "selection": "For each fault in cpu, mem, disk, delay, loss, socket, among five replicate-3 services choose two lowest SHA-256 hashes of evidentrail-precedent-eval-v1:<case>.",
+  "training_replicate": 1,
+  "test_replicate": 3,
+  "cases": [
+    "re2ss_user_cpu_3",
+    "re2ss_orders_cpu_3",
+    "re2ss_payment_mem_3",
+    "re2ss_user_mem_3",
+    "re2ss_orders_disk_3",
+    "re2ss_payment_disk_3",
+    "re2ss_user_delay_3",
+    "re2ss_carts_delay_3",
+    "re2ss_payment_loss_3",
+    "re2ss_user_loss_3",
+    "re2ss_orders_socket_3",
+    "re2ss_catalogue_socket_3"
+  ]
+}
