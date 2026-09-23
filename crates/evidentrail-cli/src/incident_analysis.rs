@@ -50,7 +50,6 @@ pub enum AnalysisError {
     SensitiveInput,
     Provider,
     InvalidSelectionOutput,
-    InvalidSelectionIds,
     InvalidAssessmentOutput,
     InvalidModelOutput,
 }
@@ -68,7 +67,6 @@ impl AnalysisError {
             Self::SensitiveInput => "EVIDENTRAIL_ANALYZE_SENSITIVE_INPUT",
             Self::Provider => "EVIDENTRAIL_ANALYZE_PROVIDER_FAILURE",
             Self::InvalidSelectionOutput => "EVIDENTRAIL_ANALYZE_INVALID_SELECTION_OUTPUT",
-            Self::InvalidSelectionIds => "EVIDENTRAIL_ANALYZE_INVALID_SELECTION_IDS",
             Self::InvalidAssessmentOutput => "EVIDENTRAIL_ANALYZE_INVALID_ASSESSMENT_OUTPUT",
             Self::InvalidModelOutput => "EVIDENTRAIL_ANALYZE_INVALID_MODEL_OUTPUT",
         }
@@ -231,6 +229,7 @@ pub struct AnalysisReport {
     pub model_inventory_group_ids: Vec<String>,
     pub omitted_inventory_group_count: usize,
     pub model_requested_group_count: usize,
+    pub rejected_group_request_count: usize,
     pub expanded_group_count: usize,
     pub topology: ServiceTopology,
     pub observed_dependencies: Vec<ObservedDependency>,
@@ -940,15 +939,17 @@ pub fn analyze_with_reasoner_and_metrics_and_traces(
                 other => other,
             })?
     };
-    if requested.len() > MAX_REQUESTED_GROUPS {
-        return Err(AnalysisError::InvalidSelectionIds);
-    }
     let mut unique_requests = BTreeSet::new();
     let mut expanded_group_count = 0usize;
-    for id in &requested {
-        let index = group_index(id).map_err(|_| AnalysisError::InvalidSelectionIds)?;
+    let mut rejected_group_request_count = requested.len().saturating_sub(MAX_REQUESTED_GROUPS);
+    for id in requested.iter().take(MAX_REQUESTED_GROUPS) {
+        let Ok(index) = group_index(id) else {
+            rejected_group_request_count += 1;
+            continue;
+        };
         if !inventory_indexes.contains(&index) || !unique_requests.insert(index) {
-            return Err(AnalysisError::InvalidSelectionIds);
+            rejected_group_request_count += 1;
+            continue;
         }
         let group = &groups[index];
         let candidates = group_examples(group, &events);
@@ -1175,6 +1176,7 @@ pub fn analyze_with_reasoner_and_metrics_and_traces(
             || metric_disagreement
             || metric_challenger_failed
             || rejected_hypothesis_count > 0
+            || rejected_group_request_count > 0
         {
             "partial"
         } else {
@@ -1195,6 +1197,7 @@ pub fn analyze_with_reasoner_and_metrics_and_traces(
             .collect(),
         omitted_inventory_group_count: groups.len() - visible_group_indexes.len() - inventory.len(),
         model_requested_group_count: requested.len(),
+        rejected_group_request_count,
         expanded_group_count,
         topology,
         observed_dependencies: trace_data
@@ -1244,8 +1247,9 @@ pub fn analyze_with_reasoner_and_metrics_and_traces(
             || missing_metric_series
             || metric_disagreement
             || metric_challenger_failed
-            || rejected_hypothesis_count > 0,
-        verification_boundary: "Citation IDs and relationships between supplied service labels are checked. Invalid hypotheses are discarded and counted; exact source excerpts are attached for valid ID-only citations. Source-line SHA-256 digests are reported; metric medians and observed graph edges are computed from supplied samples. Under a chronic-alert/metric conflict, an independent metric-only model assessment may lead the hypotheses and disagreement is reported. Source labels, hypothesis truth, and causality are not independently verified.",
+            || rejected_hypothesis_count > 0
+            || rejected_group_request_count > 0,
+        verification_boundary: "Citation IDs and relationships between supplied service labels are checked. Invalid group requests and hypotheses are discarded and counted; exact source excerpts are attached for valid ID-only citations. Source-line SHA-256 digests are reported; metric medians and observed graph edges are computed from supplied samples. Under a chronic-alert/metric conflict, an independent metric-only model assessment may lead the hypotheses and disagreement is reported. Source labels, hypothesis truth, and causality are not independently verified.",
     })
 }
 
@@ -2235,19 +2239,25 @@ mod tests {
         }
 
         fn assess(&mut self, _: &Value) -> Result<ModelAssessment, AnalysisError> {
-            panic!("invalid group selection must stop before assessment")
+            Ok(assessment("L1", "first alert"))
         }
     }
 
     #[test]
     fn model_cannot_request_unlisted_or_duplicate_groups() {
         let logs = b"service=db level=warn first alert\nservice=db level=warn second alert\nservice=db level=warn third alert\nservice=db level=warn fourth alert";
-        for ids in [vec!["G999".to_owned()], vec!["G4".to_owned(); 2]] {
+        for (ids, expanded, rejected) in [
+            (vec!["G999".to_owned()], 0, 1),
+            (vec!["G4".to_owned(); 2], 1, 1),
+            (vec!["G4".to_owned(); 5], 1, 4),
+        ] {
             let mut reasoner = InvalidSelectionReasoner(ids);
-            assert!(matches!(
-                analyze_with_reasoner(logs, "What happened to db?", None, &mut reasoner),
-                Err(AnalysisError::InvalidSelectionIds)
-            ));
+            let report =
+                analyze_with_reasoner(logs, "What happened to db?", None, &mut reasoner).unwrap();
+            assert_eq!(report.rejected_group_request_count, rejected);
+            assert_eq!(report.expanded_group_count, expanded);
+            assert_eq!(report.hypotheses[0].evidence[0].event_id, "L1");
+            assert!(report.needs_more_evidence);
         }
     }
 

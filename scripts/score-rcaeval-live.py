@@ -39,6 +39,8 @@ def score(path):
         digest = header.get(digest_field)
         if digest is not None and (not isinstance(digest, str) or len(digest) != expected_length or any(ch not in "0123456789abcdef" for ch in digest)):
             raise ValueError(f"invalid {digest_field} in probe header")
+    if "worktree_dirty" in header and type(header["worktree_dirty"]) is not bool:
+        raise ValueError("invalid worktree_dirty in probe header")
     if header.get("case_count") != len(rows):
         raise ValueError("case count does not match the probe header")
     case_names = [row.get("case") for row in rows]
@@ -99,6 +101,8 @@ def score(path):
                 or row["redacted_log_events"] < 0
                 or type(row["rejected_hypothesis_count"]) is not int
                 or row["rejected_hypothesis_count"] < 0
+                or type(row.get("rejected_group_requests", 0)) is not int
+                or row.get("rejected_group_requests", 0) < 0
                 or (row["metric_challenger_failed"] and not row["metric_challenger_attempted"])
                 or (row["metric_disagreement"] and not row["metric_challenger_attempted"])
                 or (row["top1_origin"] == "metric_challenger" and not row["metric_disagreement"])
@@ -135,11 +139,13 @@ def score(path):
             counts["metric_challenger_top1"] += row["top1_origin"] == "metric_challenger"
             counts["redacted_log_events"] += row["redacted_log_events"]
             counts["rejected_hypotheses"] += row["rejected_hypothesis_count"]
+            counts["rejected_group_requests"] += row.get("rejected_group_requests", 0)
     return {
         "dataset": header["dataset"],
         "revision": header["revision"],
         "evidentrail_revision": header.get("evidentrail_revision"),
         "binary_sha256": header.get("binary_sha256"),
+        "worktree_dirty": header.get("worktree_dirty"),
         "model_backend": header["model_backend"],
         "model_name": header["model_name"],
         "metrics_only": header["metrics_only"],
@@ -166,6 +172,7 @@ def score(path):
         "metric_challenger_top1": counts["metric_challenger_top1"] if not header["metrics_only"] else None,
         "redacted_log_events": counts["redacted_log_events"] if not header["metrics_only"] else None,
         "rejected_hypotheses": counts["rejected_hypotheses"] if not header["metrics_only"] else None,
+        "rejected_group_requests": counts["rejected_group_requests"] if not header["metrics_only"] else None,
         "by_fault": {fault: dict(values) for fault, values in sorted(by_fault.items())},
     }
 

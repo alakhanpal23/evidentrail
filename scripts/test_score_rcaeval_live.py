@@ -74,7 +74,8 @@ class LiveScoreTests(unittest.TestCase):
         combined_rows = [
             {**row, "metric_challenger_attempted": True, "metric_challenger_failed": False,
              "metric_disagreement": True, "top1_origin": "metric_challenger",
-             "redacted_log_events": 2, "rejected_hypothesis_count": 1}
+             "redacted_log_events": 2, "rejected_hypothesis_count": 1,
+             "rejected_group_requests": 1}
             for row in rows
         ]
         report = score_rows(combined, combined_rows)
@@ -82,14 +83,17 @@ class LiveScoreTests(unittest.TestCase):
         self.assertEqual(report["metric_challenger_attempts"], 2)
         self.assertEqual(report["redacted_log_events"], 4)
         self.assertEqual(report["rejected_hypotheses"], 2)
+        self.assertEqual(report["rejected_group_requests"], 2)
         with self.assertRaises(ValueError):
             score_rows({**combined, "model_backend": "openai_hosted"}, combined_rows)
 
     def test_accepts_git_revision_and_binary_digest_lengths(self):
         header, rows = fixture()
-        header.update({"evidentrail_revision": "a" * 40, "binary_sha256": "b" * 64})
+        header.update({"evidentrail_revision": "a" * 40, "binary_sha256": "b" * 64,
+                       "worktree_dirty": False})
         report = score_rows(header, rows)
         self.assertEqual(report["evidentrail_revision"], "a" * 40)
+        self.assertFalse(report["worktree_dirty"])
         with self.assertRaises(ValueError):
             score_rows({**header, "evidentrail_revision": "a" * 64}, rows)
 

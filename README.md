@@ -164,9 +164,9 @@ can be examined together. The output includes group counts, omitted-group counts
 source-line IDs, source-line SHA-256 digests, and hypotheses with exact source
 excerpts. Each hypothesis has a service and a fault type (`cpu`, `mem`, `disk`,
 `delay`, `loss`, `socket`, `other`, or `unknown`) so RCA evaluations can score
-the pair. Hypotheses with fabricated or unseen line IDs or unrelated-service
-citations are discarded and counted; valid hypotheses still return in a
-partial report. The report labels each hypothesis's citation support as `direct`
+the pair. Invalid retrieval IDs and hypotheses with fabricated or unseen line
+IDs or unrelated-service citations are discarded and counted; valid evidence
+still returns in a partial report. The report labels each hypothesis's citation support as `direct`
 or `dependent_only`; the latter forces a partial result because an affected
 caller does not prove its dependency caused the incident. Omitted groups also
 set `partial` and `needs_more_evidence: true`.

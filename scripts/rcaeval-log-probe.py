@@ -189,6 +189,7 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
         "model_inventory_groups": report["model_inventory_group_count"],
         "omitted_inventory_groups": report["omitted_inventory_group_count"],
         "model_requested_groups": report["model_requested_group_count"],
+        "rejected_group_requests": report["rejected_group_request_count"],
         "expanded_groups": report["expanded_group_count"],
         "root_service": root_service,
         "root_service_alert_events": sum(root_signal[f"{role}_count"] for role in ("critical", "error", "warning", "change")),
@@ -288,7 +289,8 @@ def main():
     with open(args.binary, "rb") as executable:
         binary_sha256 = hashlib.sha256(executable.read()).hexdigest()
     code_revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "evidentrail_revision": code_revision, "binary_sha256": binary_sha256, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "with_traces": args.with_traces, "live_model": args.live_model, "model_backend": backend if args.live_model else None, "model_name": model_name if args.live_model else None, "case_count": len(cases)}))
+    worktree_dirty = bool(subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], text=True).strip())
+    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "evidentrail_revision": code_revision, "binary_sha256": binary_sha256, "worktree_dirty": worktree_dirty, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "with_traces": args.with_traces, "live_model": args.live_model, "model_backend": backend if args.live_model else None, "model_name": model_name if args.live_model else None, "case_count": len(cases)}))
     for case in cases:
         print(json.dumps(probe(case, args.binary, args.window_seconds, args.with_metrics, args.generic_question, args.metrics_only, args.live_model, args.with_traces), sort_keys=True), flush=True)
 
