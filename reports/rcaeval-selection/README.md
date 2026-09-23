@@ -418,3 +418,24 @@ and false attributions together. A valid citation proves an observed span
 existed, not that the proposed fault label follows from it. The set is small,
 synthetically injected, and from the same benchmark used during development;
 production incident accuracy remains unverified.
+
+A second local model was evaluated on the same frozen cases after inspecting
+the Qwen result. Its [metric-only artifact](frozen-ob-gptoss-metric-only-live.jsonl)
+and [metric-and-trace artifact](frozen-ob-gptoss-metric-trace-live.jsonl) use
+`gpt-oss:20b`, the same immutable product binary, and a 32K context. Both
+complete all 12 cases without product errors:
+
+| Local model / input | Correct top-1 pairs | Wrong top-1 pairs | Abstentions | Mean latency |
+| --- | ---: | ---: | ---: | ---: |
+| Qwen3 14B, metrics | 3 | 2 | 7 | 34.5 s |
+| Qwen3 14B, metrics + traces | 5 | 7 | 0 | 58.1 s |
+| GPT-OSS 20B, metrics | 1 | 3 | 8 | 10.1 s |
+| GPT-OSS 20B, metrics + traces | 5 | 6 | 1 | 21.2 s |
+
+GPT-OSS cited 13 exact trace source lines across its trace run, including
+eight citations in cases where its leading diagnosis was wrong. More citations
+and a faster model did not make the causal labels reliable. Both trace arms
+matched the **5/12** naive metric baseline while making more wrong guesses.
+This is an exploratory model comparison on a small public injection set; the
+second model was chosen after the first result, so it is not a held-out model
+selection experiment.
