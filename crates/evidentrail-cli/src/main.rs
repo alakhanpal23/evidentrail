@@ -17,9 +17,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use evidentrail_authority::{CanonicalUnixPathV1, InternalPathPolicyV1, InternalPathRegistryV1};
 use evidentrail_cli::{
-    DEFAULT_TOKEN_BUDGET_V1, HostedRankingDiagnosticRecordV1, MAX_QUESTION_BYTES_V1,
-    MAX_STDIN_BYTES_V1, OpenAiEvidenceRankerV1, OpenAiIncidentReasoner, StdinBriefOutcomeV1,
-    analyze_with_reasoner_and_metrics_and_traces_and_precedents,
+    CompactionError, DEFAULT_TOKEN_BUDGET_V1, HostedRankingDiagnosticRecordV1,
+    MAX_QUESTION_BYTES_V1, MAX_STDIN_BYTES_V1, OpenAiEvidenceRankerV1, OpenAiIncidentReasoner,
+    StdinBriefOutcomeV1, analyze_with_reasoner_and_metrics_and_traces_and_precedents, compact_logs,
     compile_explicit_stdin_retained_with_contended_ranker_v1,
     compile_explicit_stdin_retained_with_contended_shadow_ranker_v1,
     compile_explicit_stdin_retained_with_ranker_v1,
@@ -46,7 +46,7 @@ use evidentrail_store::{
     DurableRepositoryErrorV2, DurableResultRepositoryV2, MacOsKeychainAuthorityV2,
 };
 
-const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank | --llm-rank-if-contended] < logs\n  evidentrail analyze (--question TEXT | --question-file PATH) [--topology PATH] [--metrics PATH --incident-time UNIX] [--traces PATH] [--confirmed-incidents PATH] [--selection-only] < utf8-logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nAnalyze requires OPENAI_API_KEY for hosted inference, or set\nEVIDENTRAIL_ANALYZE_LOCAL_MODEL to use an Ollama model on 127.0.0.1:11434.\nOllama must load at least 16K for metric-only analysis or 32K when alert groups are present.\n--selection-only previews the exact local evidence selection without a model call.\nAnalyze groups repeated alerts, computes optional metric changes, derives observed\nservice relationships from explicit NDJSON parent-child spans, optionally compares\noperator-confirmed incident patterns, and checks model citations. Hypotheses and dependency edges do not establish causality. Brief\nreads only explicit standard input and retention defaults to memory. --llm-rank is an\nexplicit memory-mode beta opt-in to one hosted evidence-ordering call.\n--llm-rank-if-contended calls only when deterministic packing excluded a\nmodel-visible optional block. Deterministic compression remains the fallback\nand default. Streaming V3 is behind EVIDENTRAIL_STREAMING_V3=1; durable brief\nretention is explicit and requires external authority. Doctor inspects metadata\nfor one explicit file. The product does not discover files, crawl a workspace,\nor inspect ambient logs. Use --question-file to keep a question out of the process\nargument list. The pinned tokenizer conservatively counts one rendered UTF-8 byte\nas one budget unit; this is not a model-token count.\n";
+const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail compact [--task TEXT | --task-file PATH] < utf8-logs\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank | --llm-rank-if-contended] < logs\n  evidentrail analyze (--question TEXT | --question-file PATH) [--topology PATH] [--metrics PATH --incident-time UNIX] [--traces PATH] [--confirmed-incidents PATH] [--selection-only] < utf8-logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nCompact selects log groups with EVIDENTRAIL_COMPACT_LOCAL_MODEL on Ollama or hosted GPT-6 Sol (OPENAI_API_KEY) and emits only original log lines with repeat counts.\nThe explicit stdin prototype is bounded to 16 MiB; connected full-history indexing is not yet shipped.\nAnalyze requires OPENAI_API_KEY for hosted inference, or set\nEVIDENTRAIL_ANALYZE_LOCAL_MODEL to use an Ollama model on 127.0.0.1:11434.\nOllama must load at least 16K for metric-only analysis or 32K when alert groups are present.\n--selection-only previews the exact local evidence selection without a model call.\nAnalyze groups repeated alerts, computes optional metric changes, derives observed\nservice relationships from explicit NDJSON parent-child spans, optionally compares\noperator-confirmed incident patterns, and checks model citations. Hypotheses and dependency edges do not establish causality. Brief\nreads only explicit standard input and retention defaults to memory. --llm-rank is an\nexplicit memory-mode beta opt-in to one hosted evidence-ordering call.\n--llm-rank-if-contended calls only when deterministic packing excluded a\nmodel-visible optional block. Deterministic compression remains the fallback\nand default. Streaming V3 is behind EVIDENTRAIL_STREAMING_V3=1; durable brief\nretention is explicit and requires external authority. Doctor inspects metadata\nfor one explicit file. The product does not discover files, crawl a workspace,\nor inspect ambient logs. Use --question-file to keep a question out of the process\nargument list. The pinned tokenizer conservatively counts one rendered UTF-8 byte\nas one budget unit; this is not a model-token count.\n";
 
 const DOCTOR_SUCCESS_CODE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_FILE_METADATA_OK";
 const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str =
@@ -67,6 +67,10 @@ struct AnalyzeOptions {
     precedents_path: Option<PathBuf>,
     incident_time: Option<i64>,
     selection_only: bool,
+}
+
+struct CompactOptions {
+    task: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -94,6 +98,7 @@ struct ServeMcpOptions {
 enum ParseDecision {
     Run(BriefOptions),
     Analyze(AnalyzeOptions),
+    Compact(CompactOptions),
     Doctor(DoctorOptions),
     ServeMcp(ServeMcpOptions),
     Help,
@@ -152,6 +157,7 @@ fn run() -> Result<ExitCode, CliFailure> {
         }
         ParseDecision::Run(options) => run_brief(options),
         ParseDecision::Analyze(options) => run_analyze(options),
+        ParseDecision::Compact(options) => run_compact(options),
         ParseDecision::Doctor(options) => run_doctor(options),
         ParseDecision::ServeMcp(options) => run_mcp(options),
     }
@@ -218,6 +224,9 @@ fn parse_args(
     }
     if command == "analyze" {
         return parse_analyze_args(args);
+    }
+    if command == "compact" {
+        return parse_compact_args(args);
     }
     if command != "brief" {
         return Err(CliFailure::usage("EVIDENTRAIL_CLI_UNKNOWN_COMMAND"));
@@ -325,6 +334,54 @@ fn parse_args(
     }))
 }
 
+fn parse_compact_args(
+    mut args: impl Iterator<Item = std::ffi::OsString>,
+) -> Result<ParseDecision, CliFailure> {
+    let mut inline_task = None;
+    let mut task_file = None;
+    while let Some(argument) = args.next() {
+        let slot = if argument == "--task" {
+            &mut inline_task
+        } else if argument == "--task-file" {
+            &mut task_file
+        } else if argument == "--help" || argument == "-h" {
+            return Ok(ParseDecision::Help);
+        } else {
+            return Err(CliFailure::usage("EVIDENTRAIL_CLI_UNKNOWN_OPTION"));
+        };
+        let value = args
+            .next()
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_CLI_MISSING_OPTION_VALUE"))?;
+        if slot.replace(value).is_some() {
+            return Err(CliFailure::usage("EVIDENTRAIL_CLI_DUPLICATE_OPTION"));
+        }
+    }
+    if inline_task.is_some() && task_file.is_some() {
+        return Err(CliFailure::usage("EVIDENTRAIL_CLI_TASK_SOURCE_CONFLICT"));
+    }
+    let task = if let Some(value) = inline_task {
+        value
+            .into_string()
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_CLI_TASK_NOT_UTF8"))?
+    } else if let Some(path) = task_file {
+        let file = File::open(PathBuf::from(path))
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_TASK_FILE_OPEN_FAILURE"))?;
+        let bytes = read_bounded(file, MAX_QUESTION_BYTES_V1).map_err(|error| match error {
+            BoundedReadFailure::Io => CliFailure::runtime("EVIDENTRAIL_CLI_TASK_FILE_READ_FAILURE"),
+            BoundedReadFailure::LimitExceeded => {
+                CliFailure::usage("EVIDENTRAIL_CLI_TASK_TOO_LARGE")
+            }
+        })?;
+        String::from_utf8(bytes).map_err(|_| CliFailure::usage("EVIDENTRAIL_CLI_TASK_NOT_UTF8"))?
+    } else {
+        "Select the log lines most useful for debugging abnormal behavior.".to_owned()
+    };
+    if task.trim().is_empty() || task.len() > MAX_QUESTION_BYTES_V1 {
+        return Err(CliFailure::usage("EVIDENTRAIL_CLI_TASK_TOO_LARGE"));
+    }
+    Ok(ParseDecision::Compact(CompactOptions { task }))
+}
+
 fn parse_analyze_args(
     mut args: impl Iterator<Item = std::ffi::OsString>,
 ) -> Result<ParseDecision, CliFailure> {
@@ -422,6 +479,42 @@ fn parse_analyze_args(
         incident_time,
         selection_only,
     }))
+}
+
+fn run_compact(options: CompactOptions) -> Result<ExitCode, CliFailure> {
+    if io::stdin().is_terminal() {
+        return Err(CliFailure::usage("EVIDENTRAIL_CLI_EXPLICIT_STDIN_REQUIRED"));
+    }
+    let logs = read_bounded(io::stdin().lock(), 16 * 1024 * 1024).map_err(|error| match error {
+        BoundedReadFailure::Io => CliFailure::runtime("EVIDENTRAIL_CLI_STDIN_READ_FAILURE"),
+        BoundedReadFailure::LimitExceeded => CliFailure::usage("EVIDENTRAIL_CLI_INPUT_TOO_LARGE"),
+    })?;
+    let mut selector = OpenAiIncidentReasoner::from_compact_environment()
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let pack = compact_logs(&logs, &options.task, &mut selector)
+        .map_err(|error: CompactionError| CliFailure::runtime(error.code()))?;
+    let mut stdout = io::stdout().lock();
+    for entry in &pack.selected {
+        writeln!(
+            stdout,
+            "[{} × {}] {}",
+            entry.source_id,
+            entry.repeat_count,
+            serde_json::to_string(&entry.raw)
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_STDOUT_WRITE_FAILURE"))?,
+        )
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_STDOUT_WRITE_FAILURE"))?;
+        if let (Some(id), Some(raw)) = (&entry.last_source_id, &entry.last_raw) {
+            writeln!(
+                stdout,
+                "[{id}] {}",
+                serde_json::to_string(raw)
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_STDOUT_WRITE_FAILURE"))?,
+            )
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_STDOUT_WRITE_FAILURE"))?;
+        }
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 fn run_analyze(options: AnalyzeOptions) -> Result<ExitCode, CliFailure> {
@@ -1094,6 +1187,21 @@ fn unix_now_v1() -> Result<UnixTimestampNanos, CliFailure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compact_has_a_default_task_and_no_time_window_or_diagnosis_flags() {
+        match parse_args(["compact".into()]) {
+            Ok(ParseDecision::Compact(options)) => assert!(options.task.contains("log lines")),
+            _ => panic!("expected compact command"),
+        }
+        assert_eq!(
+            parse_args(["compact".into(), "--metrics".into()])
+                .err()
+                .unwrap()
+                .code,
+            "EVIDENTRAIL_CLI_UNKNOWN_OPTION",
+        );
+    }
 
     #[test]
     fn parser_requires_exactly_one_question_source() {

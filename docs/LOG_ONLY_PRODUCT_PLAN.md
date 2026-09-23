@@ -3,22 +3,39 @@
 **Status:** product plan, not a description of shipped behavior. This plan
 supersedes the two-path product direction in `PRODUCT_ROADMAP.md`.
 
+## Implementation status
+
+The current `evidentrail compact` command is a supplied-log prototype. It
+accepts up to 16 MiB/100,000 UTF-8 lines on standard input, groups those
+lines, asks a local or hosted model to select group IDs, verifies the IDs, and
+emits selected original lines with repeat counts. Its graph currently consists
+only of explicitly named peer services in JSON log records. It has no durable
+full-history corpus, connector credentials, background synchronization,
+cross-call graph memory, expansion handle, or verified learning loop. These
+are release requirements, not existing capabilities. The current group-card
+selection also needs held-out relevance tests before it can be trusted to
+preserve rare clues in very large histories.
+
 ## One product contract
 
-Connect a read-only log source once. When a coding agent asks a debugging
-question, Evidentrail fetches the approved logs for that task and time window,
-parses every record it actually retrieved, compresses repeated patterns, and
-returns only the most relevant original log lines. The agent can expand a
+Connect read-only log sources once. Evidentrail backfills **all logs available
+through each connection**, then continuously ingests new records. When a coding
+agent calls it, Evidentrail catches up and searches that entire indexed corpus;
+the user does not choose a time window or export files. It parses every record
+it acquired, compresses repeated patterns, and returns only the most relevant
+original log lines. The agent can expand a
 selected line or group to inspect nearby original records. Evidentrail does not
 write a diagnosis, invent a replacement log line, or require users to prepare
 metrics, traces, or a service graph.
 
 ```text
 User connects CloudWatch / Datadog / another supported log source
-  -> coding agent calls evidentrail_logs(source, task, time window, token budget)
-  -> bounded read-only acquisition with an honest completeness receipt
-  -> parse and group every acquired log record
-  -> model selects relevant groups and may inspect more original examples
+  -> background full backfill, checkpoint, and continuous read-only sync
+  -> parse, group, and index every acquired log record
+  -> build an evidence-backed system graph from log fields and correlations
+  -> coding agent calls evidentrail_logs(task, token budget)
+  -> catch up connected sources and search the whole indexed corpus
+  -> model selects relevant groups and may inspect original examples
   -> verifier resolves selected IDs back to source records
   -> agent receives a compact log pack and can call evidentrail_expand
 ```
@@ -31,11 +48,13 @@ and exact repeat counts. For example:
 [L98] 2026-09-23T12:10:03Z database ERROR disk full on orders volume
 ```
 
-Acquisition status, omitted-record counts, model/configuration identity, and
+Acquisition status, inaccessible or expired history, omitted-record counts, model/configuration identity, and
 budget usage are separate machine-readable tool metadata. The coding agent
-must see a partial status when a provider, permission, deadline, or cap stopped
-the fetch. “All logs” means all records returned by the explicitly scoped,
-completed query—not every log in the customer's account.
+must see a partial status when a provider, permission, retention boundary,
+deadline, or cap stopped backfill or catch-up. “All logs” means every record
+the connected sources make accessible under the granted permissions and
+retention policies. The product must never silently turn an incomplete source
+into a claim of complete history. No user-facing time-window parameter exists.
 
 ## Reuse and remove from the current codebase
 
@@ -45,7 +64,7 @@ completed query—not every log in the customer's account.
 | Core ledger and `evidentrail_expand` | Keep exact source retention and bounded expansion so a selected line can be inspected later. |
 | `incident_analysis` log parser, fingerprints, grouping, and model group requests | Extract into a log-only indexing/retrieval module. Remove hypothesis, fault-type, metric, trace, and topology requirements from this product path. |
 | `brief` budgeting and evidence receipts | Reuse the strict output budget and completeness accounting internally. Replace the public brief renderer with the log-pack renderer. |
-| Current `evidentrail_logs` MCP tool | Change input from caller-supplied Base64 log bytes to an approved connected-source binding plus task/window. Keep an explicit supplied-log adapter for local development, not a second product track. |
+| Current `evidentrail_logs` MCP tool | Change input from caller-supplied Base64 log bytes to the agent task and budget. Search all connected, authorized indexes after catch-up. Keep an explicit supplied-log adapter for local development, not a second product track. |
 
 Deprecate `analyze` and the old `brief` behavior from the main CLI/MCP surface
 after the new contract and migration tests pass. Do not delete the exactness,
@@ -54,7 +73,10 @@ is simpler.
 
 ## The selection engine
 
-1. **Parse all acquired records.** Preserve original bytes, source identity,
+1. **Backfill, sync, and parse all accessible records.** Page through the full
+   available history of each connected source into a durable, bounded-memory
+   index. Persist provider cursors and a frozen high-water mark; continuously
+   catch up after backfill. Preserve original bytes, source identity,
    provider event ID/cursor, timestamps when present, and parse confidence.
    Group by stable template, service, severity, and diagnostic fields. Repeated
    request IDs and timestamps should collapse; distinct error codes and
@@ -62,19 +84,29 @@ is simpler.
    addressable rather than disappearing.
 2. **Build a bounded candidate index.** Record group count, first/last
    occurrence, onset/change, rare events, and representative exact lines.
-   Cover services and time slices so one noisy service cannot crowd out a
-   sparse clue. If a query is too large to inspect completely, return an
-   explicit partial result or partition it; never silently sample and claim
-   complete coverage.
-3. **Let the LLM choose evidence.** Give the model group cards and the coding
+   Cover services and eras so one noisy service cannot crowd out a sparse clue.
+   Partition the index for large histories; never silently sample and claim
+   complete coverage. Calls search the index rather than refetching or placing
+   the entire raw corpus in a model prompt.
+3. **Build a log-derived system graph.** Normalize service identities from
+   structured log metadata, including OpenTelemetry `service.name` where
+   available. Add a directed relationship only when log fields explicitly name
+   a peer or trace/request correlation supplies supporting records; attach
+   source IDs, confidence, count, and observed period to every edge. Keep
+   ambiguous co-occurrence as a weak candidate, not a verified dependency or
+   causal link. Version the graph as services and deployments change. Use it
+   internally to search neighboring services and distinguish repeated
+   downstream symptoms from a rare upstream clue. The graph is not part of
+   the agent's log-only output.
+4. **Let the LLM choose evidence.** Give the model group cards and the coding
    agent's task, then allow bounded read-only requests for more examples or
    neighboring records. The model returns group/event IDs only. Code checks
    every ID, resolves exact lines, enforces the token budget, and renders no
    model-authored log text. A small model is a cost candidate for first-pass
    selection; GPT-6 Sol is an accuracy challenger for hard cases. Choose the
    routing policy only after paired evaluation.
-4. **Keep uncertainty honest.** If the model declines to select, the provider
-   query is partial, or the output budget cannot fit critical evidence, report
+5. **Keep uncertainty honest.** If the model declines to select, backfill or
+   catch-up is partial, or the output budget cannot fit critical evidence, report
    that in metadata. The log body still contains only logs.
 
 This uses deterministic code for fidelity and accounting, and LLM judgment for
@@ -87,21 +119,34 @@ insufficient.
 
 1. **CloudWatch Logs:** complete the existing adapter with an AWS SDK-backed
    read-only `FilterLogEvents` transport, account/region/log-group binding,
-   credential isolation, and source-native event references. Continue through
+   credential isolation, full-history pagination, durable checkpoints,
+   incremental catch-up, and source-native event references. Continue through
    empty pages when `nextToken` exists; an empty page is not completion.
    Verify identity and completeness on every call. [AWS API](https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_FilterLogEvents.html).
 2. **Datadog Logs:** implement the same source contract using the paginated
-   Logs Search API, fixed absolute time bounds, index/site binding, and
+   Logs Search API, internally partitioned absolute bounds from the earliest
+   accessible history to the frozen high-water mark, index/site binding, and
    `logs_read_data` permission. [Datadog API](https://docs.datadoghq.com/api/latest/logs/search-logs-post/).
 3. **Sentry Logs:** validate whether the customer's enabled Sentry log dataset
    and API can supply the requested coverage. Sentry's Explore table endpoint
-   supports a logs dataset but explicitly is not a full-export endpoint; do
-   not label a bounded table query as complete account-wide ingestion.
+   supports a logs dataset but explicitly is not a full-export endpoint. Do
+   not offer it as an “all logs” connection until a validated export or
+   equivalent complete-ingestion route exists.
    [Sentry API](https://docs.sentry.io/api/explore/query-explore-events-in-table-format/).
 4. Add other sources through the same acquisition and completeness contract,
-   starting with sources customers actually request. Normalize service names
-   using provider metadata and OpenTelemetry `service.name` where available;
-   the main product does not need a separate service graph.
+   starting with sources customers actually request. The evidence-backed
+   system graph is built from these logs and remains an internal ranking asset.
+
+## The graph and learning moat
+
+The differentiated asset is a versioned, customer-specific memory of what the
+system emits: service identities, changing log templates, supported
+relationships, and which lines helped solve verified coding tasks. Each graph
+edge and template points back to original records; deletion or permission
+changes remove inaccessible evidence and derived state. A generic LLM can read
+an excerpt, but it does not automatically have this complete, continually
+updated, source-verifiable history. The graph should improve retrieval only
+when ablations show that it finds required clues the non-graph selector misses.
 
 ## Continuous improvement without self-reinforcing errors
 
@@ -125,11 +170,12 @@ model/policy version; a changed source invalidates the cache.
 
 | Milestone | Concrete deliverable | Gate |
 | --- | --- | --- |
-| 1. One log-pack contract | CLI/MCP supplied-log prototype; exact line IDs, repeat counts, expansion, metadata outside the log body | Output contains no generated logs or diagnosis; every selected line resolves to an input record; old commands remain only as compatibility wrappers. |
-| 2. Model-guided selection | Bounded group cards, retrieval of more examples, verified ID-only selection, local and hosted model options | Rare required clues survive noisy 10K/100K-line tests; no silent truncation; log-only output stays within budget. |
-| 3. CloudWatch connection | Real read-only AWS transport and connected-source MCP call | Sandbox account integration proves pagination, empty-page continuation, permission/cap failures, identity checks, and no false-complete result. |
-| 4. More sources | Datadog, then validated Sentry log query | Provider-specific conformance fixtures and live sandbox checks; incomplete query capabilities are exposed rather than hidden. |
-| 5. Learning loop | Consented feedback labels, offline challenger evaluation, versioned routing and rollback | Held-out required-evidence recall and downstream coding-agent task success improve at a matched output budget, without worse citation integrity, false omissions, latency, or data handling. |
+| 1. One log-pack contract | CLI/MCP supplied-log prototype; exact line IDs, repeat counts, expansion, metadata outside the log body | Output contains no generated logs or diagnosis; every selected line resolves to an input record; old commands remain only as compatibility wrappers. The current CLI covers selection and line verification; expansion, MCP integration, and completeness metadata remain. |
+| 2. Full-corpus index and graph | Durable streaming parser, checkpointed template index, evidence-backed service graph, log-only query API | Every acquired record is accounted for; graph edges have source support; a 100K/1M-line corpus is searchable without a user time window or silent truncation. |
+| 3. Model-guided selection | Bounded group cards, retrieval of more examples, verified ID-only selection, local and hosted model options | Rare required clues survive noisy full-corpus tests; graph ablation measures incremental value; output stays within budget. |
+| 4. CloudWatch connection | Real read-only AWS transport, full backfill, incremental sync, and connected-source MCP call | Sandbox account proves empty-page continuation, crash/restart cursors, retention boundaries, permissions/caps, identity checks, and no false-complete result. |
+| 5. More sources | Datadog full-history sync; Sentry only after a complete route is validated | Provider-specific conformance fixtures and live sandbox checks; incomplete query capabilities are exposed rather than hidden. |
+| 6. Learning loop | Consented feedback labels, offline challenger evaluation, versioned routing and rollback | Held-out required-evidence recall and downstream coding-agent task success improve at a matched output budget, without worse citation integrity, false omissions, latency, or data handling. |
 
 Before calling this an accuracy improvement, compare it with current `brief`,
 `analyze` highlights, provider-native searches, grep/tail, lexical retrieval,

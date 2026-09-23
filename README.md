@@ -1,10 +1,34 @@
 # Evidentrail
 
 > **Product direction:** One connected-source, log-only tool for coding agents:
-> fetch scoped logs when called, parse the acquired records, and return only
-> selected original lines with repeat counts. See the
+> backfill and keep all accessible connected logs indexed, build an
+> evidence-backed service graph from the logs, and return only selected
+> original lines with repeat counts when called. No user-selected time window.
+> See the
 > [implementation plan](docs/LOG_ONLY_PRODUCT_PLAN.md). The commands described
 > below are the current prototype and do not yet implement that connected flow.
+
+The first log-only prototype is available as `compact`. It accepts an explicit
+log stream with no time-window parameter and returns model-selected original
+log lines with source IDs and repeat counts. Build it with Rust 1.88 or newer:
+
+```sh
+cargo build --release -p evidentrail-cli --bin evidentrail
+EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
+  target/release/evidentrail compact \
+  --task "Find logs relevant to checkout failures" < app.log
+```
+
+`compact` requires a running local Ollama instance with the named model, or
+`OPENAI_API_KEY` for hosted GPT-6 Sol. The CLI input is currently limited to
+16 MiB and is not a connected, full-history index. It groups every supplied
+line, lets the model select groups by ID, and resolves those IDs back to source
+lines. The log-derived graph currently uses only explicit peer-service fields
+and stays internal to selection. Relevance accuracy and graph benefit remain
+unverified; the [plan](docs/LOG_ONLY_PRODUCT_PLAN.md) lists the evaluation and
+connector work needed before calling this the finished product.
+
+## Existing experimental commands
 
 **Model-assisted incident analysis with source-linked evidence.**
 
@@ -36,7 +60,7 @@ flowchart LR
 
 *Model hypotheses stay linked to exact, inspectable log or metric source lines.*
 
-## The product
+## Legacy incident-analysis prototype
 
 Large logs create a bad tradeoff for an agent: send everything and waste the
 context window, truncate and miss the cause, or summarize and lose the proof.
@@ -48,7 +72,7 @@ question. It groups repeated alerts, surfaces changes, and returns up to three
 source-linked hypotheses. The offline `brief` command remains available when
 you need byte-exact compression with `E<n>` expansion handles.
 
-For an on-call engineer, the intended flow is:
+For an on-call engineer using the older `analyze` command, the flow is:
 
 1. Export a bounded incident window from the telemetry system and ask a
    specific question, such as “Why did checkout fail after 14:05?”
@@ -59,10 +83,9 @@ For an on-call engineer, the intended flow is:
    thin or conflicting, treat the result as an investigation lead rather than
    a diagnosis and expand the source window.
 
-Today this is a CLI and machine-readable report. A production integration
-would add a read-only telemetry connector, an incident view with clickable
-source links, and reviewer feedback on which evidence and diagnosis helped.
-Those interfaces are not yet shipped.
+This older path is a CLI and machine-readable report. The connected log-only
+product described above is the current direction; the legacy RCA and offline
+brief commands remain available while that product is built.
 
 | Capability | Product behavior |
 |---|---|
@@ -117,7 +140,7 @@ study. [Benchmark protocol](docs/EVIDENTRAILBENCH_PROTOCOL.md) defines the
 broader comparison. The [local incident evaluator](docs/LOCAL_INCIDENT_EVALUATION.md)
 can score an approved, labeled historical set without publishing source logs.
 
-## Quick start
+## Legacy command examples
 
 Evidentrail is a Rust workspace and requires Rust 1.88 or newer.
 
