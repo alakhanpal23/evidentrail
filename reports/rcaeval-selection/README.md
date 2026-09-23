@@ -384,3 +384,37 @@ python3 scripts/rcaeval-log-probe.py --binary /tmp/evidentrail-fixed \
   --with-metrics --metrics-only --with-traces --generic-question --all-re2-ob \
   > ninety-ob-trace-operation-selection.jsonl
 ```
+
+### Frozen metric versus metric-and-trace local-model comparison
+
+The [12-case list](frozen-ob-trace-paired-cases.json) was committed before
+inference. For each fault family, it selects two replicate-3 Online Boutique
+case names by a fixed SHA-256 rule, without looking at their telemetry or model
+outputs. The [selection pass](frozen-ob-trace-selection.jsonl) completed all
+12 cases, covering 1,964,133 trace span rows, and found nine observed service
+edges in each case. The [metric-only arm](frozen-ob-metric-only-live.jsonl)
+and [metric-and-trace arm](frozen-ob-metric-trace-live.jsonl) used the same
+immutable Evidentrail executable, `qwen3:14b`, generic question, and ±300-second
+metric window. All 24 live analyses completed without product errors. Their
+headers show different script revisions only because the live metric-and-trace
+probe timeout was raised from 75 to 180 seconds; neither arm timed out, and
+the product binary SHA-256 is identical.
+
+| Outcome on the same 12 cases | Metrics only | Metrics + traces |
+| --- | ---: | ---: |
+| Exact top-1 service and fault matches | 3 | 5 |
+| Wrong top-1 attributions | 2 | 7 |
+| Abstentions | 7 | 0 |
+| Mean local-model latency | 34.5 s | 58.1 s |
+| Verified `T<n>` source-line citations | 0 | 2 |
+
+The simple largest-metric-shift baseline also got **5/12** exact pairs. Trace
+context helped the model answer both delay cases and one socket case that it
+previously left unanswered, but it lost one previously correct CPU and one
+disk answer. Neither loss case became an exact match. The two trace citations
+occurred in **wrong** loss diagnoses. This is not evidence that the graph or
+RPC-status context improves diagnostic accuracy: it increased useful answers
+and false attributions together. A valid citation proves an observed span
+existed, not that the proposed fault label follows from it. The set is small,
+synthetically injected, and from the same benchmark used during development;
+production incident accuracy remains unverified.

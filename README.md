@@ -362,6 +362,11 @@ The [trace graph probe](reports/rcaeval-selection/README.md#trace-observed-servi
 uses six pinned Online Boutique cases. It recovers nine observed cross-service
 edges in each case from same-trace parent-child spans and records source-line
 proof for every edge. This checks graph extraction, not causal diagnosis.
+A [frozen 12-case local-model comparison](reports/rcaeval-selection/README.md#frozen-metric-versus-metric-and-trace-local-model-comparison)
+found 3/12 exact service-and-fault matches with metrics alone and 5/12 with
+metrics plus traces, equal to the simple metric baseline. The trace arm also
+made seven wrong top attributions versus two with metrics alone; trace input
+is optional and its diagnostic benefit is unproven.
 
 The generic-question, metric-only probe removes the labeled service from the
 question and excludes logs that may contain credentials. Its selected evidence
