@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use evidentrail_log_model::{ParsedEvent, parse_event};
+use evidentrail_log_model::{ParsedEvent, explicit_peer_service, parse_event};
 
 use crate::incident_analysis::contains_sensitive_data;
 
@@ -241,41 +241,19 @@ fn group_events(events: &[ParsedEvent]) -> Result<Vec<LogGroup>, CompactionError
 fn observed_graph(events: &[ParsedEvent]) -> BTreeMap<(String, String), ObservedEdge> {
     let mut edges = BTreeMap::<(String, String), ObservedEdge>::new();
     for event in events {
-        let Ok(value) = serde_json::from_str::<Value>(&event.raw) else {
-            continue;
-        };
-        let target = [
-            "peer.service",
-            "peer_service",
-            "target_service",
-            "downstream_service",
-        ]
-        .iter()
-        .find_map(|key| value.get(*key).and_then(Value::as_str))
-        .or_else(|| value.pointer("/peer/service").and_then(Value::as_str));
-        let Some(target) = target.filter(|name| valid_service(name)) else {
+        let Some(target) = explicit_peer_service(&event.raw) else {
             continue;
         };
         if event.service == "unknown" || event.service == target {
             continue;
         }
-        let edge = edges
-            .entry((event.service.clone(), target.to_owned()))
-            .or_default();
+        let edge = edges.entry((event.service.clone(), target)).or_default();
         edge.count += 1;
         if edge.source_ids.len() < 3 {
             edge.source_ids.push(event.id.clone());
         }
     }
     edges
-}
-
-fn valid_service(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 128
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 fn select_page(

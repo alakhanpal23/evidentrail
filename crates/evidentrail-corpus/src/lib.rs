@@ -11,12 +11,13 @@ use std::time::Duration;
 use evidentrail_ingest::{
     HistoryCheckpointV1, HistoryPageStoreV1, HistoryRecordV1, HistorySyncErrorV1,
 };
-use evidentrail_log_model::parse_event;
+use evidentrail_log_model::{explicit_peer_service, parse_event};
 use rusqlite::{Connection, OptionalExtension as _, Transaction, TransactionBehavior, params};
 use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
 
 const PARSER_INDEX_VERSION: i64 = 1;
+const GRAPH_INDEX_VERSION: i64 = 1;
 const MAX_RAW_RECORD_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,6 +82,24 @@ pub struct CorpusGroupCard {
     pub last_timestamp_millis: i64,
     pub first_native_id: Vec<u8>,
     pub last_native_id: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServiceEdgeCard {
+    pub source_service: String,
+    pub target_service: String,
+    pub evidence_count: u64,
+    pub first_timestamp_millis: i64,
+    pub last_timestamp_millis: i64,
+    pub first_native_id: Vec<u8>,
+    pub last_native_id: Vec<u8>,
+    pub evidence_kind: &'static str,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EdgeEvidencePage {
+    pub native_ids: Vec<Vec<u8>>,
+    pub next_cursor: Option<Vec<u8>>,
 }
 
 pub struct EncryptedHistoryStore {
@@ -160,7 +179,34 @@ impl EncryptedHistoryStore {
                      native_id BLOB PRIMARY KEY REFERENCES history_records(native_id),
                      group_id INTEGER NOT NULL REFERENCES log_groups(group_id)
                  );
-                 CREATE INDEX IF NOT EXISTS group_members_group ON group_members(group_id);",
+                 CREATE INDEX IF NOT EXISTS group_members_group ON group_members(group_id);
+                 CREATE TABLE IF NOT EXISTS service_edges (
+                     source_service TEXT NOT NULL,
+                     target_service TEXT NOT NULL,
+                     evidence_count INTEGER NOT NULL,
+                     first_timestamp_millis INTEGER NOT NULL,
+                     first_native_id BLOB NOT NULL,
+                     last_timestamp_millis INTEGER NOT NULL,
+                     last_native_id BLOB NOT NULL,
+                     PRIMARY KEY(source_service, target_service)
+                 );
+                 CREATE INDEX IF NOT EXISTS service_edges_target
+                     ON service_edges(target_service, source_service);
+                 CREATE TABLE IF NOT EXISTS edge_evidence (
+                     native_id BLOB PRIMARY KEY REFERENCES history_records(native_id),
+                     source_service TEXT NOT NULL,
+                     target_service TEXT NOT NULL,
+                     FOREIGN KEY(source_service, target_service)
+                         REFERENCES service_edges(source_service, target_service)
+                 );
+                 CREATE INDEX IF NOT EXISTS edge_evidence_edge
+                     ON edge_evidence(source_service, target_service);
+                 CREATE TABLE IF NOT EXISTS graph_metadata (
+                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                     extractor_version INTEGER NOT NULL,
+                     graph_version INTEGER NOT NULL,
+                     backfill_complete INTEGER NOT NULL CHECK (backfill_complete IN (0, 1))
+                 );",
             )
             .map_err(|_| CorpusError::Storage)?;
         connection
@@ -204,9 +250,75 @@ impl EncryptedHistoryStore {
         if version != PARSER_INDEX_VERSION {
             return Err(CorpusError::IndexVersionMismatch);
         }
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO graph_metadata(
+                    singleton, extractor_version, graph_version, backfill_complete
+                 ) VALUES (1, ?1, 0, 0)",
+                [GRAPH_INDEX_VERSION],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let graph_extractor_version: i64 = connection
+            .query_row(
+                "SELECT extractor_version FROM graph_metadata WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        if graph_extractor_version != GRAPH_INDEX_VERSION {
+            return Err(CorpusError::IndexVersionMismatch);
+        }
         let mut store = Self { connection };
         store.index_unindexed_records()?;
+        store.backfill_graph_if_needed()?;
         Ok(store)
+    }
+
+    fn backfill_graph_if_needed(&mut self) -> Result<(), CorpusError> {
+        let ready: i64 = self
+            .connection
+            .query_row(
+                "SELECT backfill_complete FROM graph_metadata WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        if ready == 1 {
+            return Ok(());
+        }
+        let mut cursor = None::<CorpusCursor>;
+        loop {
+            let page = self.read_page(cursor.as_ref(), 64, MAX_RAW_RECORD_BYTES)?;
+            if page.records.is_empty() {
+                break;
+            }
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|_| CorpusError::Storage)?;
+            for record in &page.records {
+                index_new_edge(
+                    &transaction,
+                    &HistoryRecordV1 {
+                        native_id: record.native_id.clone(),
+                        event_timestamp_millis: record.event_timestamp_millis,
+                        bytes: record.bytes.clone(),
+                    },
+                )?;
+            }
+            transaction.commit().map_err(|_| CorpusError::Storage)?;
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        self.connection
+            .execute(
+                "UPDATE graph_metadata SET backfill_complete = 1 WHERE singleton = 1",
+                [],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        Ok(())
     }
 
     fn index_unindexed_records(&mut self) -> Result<(), CorpusError> {
@@ -323,6 +435,7 @@ impl EncryptedHistoryStore {
                         )
                         .map_err(|_| CorpusError::Storage)?;
                     index_new_record(&transaction, record)?;
+                    index_new_edge(&transaction, record)?;
                 }
             }
         }
@@ -358,6 +471,108 @@ impl EncryptedHistoryStore {
         self.connection
             .query_row("SELECT count(*) FROM log_groups", [], |row| row.get(0))
             .map_err(|_| CorpusError::Storage)
+    }
+
+    pub fn graph_version(&self) -> Result<u64, CorpusError> {
+        self.connection
+            .query_row(
+                "SELECT graph_version FROM graph_metadata WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| CorpusError::Storage)
+    }
+
+    /// Page through observed service relationships. Every edge is backed by
+    /// original record IDs in `edge_evidence`; no causal claim is encoded.
+    pub fn read_edge_cards(
+        &self,
+        after: Option<(&str, &str)>,
+        limit: usize,
+    ) -> Result<Vec<ServiceEdgeCard>, CorpusError> {
+        if limit == 0 || limit > 256 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let (after_source, after_target) = after.map_or((None, None), |(source, target)| {
+            (Some(source), Some(target))
+        });
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT source_service, target_service, evidence_count,
+                        first_timestamp_millis, last_timestamp_millis,
+                        first_native_id, last_native_id
+                 FROM service_edges
+                 WHERE (?1 IS NULL OR source_service > ?1
+                    OR (source_service = ?1 AND target_service > ?2))
+                 ORDER BY source_service, target_service LIMIT ?3",
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let rows = statement
+            .query_map(params![after_source, after_target, limit as i64], |row| {
+                Ok(ServiceEdgeCard {
+                    source_service: row.get(0)?,
+                    target_service: row.get(1)?,
+                    evidence_count: row.get(2)?,
+                    first_timestamp_millis: row.get(3)?,
+                    last_timestamp_millis: row.get(4)?,
+                    first_native_id: row.get(5)?,
+                    last_native_id: row.get(6)?,
+                    evidence_kind: "explicit_log_field",
+                })
+            })
+            .map_err(|_| CorpusError::Storage)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)
+    }
+
+    /// Enumerate the original record IDs that support one observed edge.
+    pub fn read_edge_evidence(
+        &self,
+        source_service: &str,
+        target_service: &str,
+        after_native_id: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<EdgeEvidencePage, CorpusError> {
+        if limit == 0 || limit > 256 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT native_id FROM edge_evidence
+                 WHERE source_service = ?1 AND target_service = ?2
+                   AND (?3 IS NULL OR native_id > ?3)
+                 ORDER BY native_id LIMIT ?4",
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let rows = statement
+            .query_map(
+                params![
+                    source_service,
+                    target_service,
+                    after_native_id,
+                    limit as i64 + 1
+                ],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let mut native_ids = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)?;
+        let has_more = native_ids.len() > limit;
+        if has_more {
+            native_ids.pop();
+        }
+        let next_cursor = if has_more {
+            native_ids.last().cloned()
+        } else {
+            None
+        };
+        Ok(EdgeEvidencePage {
+            native_ids,
+            next_cursor,
+        })
     }
 
     /// Stable, bounded group-card scan. Cards contain no generated log text;
@@ -571,6 +786,113 @@ fn index_new_record(
         .execute(
             "INSERT INTO group_members(native_id, group_id) VALUES (?1, ?2)",
             params![&record.native_id, group_id],
+        )
+        .map_err(|_| CorpusError::Storage)?;
+    Ok(())
+}
+
+fn index_new_edge(
+    transaction: &Transaction<'_>,
+    record: &HistoryRecordV1,
+) -> Result<(), CorpusError> {
+    let already_indexed = transaction
+        .query_row(
+            "SELECT 1 FROM edge_evidence WHERE native_id = ?1",
+            [&record.native_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(|_| CorpusError::Storage)?
+        .is_some();
+    if already_indexed {
+        return Ok(());
+    }
+    let text = String::from_utf8_lossy(&record.bytes);
+    let Some(target) = explicit_peer_service(&text) else {
+        return Ok(());
+    };
+    let source = parse_event(0, &text).service;
+    if source == "unknown" || source == target {
+        return Ok(());
+    }
+    let prior = transaction
+        .query_row(
+            "SELECT evidence_count, first_timestamp_millis, first_native_id,
+                    last_timestamp_millis, last_native_id
+             FROM service_edges WHERE source_service = ?1 AND target_service = ?2",
+            params![&source, &target],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Vec<u8>>(4)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|_| CorpusError::Storage)?;
+    if let Some((count, first_time, first_id, last_time, last_id)) = prior {
+        let next_count = count.checked_add(1).ok_or(CorpusError::Storage)?;
+        let current_key = (record.event_timestamp_millis, record.native_id.as_slice());
+        let first_key = (first_time, first_id.as_slice());
+        let last_key = (last_time, last_id.as_slice());
+        let (next_first_time, next_first_id) = if current_key < first_key {
+            (record.event_timestamp_millis, record.native_id.as_slice())
+        } else {
+            (first_time, first_id.as_slice())
+        };
+        let (next_last_time, next_last_id) = if current_key > last_key {
+            (record.event_timestamp_millis, record.native_id.as_slice())
+        } else {
+            (last_time, last_id.as_slice())
+        };
+        transaction
+            .execute(
+                "UPDATE service_edges SET evidence_count = ?1,
+                    first_timestamp_millis = ?2, first_native_id = ?3,
+                    last_timestamp_millis = ?4, last_native_id = ?5
+                 WHERE source_service = ?6 AND target_service = ?7",
+                params![
+                    next_count,
+                    next_first_time,
+                    next_first_id,
+                    next_last_time,
+                    next_last_id,
+                    &source,
+                    &target
+                ],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+    } else {
+        transaction
+            .execute(
+                "INSERT INTO service_edges(
+                    source_service, target_service, evidence_count,
+                    first_timestamp_millis, first_native_id,
+                    last_timestamp_millis, last_native_id
+                 ) VALUES (?1, ?2, 1, ?3, ?4, ?3, ?4)",
+                params![
+                    &source,
+                    &target,
+                    record.event_timestamp_millis,
+                    &record.native_id
+                ],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+    }
+    transaction
+        .execute(
+            "INSERT INTO edge_evidence(native_id, source_service, target_service)
+             VALUES (?1, ?2, ?3)",
+            params![&record.native_id, &source, &target],
+        )
+        .map_err(|_| CorpusError::Storage)?;
+    transaction
+        .execute(
+            "UPDATE graph_metadata SET graph_version = graph_version + 1 WHERE singleton = 1",
+            [],
         )
         .map_err(|_| CorpusError::Storage)?;
     Ok(())
@@ -886,6 +1208,89 @@ mod tests {
         }]);
         assert_eq!(result, Err(CorpusError::RecordTooLarge));
         assert_eq!(store.record_count().unwrap(), 0);
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn graph_edges_require_explicit_peer_fields_and_resolve_to_original_records() {
+        let path = test_path();
+        let key = [15; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        let late = HistoryRecordV1 {
+            native_id: b"later".to_vec(),
+            event_timestamp_millis: 20,
+            bytes: br#"{"service":"checkout","peer.service":"database","message":"write failed"}"#
+                .to_vec(),
+        };
+        let early = HistoryRecordV1 {
+            native_id: b"earlier".to_vec(),
+            event_timestamp_millis: 10,
+            bytes: br#"{"service":"checkout","peer":{"service":"database"},"message":"retry"}"#
+                .to_vec(),
+        };
+        let unrelated = HistoryRecordV1 {
+            native_id: b"cooccurrence".to_vec(),
+            event_timestamp_millis: 15,
+            bytes: br#"{"service":"database","message":"disk full"}"#.to_vec(),
+        };
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            store
+                .commit_page_checked(&[late.clone(), early.clone(), unrelated])
+                .unwrap();
+            store
+                .commit_page_checked(std::slice::from_ref(&early))
+                .unwrap();
+            assert_eq!(store.graph_version().unwrap(), 2);
+            let edges = store.read_edge_cards(None, 64).unwrap();
+            assert_eq!(edges.len(), 1);
+            assert_eq!(edges[0].source_service, "checkout");
+            assert_eq!(edges[0].target_service, "database");
+            assert_eq!(edges[0].evidence_count, 2);
+            assert_eq!(edges[0].first_native_id, b"earlier");
+            assert_eq!(edges[0].last_native_id, b"later");
+            assert_eq!(
+                store
+                    .get_record(&edges[0].first_native_id)
+                    .unwrap()
+                    .unwrap()
+                    .bytes,
+                early.bytes
+            );
+            let first_page = store
+                .read_edge_evidence("checkout", "database", None, 1)
+                .unwrap();
+            assert_eq!(first_page.native_ids, vec![b"earlier".to_vec()]);
+            assert_eq!(first_page.next_cursor, Some(b"earlier".to_vec()));
+            let last_page = store
+                .read_edge_evidence("checkout", "database", first_page.next_cursor.as_deref(), 1)
+                .unwrap();
+            assert_eq!(last_page.native_ids, vec![b"later".to_vec()]);
+            assert!(last_page.next_cursor.is_none());
+            store
+                .connection
+                .execute("DELETE FROM edge_evidence", [])
+                .unwrap();
+            store
+                .connection
+                .execute("DELETE FROM service_edges", [])
+                .unwrap();
+            store
+                .connection
+                .execute(
+                    "UPDATE graph_metadata SET graph_version = 0, backfill_complete = 0",
+                    [],
+                )
+                .unwrap();
+        }
+        let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+        assert_eq!(store.graph_version().unwrap(), 2);
+        assert_eq!(
+            store.read_edge_cards(None, 64).unwrap()[0].evidence_count,
+            2
+        );
         drop(store);
         cleanup(&path);
     }

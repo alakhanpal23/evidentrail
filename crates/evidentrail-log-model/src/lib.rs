@@ -22,6 +22,23 @@ fn valid_service(name: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
+/// Extracts only an explicitly named peer service. This is relationship
+/// evidence, not a verified dependency direction or a causal assertion.
+pub fn explicit_peer_service(raw: &str) -> Option<String> {
+    let value = serde_json::from_str::<Value>(raw).ok()?;
+    [
+        "peer.service",
+        "peer_service",
+        "target_service",
+        "downstream_service",
+    ]
+    .iter()
+    .find_map(|key| value.get(*key).and_then(Value::as_str))
+    .or_else(|| value.pointer("/peer/service").and_then(Value::as_str))
+    .filter(|name| valid_service(name))
+    .map(str::to_owned)
+}
+
 pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
     let parsed = serde_json::from_str::<Value>(raw).ok();
     let timestamp = parsed.as_ref().and_then(|value| {
