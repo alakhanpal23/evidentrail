@@ -487,7 +487,7 @@ pub trait IncidentReasoner {
     fn assess(&mut self, request: &Value) -> Result<ModelAssessment, AnalysisError>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct ParsedEvent {
     pub(crate) id: String,
     pub(crate) raw: String,

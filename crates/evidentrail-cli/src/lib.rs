@@ -20,7 +20,9 @@ pub use incident_analysis::{
     analyze_with_reasoner_and_metrics_and_traces,
     analyze_with_reasoner_and_metrics_and_traces_and_precedents,
 };
-pub use log_compaction::{CompactionError, LogGroupSelector, LogPack, LogPackEntry, compact_logs};
+pub use log_compaction::{
+    CompactionError, ExpandedLogLine, LogGroupSelector, LogPack, LogPackEntry, compact_logs,
+};
 
 use std::error::Error as StdError;
 use std::fmt;

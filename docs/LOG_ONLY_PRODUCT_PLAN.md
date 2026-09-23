@@ -8,10 +8,12 @@ supersedes the two-path product direction in `PRODUCT_ROADMAP.md`.
 The current `evidentrail compact` command is a supplied-log prototype. It
 accepts up to 16 MiB/100,000 UTF-8 lines on standard input, groups those
 lines, asks a local or hosted model to select group IDs, verifies the IDs, and
-emits selected original lines with repeat counts. Its graph currently consists
-only of explicitly named peer services in JSON log records. It has no durable
-full-history corpus, connector credentials, background synchronization,
-cross-call graph memory, expansion handle, or verified learning loop. These
+emits selected original lines with repeat counts. Its in-process API can
+expand an advertised line to bounded original neighbors; no cross-call
+expansion handle is shipped. Its graph currently consists only of explicitly
+named peer services in JSON log records. It has no durable full-history corpus,
+connector credentials, background synchronization, cross-call graph memory,
+or verified learning loop. These
 are release requirements, not existing capabilities. The current group-card
 selection also needs held-out relevance tests before it can be trusted to
 preserve rare clues in very large histories.

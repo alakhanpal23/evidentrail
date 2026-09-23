@@ -60,6 +60,63 @@ pub struct LogPack {
     pub group_count: usize,
     pub selected: Vec<LogPackEntry>,
     pub observed_graph_edge_count: usize,
+    #[serde(skip)]
+    retained_events: Vec<ParsedEvent>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ExpandedLogLine {
+    pub source_id: String,
+    pub raw: String,
+}
+
+impl LogPack {
+    /// Expand only a line ID advertised by this pack. The result is copied
+    /// from retained input records and bounded before any bytes are returned.
+    pub fn expand(
+        &self,
+        source_id: &str,
+        before: usize,
+        after: usize,
+        max_bytes: usize,
+    ) -> Result<Vec<ExpandedLogLine>, CompactionError> {
+        if before > 128 || after > 128 || max_bytes == 0 || max_bytes > MAX_OUTPUT_BYTES {
+            return Err(CompactionError::InvalidInput);
+        }
+        let advertised = self.selected.iter().any(|entry| {
+            entry.source_id == source_id || entry.last_source_id.as_deref() == Some(source_id)
+        });
+        if !advertised {
+            return Err(CompactionError::InvalidSelection);
+        }
+        let index = source_id
+            .strip_prefix('L')
+            .and_then(|value| value.parse::<usize>().ok())
+            .and_then(|value| value.checked_sub(1))
+            .filter(|index| *index < self.retained_events.len())
+            .ok_or(CompactionError::InvalidInput)?;
+        let start = index.saturating_sub(before);
+        let end = index
+            .saturating_add(after)
+            .saturating_add(1)
+            .min(self.retained_events.len());
+        let mut total_bytes = 0usize;
+        let mut expanded = Vec::new();
+        for event in &self.retained_events[start..end] {
+            if contains_sensitive_data(&event.raw) {
+                return Err(CompactionError::SensitiveInput);
+            }
+            total_bytes = total_bytes.saturating_add(event.raw.len());
+            if total_bytes > max_bytes {
+                return Err(CompactionError::InputTooLarge);
+            }
+            expanded.push(ExpandedLogLine {
+                source_id: event.id.clone(),
+                raw: event.raw.clone(),
+            });
+        }
+        Ok(expanded)
+    }
 }
 
 #[derive(Clone)]
@@ -154,6 +211,7 @@ pub fn compact_logs(
         group_count: groups.len(),
         selected,
         observed_graph_edge_count: graph.len(),
+        retained_events: events,
     })
 }
 
@@ -379,6 +437,44 @@ mod tests {
                 "login failure",
                 &mut InspectingSelector,
             ),
+            Err(CompactionError::SensitiveInput)
+        ));
+    }
+
+    #[test]
+    fn expansion_returns_only_bounded_original_neighbors_of_advertised_line() {
+        let logs =
+            b"[api] INFO: request began\n[api] ERROR: checkout failed\n[api] INFO: request ended\n";
+        let pack = compact_logs(logs, "checkout failure", &mut ErrorSelector).unwrap();
+        assert_eq!(pack.selected[0].source_id, "L2");
+        let expanded = pack.expand("L2", 1, 1, 1024).unwrap();
+        assert_eq!(
+            expanded
+                .iter()
+                .map(|line| (line.source_id.as_str(), line.raw.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("L1", "[api] INFO: request began"),
+                ("L2", "[api] ERROR: checkout failed"),
+                ("L3", "[api] INFO: request ended"),
+            ]
+        );
+        assert!(matches!(
+            pack.expand("L1", 0, 0, 1024),
+            Err(CompactionError::InvalidSelection)
+        ));
+        assert!(matches!(
+            pack.expand("L2", 1, 1, 10),
+            Err(CompactionError::InputTooLarge)
+        ));
+    }
+
+    #[test]
+    fn expansion_fails_closed_if_neighbor_contains_sensitive_marker() {
+        let logs = b"[api] INFO: password=very-secret\n[api] ERROR: checkout failed\n";
+        let pack = compact_logs(logs, "checkout failure", &mut ErrorSelector).unwrap();
+        assert!(matches!(
+            pack.expand("L2", 1, 0, 1024),
             Err(CompactionError::SensitiveInput)
         ));
     }
