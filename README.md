@@ -42,6 +42,22 @@ question. It groups repeated alerts, surfaces changes, and returns up to three
 source-linked hypotheses. The offline `brief` command remains available when
 you need byte-exact compression with `E<n>` expansion handles.
 
+For an on-call engineer, the intended flow is:
+
+1. Export a bounded incident window from the telemetry system and ask a
+   specific question, such as “Why did checkout fail after 14:05?”
+2. Review the compact JSON report: repeated warnings are counted once,
+   unusual failures and relevant metric shifts are surfaced, and omitted
+   evidence is disclosed.
+3. Open the cited source events before acting on a hypothesis. If evidence is
+   thin or conflicting, treat the result as an investigation lead rather than
+   a diagnosis and expand the source window.
+
+Today this is a CLI and machine-readable report. A production integration
+would add a read-only telemetry connector, an incident view with clickable
+source links, and reviewer feedback on which evidence and diagnosis helped.
+Those interfaces are not yet shipped.
+
 | Capability | Product behavior |
 |---|---|
 | Alert reduction | `analyze` groups repeated alerts despite changing request IDs and embedded timestamps. |
@@ -75,6 +91,11 @@ answers among six log-informative incidents and abstained on four of five
 unresolvable cases, versus two of five before the change. It still made five
 wrong top-service attributions across the set. The prompt was tuned on these
 same cases, so this is a development result, not held-out validation.
+On a separately frozen 12-case public injection set, both Qwen3 14B and
+GPT-OSS 20B got **5/12** exact service-and-fault pairs with metric and trace
+context, matching a simple largest-metric-shift baseline. Their trace runs
+made seven and six wrong top attributions, respectively. Exact citations did
+not imply correct causal labels. See the [paired local-model results](reports/rcaeval-selection/README.md#frozen-metric-versus-metric-and-trace-local-model-comparison).
 
 The offline brief's matched-budget and executable results below are
 **synthetic**. Real-incident accuracy remains unproven. The next release gate
@@ -87,7 +108,8 @@ outside the public repository. The existing
 [production shadow runner](docs/PRODUCTION_SHADOW_PILOT.md) checks exact evidence
 recall and expansion; downstream diagnosis and fix still need a blinded reader
 study. [Benchmark protocol](docs/EVIDENTRAILBENCH_PROTOCOL.md) defines the
-broader comparison.
+broader comparison. The [local incident evaluator](docs/LOCAL_INCIDENT_EVALUATION.md)
+can score an approved, labeled historical set without publishing source logs.
 
 ## Quick start
 
