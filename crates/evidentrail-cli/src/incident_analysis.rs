@@ -1572,7 +1572,7 @@ impl OpenAiIncidentReasoner {
             .ok_or(AnalysisError::MissingCredential)?;
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(20))
+            .timeout(Duration::from_secs(60))
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|_| AnalysisError::Provider)?;
@@ -1635,8 +1635,8 @@ impl IncidentReasoner for OpenAiIncidentReasoner {
             "input": [{"role":"user","content":[{"type":"input_text","text":request_text}]}],
             "store": false,
             "tools": [],
-            "reasoning": {"effort":"none"},
-            "max_output_tokens": 1200,
+            "reasoning": {"effort":"medium"},
+            "max_output_tokens": 4096,
             "text": {"format": {
                 "type":"json_schema", "name":"incident_hypotheses_v1", "strict":true,
                 "schema": {
@@ -2270,6 +2270,8 @@ mod tests {
             let request_json: Value = serde_json::from_str(body).unwrap();
             assert_eq!(request_json["store"], false);
             assert!(request_json["tools"].as_array().unwrap().is_empty());
+            assert_eq!(request_json["reasoning"]["effort"], "medium");
+            assert_eq!(request_json["max_output_tokens"], 4096);
             assert_eq!(request_json["text"]["format"]["strict"], true);
             assert!(request_json["text"]["format"]["schema"]["properties"]["hypotheses"]
                 ["items"]["required"]
