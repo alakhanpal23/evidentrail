@@ -75,8 +75,11 @@ is simpler.
 
 1. **Backfill, sync, and parse all accessible records.** Page through the full
    available history of each connected source into a durable, bounded-memory
-   index. Persist provider cursors and a frozen high-water mark; continuously
-   catch up after backfill. Preserve original bytes, source identity,
+   index. Freeze a backfill high-water mark, persist completed partitions and
+   stable event identities, and continuously catch up after backfill. Do not
+   assume a provider page token survives a process restart: resume from a
+   durable timestamp partition with overlap, deduplicate by source-native ID,
+   and reconcile late arrivals. Preserve original bytes, source identity,
    provider event ID/cursor, timestamps when present, and parse confidence.
    Group by stable template, service, severity, and diagnostic fields. Repeated
    request IDs and timestamps should collapse; distinct error codes and
@@ -147,6 +150,13 @@ changes remove inaccessible evidence and derived state. A generic LLM can read
 an excerpt, but it does not automatically have this complete, continually
 updated, source-verifiable history. The graph should improve retrieval only
 when ablations show that it finds required clues the non-graph selector misses.
+
+Raw logs and graph evidence must remain tenant-isolated, encrypted at rest,
+and subject to source-level access checks at query and expansion time. A
+connection has an explicit provider identity and allowed resource scope;
+revocation stops sync and invalidates indexed records, graph edges, caches,
+and any consented training data derived from that scope. Model routing must
+honor each customer's data-processing choice, with a local-only option.
 
 ## Continuous improvement without self-reinforcing errors
 
