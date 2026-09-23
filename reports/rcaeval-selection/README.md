@@ -44,6 +44,46 @@ fault.
 
 ## Expanded RE2 Sock Shop probe
 
+### Confirmed-incident precedent baseline (exploratory)
+
+An optional history of **confirmed**, labeled incidents may help distinguish
+failure modes when the current metric peak is only a symptom. To test that
+idea without adding a benchmark-specific classifier to the product,
+`scripts/score-rcaeval-precedents.py` uses replicate 1 of each service/fault
+pair as prior incidents and scores replicates 2 and 3. It first chooses a
+service using the largest metric shift, then finds the same-service prior with
+the closest equal-weight, log-scaled vector of six metric-family shifts. The
+prior's fault label is its prediction. The rule was fixed before probing
+Online Boutique and Train Ticket; no LLM was called. These are repeated
+injections from one public synthetic benchmark, not independent real-world
+incidents or a held-out product score.
+
+| RCAEval system | Window | Test cases | Largest-shift joint hits | Precedent joint hits | Service hits |
+|---|---:|---:|---:|---:|---:|
+| Sock Shop | ±300 s | 60 | 27 | 36 | 57 |
+| Online Boutique | ±300 s | 60 | 22 | 40 | 52 |
+| Train Ticket | ±150 s | 60 | 18 | 30 | 35 |
+
+The two methods use the same selected service in each case; the improvement
+is in fault-type selection. With matching-service priors withheld, precedent
+joint hits were 30, 36, and 24 respectively. Train Ticket required a shorter
+window because its ±300-second metric input exceeded Evidentrail's 16 MiB
+per-input limit; its baseline and precedent scores both use ±150 seconds.
+The service selector is the limiting factor there. A simple metric-dominance
+abstention rule was also checked on Sock Shop and remained wrong in 20 of 41
+cases where it answered, so dominant shifts should not be treated as causal
+confidence.
+
+The probe emits only aggregate metric-family shifts and case identifiers. To
+reproduce the three complete public datasets, use `--all-re2-ss`,
+`--all-re2-ob`, or `--all-re2-tt` with `--with-metrics --metrics-only
+--generic-question`; add `--window-seconds 150` for Train Ticket. Pass each
+resulting JSONL file to `scripts/score-rcaeval-precedents.py`. These findings
+justify testing an explicitly supplied, provenance-checked incident history;
+Evidentrail does not yet use precedents for diagnosis. Cited source lines
+would still need separate verification, and causal fault accuracy needs
+evaluation on independent incidents.
+
 `ninety-case-metric-only.jsonl` records all 90 pinned RE2 Sock Shop cases at
 Evidentrail revision `7202a7b`. Reproduce with:
 

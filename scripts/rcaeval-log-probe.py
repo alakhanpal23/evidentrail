@@ -63,10 +63,10 @@ def fetch(case, name):
                 raise
 
 
-def all_re2_ss_cases():
+def all_cases(dataset):
     with urllib.request.urlopen(f"{BASE}/cases.parquet", timeout=60) as response:
         index = parquet.read_table(io.BytesIO(response.read()), columns=["case", "dataset"])
-    return sorted(row["case"] for row in index.to_pylist() if row["dataset"] == "RE2-SS")
+    return sorted(row["case"] for row in index.to_pylist() if row["dataset"] == dataset)
 
 
 def metric_fault_type(metric):
@@ -201,6 +201,13 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
     }
     if with_metrics:
         root_metrics = [signal for signal in report["metric_signals"] if signal["service"] == root_service]
+        service_fault_family_shifts = {}
+        for signal in report["metric_signals"]:
+            family = metric_fault_type(signal["metric"])
+            if family == "unknown":
+                continue
+            families = service_fault_family_shifts.setdefault(signal["service"], {})
+            families[family] = max(families.get(family, 0.0), signal["relative_shift"])
         strongest = max(root_metrics, key=lambda signal: signal["relative_shift"], default=None)
         naive = max(report["metric_signals"], key=lambda signal: signal["relative_shift"], default=None)
         result.update({
@@ -211,6 +218,10 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
             "root_largest_shift_metric": strongest["metric"] if strongest else None,
             "root_largest_relative_shift": round(strongest["relative_shift"], 3) if strongest else None,
             "root_largest_shift_visible": bool(strongest and {strongest["baseline_event_id"], strongest["incident_event_id"]} <= {event["id"] for event in report["evidence"]}),
+            "service_fault_family_shifts": {
+                service: {fault: round(value, 3) for fault, value in families.items()}
+                for service, families in service_fault_family_shifts.items()
+            },
             "naive_top_service": naive["service"] if naive else None,
             "naive_root_service_hit": bool(naive and naive["service"] == root_service),
             "naive_top_fault_type": metric_fault_type(naive["metric"]) if naive else None,
@@ -265,6 +276,8 @@ def main():
     parser.add_argument("--generic-question", action="store_true")
     parser.add_argument("--live-model", action="store_true")
     parser.add_argument("--all-re2-ss", action="store_true")
+    parser.add_argument("--all-re2-ob", action="store_true")
+    parser.add_argument("--all-re2-tt", action="store_true")
     parser.add_argument("cases", nargs="*")
     args = parser.parse_args()
     if args.window_seconds <= 0 or args.window_seconds > 600:
@@ -277,13 +290,18 @@ def main():
         parser.error("--live-model requires OPENAI_API_KEY or EVIDENTRAIL_ANALYZE_LOCAL_MODEL")
     if args.live_model and not args.metrics_only and not os.environ.get("EVIDENTRAIL_ANALYZE_LOCAL_MODEL"):
         parser.error("live public logs require a local model; set EVIDENTRAIL_ANALYZE_LOCAL_MODEL")
-    if args.all_re2_ss and args.cases:
-        parser.error("--all-re2-ss cannot be combined with explicit cases")
-    if args.all_re2_ss and args.live_model:
+    if sum((args.all_re2_ss, args.all_re2_ob, args.all_re2_tt)) > 1:
+        parser.error("choose one complete RCAEval dataset")
+    if (args.all_re2_ss or args.all_re2_ob or args.all_re2_tt) and args.cases:
+        parser.error("complete-dataset flags cannot be combined with explicit cases")
+    if (args.all_re2_ss or args.all_re2_ob or args.all_re2_tt) and args.live_model:
         parser.error("--live-model requires an explicit case list")
     if args.all_re2_ss and args.with_traces:
         parser.error("the pinned RE2-SS cases have no traces; pass explicit RE2-OB or RE2-TT cases")
-    cases = all_re2_ss_cases() if args.all_re2_ss else (args.cases or DEFAULT_CASES)
+    cases = (all_cases("RE2-SS") if args.all_re2_ss else
+             all_cases("RE2-OB") if args.all_re2_ob else
+             all_cases("RE2-TT") if args.all_re2_tt else
+             (args.cases or DEFAULT_CASES))
     backend = "ollama_local" if os.environ.get("EVIDENTRAIL_ANALYZE_LOCAL_MODEL") else "openai_hosted"
     model_name = os.environ.get("EVIDENTRAIL_ANALYZE_LOCAL_MODEL") if backend == "ollama_local" else "gpt-5.6-luna"
     with open(args.binary, "rb") as executable:
