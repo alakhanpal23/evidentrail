@@ -12,6 +12,7 @@ use crate::incident_analysis::contains_sensitive_data;
 use crate::log_compaction::{CompactionError, LogGroupSelector};
 
 const CANDIDATE_LIMIT: usize = 256;
+const GRAPH_NEIGHBOR_LIMIT: usize = 64;
 const GROUPS_PER_PAGE: usize = 64;
 const PAGE_SELECTION_LIMIT: usize = 8;
 const FINAL_SELECTION_LIMIT: usize = 12;
@@ -31,6 +32,7 @@ pub struct IndexedLogPack {
     pub total_records: u64,
     pub total_groups: u64,
     pub candidate_count: usize,
+    pub graph_candidate_count: usize,
     pub candidate_pool_truncated: bool,
     pub output_budget_truncated: bool,
     pub selected: Vec<IndexedLogEntry>,
@@ -61,8 +63,34 @@ pub fn select_indexed_logs(
     let page = store
         .search_candidate_groups(task, CANDIDATE_LIMIT)
         .map_err(|_| CompactionError::Corpus)?;
-    let mut prepared = Vec::with_capacity(page.groups.len());
-    for card in page.groups {
+    let mut cards = page.groups;
+    let all_seed_services = cards
+        .iter()
+        .map(|card| card.service.clone())
+        .filter(|service| !service.is_empty() && service != "unknown")
+        .collect::<BTreeSet<_>>();
+    let mut candidate_pool_truncated =
+        page.candidate_pool_truncated || all_seed_services.len() > 32;
+    let seed_services = all_seed_services.into_iter().take(32).collect::<Vec<_>>();
+    let mut graph_candidate_count = 0;
+    if !seed_services.is_empty() {
+        let graph_page = store
+            .search_graph_neighbor_groups(&seed_services, GRAPH_NEIGHBOR_LIMIT)
+            .map_err(|_| CompactionError::Corpus)?;
+        candidate_pool_truncated |= graph_page.candidate_pool_truncated;
+        let mut seen = cards
+            .iter()
+            .map(|card| card.group_id)
+            .collect::<BTreeSet<_>>();
+        for card in graph_page.groups {
+            if seen.insert(card.group_id) {
+                graph_candidate_count += 1;
+                cards.push(card);
+            }
+        }
+    }
+    let mut prepared = Vec::with_capacity(cards.len());
+    for card in cards {
         let first = store
             .read_record_sample(&card.first_native_id, 512)
             .map_err(|_| CompactionError::Corpus)?
@@ -155,7 +183,8 @@ pub fn select_indexed_logs(
         total_records: starting_record_count,
         total_groups: page.total_groups,
         candidate_count,
-        candidate_pool_truncated: page.candidate_pool_truncated,
+        graph_candidate_count,
+        candidate_pool_truncated,
         output_budget_truncated,
         selected,
     })
@@ -303,6 +332,36 @@ mod tests {
         assert_eq!(
             pack.selected[0].last_raw.as_deref(),
             Some(records[1].bytes.as_slice())
+        );
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn indexed_selection_can_follow_explicit_graph_edge_to_required_log() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[74; 32], &[1; 32], &[2; 32]).unwrap();
+        let source = [
+            HistoryRecordV1 {
+                native_id: b"checkout".to_vec(),
+                event_timestamp_millis: 1,
+                bytes: br#"{"service":"checkout","peer.service":"database","level":"error","message":"reservation failed"}"#.to_vec(),
+            },
+            HistoryRecordV1 {
+                native_id: b"database".to_vec(),
+                event_timestamp_millis: 2,
+                bytes: br#"{"service":"database","level":"error","message":"disk full"}"#.to_vec(),
+            },
+        ];
+        store.commit_page_checked(&source).unwrap();
+        let pack = select_indexed_logs(&store, "reservation", 4096, &mut SelectAll).unwrap();
+        assert_eq!(pack.graph_candidate_count, 1);
+        assert_eq!(pack.candidate_count, 2);
+        assert_eq!(pack.selected.len(), 2);
+        assert!(
+            pack.selected
+                .iter()
+                .any(|entry| entry.first_raw == source[1].bytes)
         );
         drop(store);
         cleanup(&path);

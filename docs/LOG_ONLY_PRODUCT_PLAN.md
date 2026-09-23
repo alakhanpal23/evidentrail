@@ -43,11 +43,14 @@ connected query, multi-source catch-up, completeness receipt, and source-level
 query authorization remain missing. The corpus also maintains
 versioned, explicitly observed service edges whose counts and endpoint records
 resolve to original logs; unrelated service co-occurrence does not create an
-edge. The parser now recognizes Datadog's nested message, service, severity,
+edge. Indexed selection now adds a bounded set of groups from services linked
+to lexical matches by those explicit edges. This is candidate expansion, not
+a causal inference or a measured accuracy improvement; held-out graph ablation
+is still required. The parser now recognizes Datadog's nested message, service, severity,
 and explicit peer fields while the corpus retains the exact API log record.
 Existing v1 corpora transactionally reset derived indexes and rebuild them
 under parser/graph v2; unknown versions fail closed. The key is still supplied by a
-caller; production key authority, query access control, graph-aware candidate
+caller; production key authority, query access control, broader graph-aware
 retrieval, and a connected user flow are missing. A CloudWatch history-source
 adapter maps internal partitions to unfiltered log-group page requests. An
 optional AWS SDK transport now loads a configured identity, verifies its STS

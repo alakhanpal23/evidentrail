@@ -807,6 +807,76 @@ impl EncryptedHistoryStore {
         })
     }
 
+    /// Retrieve groups from services connected to lexical hits by an
+    /// explicitly observed log edge. This is a candidate expansion only: an
+    /// edge is neither a causal claim nor proof that a neighbor is relevant.
+    pub fn search_graph_neighbor_groups(
+        &self,
+        seed_services: &[String],
+        limit: usize,
+    ) -> Result<CandidateGroupPage, CorpusError> {
+        if seed_services.is_empty()
+            || seed_services.len() > 32
+            || seed_services
+                .iter()
+                .any(|service| service.is_empty() || service.len() > 256)
+            || limit == 0
+            || limit > 256
+        {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let total_groups = self.group_count()?;
+        let placeholders = vec!["?"; seed_services.len()].join(",");
+        let sql = format!(
+            "SELECT g.group_id, g.service, g.role, g.repeat_count,
+                    g.first_timestamp_millis, g.last_timestamp_millis,
+                    g.first_native_id, g.last_native_id
+             FROM log_groups g
+             WHERE g.service IN (
+                 SELECT target_service FROM service_edges
+                 WHERE source_service IN ({placeholders})
+                 UNION
+                 SELECT source_service FROM service_edges
+                 WHERE target_service IN ({placeholders})
+             )
+             AND g.service NOT IN ({placeholders})
+             ORDER BY CASE g.role WHEN 'critical' THEN 0 WHEN 'error' THEN 1
+                 WHEN 'warning' THEN 2 WHEN 'change' THEN 3 ELSE 4 END,
+                 g.last_timestamp_millis DESC, g.group_id DESC
+             LIMIT {}",
+            limit + 1
+        );
+        let mut statement = self
+            .connection
+            .prepare(&sql)
+            .map_err(|_| CorpusError::Storage)?;
+        let values = seed_services.iter().cycle().take(seed_services.len() * 3);
+        let rows = statement
+            .query_map(rusqlite::params_from_iter(values), |row| {
+                Ok(CorpusGroupCard {
+                    group_id: row.get(0)?,
+                    service: row.get(1)?,
+                    role: row.get(2)?,
+                    repeat_count: row.get(3)?,
+                    first_timestamp_millis: row.get(4)?,
+                    last_timestamp_millis: row.get(5)?,
+                    first_native_id: row.get(6)?,
+                    last_native_id: row.get(7)?,
+                })
+            })
+            .map_err(|_| CorpusError::Storage)?;
+        let mut groups = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)?;
+        let candidate_pool_truncated = groups.len() > limit;
+        groups.truncate(limit);
+        Ok(CandidateGroupPage {
+            groups,
+            total_groups,
+            candidate_pool_truncated,
+        })
+    }
+
     pub fn get_record(&self, native_id: &[u8]) -> Result<Option<StoredHistoryRecord>, CorpusError> {
         self.connection
             .query_row(
@@ -1706,6 +1776,42 @@ mod tests {
             store.read_edge_cards(None, 64).unwrap()[0].evidence_count,
             2
         );
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn graph_neighbors_include_only_explicitly_connected_services() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[27; 32], &[1; 32], &[2; 32]).unwrap();
+        store
+            .commit_page_checked(&[
+                HistoryRecordV1 {
+                    native_id: b"checkout".to_vec(),
+                    event_timestamp_millis: 1,
+                    bytes: br#"{"service":"checkout","peer.service":"database","status":"error","message":"reservation failed"}"#.to_vec(),
+                },
+                HistoryRecordV1 {
+                    native_id: b"database".to_vec(),
+                    event_timestamp_millis: 2,
+                    bytes: br#"{"service":"database","status":"error","message":"disk full"}"#.to_vec(),
+                },
+                HistoryRecordV1 {
+                    native_id: b"other".to_vec(),
+                    event_timestamp_millis: 3,
+                    bytes: br#"{"service":"billing","status":"error","message":"unrelated"}"#.to_vec(),
+                },
+            ])
+            .unwrap();
+        let lexical = store.search_candidate_groups("reservation", 10).unwrap();
+        assert_eq!(lexical.groups.len(), 1);
+        assert_eq!(lexical.groups[0].service, "checkout");
+        let graph = store
+            .search_graph_neighbor_groups(&["checkout".to_owned()], 10)
+            .unwrap();
+        assert_eq!(graph.groups.len(), 1);
+        assert_eq!(graph.groups[0].first_native_id, b"database");
+        assert!(!graph.candidate_pool_truncated);
         drop(store);
         cleanup(&path);
     }
