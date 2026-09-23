@@ -6,7 +6,7 @@ root-cause diagnosis was scored. The input question was the same in every case:
 labeled service. The probe used metrics only, so public logs that may contain
 credentials were not sent to a provider or committed here.
 
-- Evidentrail code revision: `43882ec`
+- Evidentrail code revision: `e6488d3`
 - Dataset: [`phamquiluan/RCAEval`](https://huggingface.co/datasets/phamquiluan/RCAEval), revision `afeacb11bcc94dadfd1c8f483ee4377b2b8b614e`
 - Runtime: Rust 1.88.0, Python 3.9, PyArrow 21.0.0
 - Window: 300 seconds before and after each injected fault
@@ -34,3 +34,10 @@ largest shift often differed from the injected fault type, so this result
 does **not** establish accurate diagnosis or even that the selected metric is
 causal. It establishes only that the model would have inspectable evidence
 from the labeled service without being told that service in the question.
+
+A deliberately simple comparator chooses the service with the largest bounded
+before/after metric shift. It matches the labeled root service in **9 of 10**
+cases. That is a small, selected sample, not a general accuracy estimate, but
+it sets a concrete bar for the hosted model. The metric selected as largest
+within the correct service can still be a symptom of a different injected
+fault.
