@@ -925,8 +925,10 @@ pub fn analyze_with_reasoner_and_metrics_and_traces(
     let missing_metric_series = metric_data
         .as_ref()
         .is_some_and(|data| data.signals.is_empty());
+    let model_abstained = assessment.hypotheses.is_empty();
     Ok(AnalysisReport {
         status: if assessment.needs_more_evidence
+            || model_abstained
             || omitted > 0
             || omitted_metric > 0
             || indirect_only
@@ -988,6 +990,7 @@ pub fn analyze_with_reasoner_and_metrics_and_traces(
         hypotheses: assessment.hypotheses,
         hypothesis_support,
         needs_more_evidence: assessment.needs_more_evidence
+            || model_abstained
             || omitted > 0
             || omitted_metric > 0
             || indirect_only
@@ -2014,6 +2017,28 @@ mod tests {
         )
         .unwrap();
         assert_eq!(report.metric_signal_count, 0);
+        assert_eq!(report.status, "partial");
+        assert!(report.needs_more_evidence);
+    }
+
+    #[test]
+    fn model_abstention_cannot_be_reported_as_source_linked_hypotheses() {
+        let mut reasoner = CheckingReasoner {
+            expected_group_count: 1,
+            answer: ModelAssessment {
+                schema_version: 1,
+                hypotheses: Vec::new(),
+                needs_more_evidence: false,
+            },
+        };
+        let report = analyze_with_reasoner(
+            b"service=db level=error connection refused",
+            "Why did db fail?",
+            None,
+            &mut reasoner,
+        )
+        .unwrap();
+        assert_eq!(report.omitted_group_count, 0);
         assert_eq!(report.status, "partial");
         assert!(report.needs_more_evidence);
     }
