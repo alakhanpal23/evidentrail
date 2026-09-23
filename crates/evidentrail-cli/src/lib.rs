@@ -7,6 +7,8 @@
 #[cfg(target_os = "macos")]
 mod connected_cli;
 mod connected_compaction;
+#[cfg(target_os = "macos")]
+mod connected_service;
 mod corpus_compaction;
 mod external_corpus_v3;
 mod hosted_ranking;

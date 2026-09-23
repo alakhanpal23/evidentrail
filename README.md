@@ -17,7 +17,8 @@ target/release/evidentrail sources connect-cloudwatch \
 target/release/evidentrail sources connect-datadog --site us1
 target/release/evidentrail sources list
 target/release/evidentrail sources sync
-target/release/evidentrail sources watch --interval-seconds 60
+target/release/evidentrail sources service install
+target/release/evidentrail sources service status
 target/release/evidentrail sources disconnect --source-id SOURCE_ID_FROM_LIST
 EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
   target/release/evidentrail logs --task "Find checkout failures" \
@@ -35,8 +36,15 @@ source-bound corpus key and encrypted local corpus, then report
 durable checkpoint and replays recent history after reaching its high-water
 mark. `sources watch` repeats these passes, releasing the source lock after
 each pass and backing off to at most one hour when a provider or source fails.
-Run the watcher under a user-level process supervisor so it restarts after a
-crash or login; this repository does not install a login service yet. It reports provisional
+`sources service install` registers the running binary's absolute path as a
+private per-user macOS LaunchAgent, starts it in the current GUI session, and
+restarts it after a crash or login. Run it from a release binary kept at a
+stable path. `sources service status` reports whether the plist exists and is
+loaded; `sources service uninstall` stops the agent and removes only its plist.
+The error log stays in `~/Library/Logs/Evidentrail/connected-sync.err`.
+The service uses the same 60-second watcher and source-bound credentials; it
+does not place credentials in the plist. A failed GUI bootstrap leaves the
+plist installed for a later login and returns an error code. It reports provisional
 coverage because provider consistency and older late arrivals are not yet
 fully verified. `logs` catches up each source, excludes sources whose current
 authorization or sync fails, selects groups globally, and writes original
@@ -45,8 +53,8 @@ go to stderr as JSON. The byte budget counts original log bytes, not rendered
 JSON or model tokens. The memory-only MCP server supports bounded expansion
 of a selected line into chronological neighbors. Its 30-minute handle is scoped
 to the selected source and native ID, and expansion checks the live source
-connection again before reading the encrypted corpus. Automatic login-service
-installation is still under development; no live AWS sandbox has validated this
+connection again before reading the encrypted corpus. LaunchAgent startup has
+not been exercised with live provider credentials; no live AWS sandbox has validated this
 flow yet. Datadog identity and tier coverage have not been verified in a live
 provider sandbox. Missing Datadog tiers appear as partial
 coverage in connected query metadata.
@@ -60,7 +68,7 @@ quality remain unverified.
 connection, removes its encrypted local corpus and Keychain entries, and
 rejects concurrent connected operations with a busy error. In-flight MCP
 responses constructed before revocation may still be delivered. This
-development CLI has no credential rotation or automatic service installation yet.
+development CLI has no credential rotation yet.
 
 The first log-only prototype is available as `compact`. It accepts an explicit
 log stream with no time-window parameter and returns model-selected original

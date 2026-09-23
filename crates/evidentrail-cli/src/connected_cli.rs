@@ -103,6 +103,8 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
         sync_sources()
     } else if command == "watch" {
         watch_sources(parse_watch_interval(args)?)
+    } else if command == "service" {
+        crate::connected_service::run(args)
     } else if command == "disconnect" {
         let option = args
             .next()
@@ -1538,7 +1540,7 @@ fn corpus_path(source_digest: &[u8; 32], create_dirs: bool) -> Result<PathBuf, C
     Ok(corpus.join(format!("{}.db", hex(source_digest))))
 }
 
-fn connected_catalog_lock() -> Result<File, CliFailure> {
+pub(crate) fn connected_catalog_lock() -> Result<File, CliFailure> {
     let corpus = corpus_path(&[0u8; 32], true)?;
     let lock_path = corpus
         .parent()

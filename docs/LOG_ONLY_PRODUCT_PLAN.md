@@ -84,12 +84,15 @@ included. The memory-only MCP server now returns a 30-minute result handle and
 allows bounded expansion of a selected source/native ID into exact chronological
 neighbors. The expansion path rechecks the registered source and live provider
 access, then reads the encrypted corpus; tests cover result scope, expiry,
-ordering, and byte limits. A live connected MCP expansion, scheduler, and
+ordering, and byte limits. A live connected MCP expansion and
 verified completeness semantics remain missing. A `sources watch` process now
 repeats bounded, checkpointed sync passes with capped retry backoff and releases
-the source lock between passes. It needs an external process supervisor and has
-not been exercised against a live provider; automatic login-service installation
-remains missing. The old supplied-log
+the source lock between passes. An opt-in `sources service install/status/uninstall`
+flow writes a private macOS LaunchAgent plist for the current binary, bootstraps
+it in the GUI session, and keeps it running after login. The generated plist
+passes `plutil`; actual bootstrap, Keychain access, and provider sync from the
+LaunchAgent remain unverified. [Apple's launchd guidance](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)
+describes the per-user agent location and `KeepAlive` behavior. The old supplied-log
 `evidentrail_logs` tool remains until replacement behavior is verified.
 The corpus still receives its key from a caller; cross-platform key authority,
 query access control, broader graph-aware retrieval, and the complete connected
@@ -102,7 +105,7 @@ optional AWS SDK transport now loads a configured identity, verifies its STS
 caller account on each page, binds source account/region/log group, and makes
 signed `FilterLogEvents` requests. A local HTTP contract test exercises
 empty-page continuation and exact event mapping. Live AWS sandbox validation,
-live connected backfill/catch-up validation and scheduled reconciliation are still missing. One scan
+live connected backfill/catch-up validation and supervised reconciliation validation are still missing. One scan
 to a high-water mark does not prove complete
 coverage under provider eventual consistency; reconciliation is required.
 The Datadog source now queries `*` across all indexes for one explicitly
