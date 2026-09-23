@@ -52,6 +52,10 @@ Existing v1 corpora transactionally reset derived indexes and rebuild them
 under parser/graph v2; unknown versions fail closed. A source-bound macOS login
 Keychain authority can now create, reopen, and revoke an add-only SQLCipher key;
 its live create/load/delete check passed on a local unlocked Keychain. The
+authority can also register and list bounded, non-secret source descriptors
+without returning keys, deriving each source digest from its descriptor. A
+live macOS create/list/reopen/revoke check passed. Provider-specific descriptor
+validation and credential storage are still caller responsibilities. The
 corpus still receives its key from a caller; connection setup, cross-platform
 key authority, query access control, broader graph-aware retrieval, and a
 connected user flow are missing. The login Keychain is used because this
