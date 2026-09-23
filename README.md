@@ -5,8 +5,8 @@
 Evidentrail groups noisy alerts, combines logs with optional metric changes
 and supplied or trace-observed service relationships, and asks a model for
 root-cause hypotheses.
-The model can request omitted log groups before answering. Each cited quote
-is checked against its source line, and the report exposes what the model
+The model can request omitted log groups before answering. The compiler attaches
+exact source excerpts to cited event IDs, and the report exposes what the model
 did not see. Exact provenance makes an answer auditable; it does not prove
 the proposed cause is correct.
 
@@ -24,7 +24,7 @@ flowchart LR
     window -. omitted groups .-> select[LLM group selection]
     select --> expand[Expand exact source lines]
     expand --> reason
-    reason --> verify[Check source IDs and quotes]
+    reason --> verify[Check source IDs and attach exact excerpts]
     verify --> report[Source-linked report]
 ```
 
@@ -62,6 +62,9 @@ Incident analysis is useful only if it identifies the right cause or clearly
 abstains. The current public RCAEval probes measure evidence coverage and a
 simple metric baseline; they do **not** establish model diagnosis accuracy.
 A live, paired scorer is ready, but no hosted run has been published yet.
+A six-case [local Qwen3 pilot](reports/rcaeval-selection/README.md#local-llm-diagnostic-pilot)
+produced four valid partial reports, zero correct top-one service/fault pairs,
+and two verifier failures; that local model is not qualified for diagnosis.
 
 The offline brief's matched-budget and executable results below are
 **synthetic**. Real-incident accuracy remains unproven. The next release gate
@@ -87,9 +90,20 @@ target/release/evidentrail analyze \
   --question "Why did the API fail?" < incident.log
 ```
 
-`analyze` requires `OPENAI_API_KEY` and sends a bounded selection and diagnosis
-request to the model provider. Redact logs before sending them. Questions can
+`analyze` uses `OPENAI_API_KEY` by default and sends bounded selection and
+diagnosis requests to the model provider. Redact logs before sending them. Questions can
 also be read from a file so they do not appear in the process argument list.
+For a local smoke run, start Ollama with a model already installed and set
+`EVIDENTRAIL_ANALYZE_LOCAL_MODEL` to its name. This fixes the endpoint to
+`127.0.0.1:11434` and requires no hosted key. Local model quality varies;
+the same citation checks apply, and a local run is not a hosted accuracy score.
+
+```sh
+EVIDENTRAIL_ANALYZE_LOCAL_MODEL=qwen2.5-coder:7b \
+  target/release/evidentrail analyze \
+  --question "Why did the API fail?" --topology services.json < incident.log
+```
+
 For offline, byte-exact evidence compression, use `brief`:
 
 ```sh
@@ -137,10 +151,10 @@ model. Adjacent lines give each failure local context. The report counts
 alerts by service and lists direct and transitive dependents derived from
 supplied or trace-observed edges. A failing dependency and affected callers
 can be examined together. The output includes group counts, omitted-group counts,
-source-line IDs, source-line SHA-256 digests, and hypotheses with exact checked
-quotes. Each hypothesis has a service and a fault type (`cpu`, `mem`, `disk`,
+source-line IDs, source-line SHA-256 digests, and hypotheses with exact source
+excerpts. Each hypothesis has a service and a fault type (`cpu`, `mem`, `disk`,
 `delay`, `loss`, `socket`, `other`, or `unknown`) so RCA evaluations can score
-the pair. A fabricated line ID, quote, or unrelated-service citation fails
+the pair. A fabricated or unseen line ID or unrelated-service citation fails
 the request. The report labels each hypothesis's citation support as `direct`
 or `dependent_only`; the latter forces a partial result because an affected
 caller does not prove its dependency caused the incident. Omitted groups also
@@ -200,7 +214,7 @@ target/release/evidentrail analyze \
   --topology services.json < incident.log
 ```
 
-This beta requires `OPENAI_API_KEY` and uses one bounded hosted request for
+The hosted path requires `OPENAI_API_KEY` and uses one bounded request for
 diagnosis. When some alert groups do not fit in the first evidence window, it
 uses a second bounded request so the model can choose up to four omitted groups
 to inspect before diagnosing. Group selection remains advisory: every final

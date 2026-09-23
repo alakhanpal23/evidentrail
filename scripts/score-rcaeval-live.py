@@ -28,6 +28,9 @@ def score(path):
         or header.get("live_model") is not True
         or header.get("metrics_only") is not True
         or header.get("generic_question") is not True
+        or header.get("model_backend") not in {"ollama_local", "openai_hosted"}
+        or not isinstance(header.get("model_name"), str)
+        or not header["model_name"]
     ):
         raise ValueError("not a pinned live, generic-question, metric-only RCAEval run")
     if header.get("case_count") != len(rows):
@@ -102,6 +105,8 @@ def score(path):
     return {
         "dataset": header["dataset"],
         "revision": header["revision"],
+        "model_backend": header["model_backend"],
+        "model_name": header["model_name"],
         "case_count": counts["cases"],
         "naive_top1_joint_hits": counts["naive_joint_hit"],
         "model_top1_joint_hits": counts["top1_joint_hit"],

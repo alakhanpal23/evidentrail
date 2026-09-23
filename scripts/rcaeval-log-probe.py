@@ -228,8 +228,8 @@ def main():
         parser.error("--metrics-only requires --with-metrics")
     if args.live_model and not (args.metrics_only and args.with_metrics and args.generic_question):
         parser.error("--live-model requires --metrics-only --with-metrics --generic-question")
-    if args.live_model and not os.environ.get("OPENAI_API_KEY"):
-        parser.error("--live-model requires OPENAI_API_KEY in the environment")
+    if args.live_model and not (os.environ.get("OPENAI_API_KEY") or os.environ.get("EVIDENTRAIL_ANALYZE_LOCAL_MODEL")):
+        parser.error("--live-model requires OPENAI_API_KEY or EVIDENTRAIL_ANALYZE_LOCAL_MODEL")
     if args.all_re2_ss and args.cases:
         parser.error("--all-re2-ss cannot be combined with explicit cases")
     if args.all_re2_ss and args.live_model:
@@ -237,7 +237,9 @@ def main():
     if args.all_re2_ss and args.with_traces:
         parser.error("the pinned RE2-SS cases have no traces; pass explicit RE2-OB or RE2-TT cases")
     cases = all_re2_ss_cases() if args.all_re2_ss else (args.cases or DEFAULT_CASES)
-    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "with_traces": args.with_traces, "live_model": args.live_model, "case_count": len(cases)}))
+    backend = "ollama_local" if os.environ.get("EVIDENTRAIL_ANALYZE_LOCAL_MODEL") else "openai_hosted"
+    model_name = os.environ.get("EVIDENTRAIL_ANALYZE_LOCAL_MODEL") if backend == "ollama_local" else "gpt-5.6-luna"
+    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "with_traces": args.with_traces, "live_model": args.live_model, "model_backend": backend if args.live_model else None, "model_name": model_name if args.live_model else None, "case_count": len(cases)}))
     for case in cases:
         print(json.dumps(probe(case, args.binary, args.window_seconds, args.with_metrics, args.generic_question, args.metrics_only, args.live_model, args.with_traces), sort_keys=True), flush=True)
 

@@ -69,6 +69,30 @@ in **42/90** and the correct service-plus-fault pair in **37/90**.
 | Memory | 15 | 15 | 3 | 3 |
 | Socket | 15 | 15 | 0 | 0 |
 
+### Local LLM diagnostic pilot
+
+[`six-case-local-qwen3-14b.jsonl`](six-case-local-qwen3-14b.jsonl) records an
+exploratory local run of `qwen3:14b` (Ollama manifest `bdbd181c33f2`) on the
+six `catalogue` fault-1 cases with a generic question and metric-only input.
+The model selected visible event IDs; Evidentrail attached exact source
+excerpts and checked service relationships. Four cases produced valid partial
+reports, but **none** had a correct top-one service-plus-fault pair. Two cases
+failed model-output verification. The strict scorer rejects this incomplete
+run instead of quietly treating the four valid cases as the denominator.
+This is a small, previously inspected development sample, not an accuracy
+estimate for the hosted model or a product qualification. It demonstrates that
+making citations well-formed did not solve diagnosis quality.
+
+Reproduce with an installed local model and Ollama listening on loopback:
+
+```sh
+EVIDENTRAIL_ANALYZE_LOCAL_MODEL=qwen3:14b \
+  python3 scripts/rcaeval-log-probe.py --with-metrics --metrics-only \
+  --generic-question --live-model \
+  re2ss_catalogue_cpu_1 re2ss_catalogue_mem_1 re2ss_catalogue_disk_1 \
+  re2ss_catalogue_delay_1 re2ss_catalogue_loss_1 re2ss_catalogue_socket_1
+```
+
 This is an exploratory public-data baseline, not a hidden test. We previously
 inspected and adjusted selection on a subset of these cases. No LLM was run;
 its service-plus-fault score remains unmeasured. The baseline shows that a

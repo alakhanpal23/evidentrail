@@ -17,6 +17,8 @@ def fixture():
         "live_model": True,
         "metrics_only": True,
         "generic_question": True,
+        "model_backend": "ollama_local",
+        "model_name": "qwen3:14b",
         "case_count": 2,
     }
     rows = []
@@ -53,6 +55,8 @@ class LiveScoreTests(unittest.TestCase):
         header, rows = fixture()
         report = score_rows(header, rows)
         self.assertEqual(report["case_count"], 2)
+        self.assertEqual(report["model_backend"], "ollama_local")
+        self.assertEqual(report["model_name"], "qwen3:14b")
         self.assertEqual(report["naive_top1_joint_hits"], 1)
         self.assertEqual(report["model_top1_joint_hits"], 1)
         self.assertEqual(report["model_only_joint_hits"], 1)
