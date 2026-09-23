@@ -146,6 +146,13 @@ or `dependent_only`; the latter forces a partial result because an affected
 caller does not prove its dependency caused the incident. Omitted groups also
 set `partial` and `needs_more_evidence: true`.
 
+Line-oriented JSON logs can use flat `message`/`service`/`level` fields or a
+flattened [OpenTelemetry log record](https://github.com/open-telemetry/opentelemetry-proto/blob/main/examples/logs.json)
+with `body.stringValue`, `severityText` or `severityNumber`, and a
+`resource.attributes` entry for `service.name`. Each input line remains the
+source for its `L<n>` citation. A complete OTLP `resourceLogs` export envelope
+must be split into one record per line before analysis.
+
 When the logs do not show the failure, an explicit metric file can add
 before/after evidence. Each line is one JSON measurement with Unix-second
 `timestamp`, `service`, `metric`, and finite numeric `value`:

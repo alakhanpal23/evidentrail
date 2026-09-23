@@ -1140,7 +1140,13 @@ fn parse_event(line: usize, raw: &str) -> ParsedEvent {
     let parsed = serde_json::from_str::<Value>(raw).ok();
     let message = parsed
         .as_ref()
-        .and_then(|value| value.get("message").and_then(Value::as_str))
+        .and_then(|value| {
+            value
+                .get("message")
+                .and_then(Value::as_str)
+                .or_else(|| value.get("body").and_then(Value::as_str))
+                .or_else(|| value.pointer("/body/stringValue").and_then(Value::as_str))
+        })
         .unwrap_or(raw);
     let service = parsed
         .as_ref()
@@ -1154,6 +1160,7 @@ fn parse_event(line: usize, raw: &str) -> ParsedEvent {
                         .and_then(Value::as_str)
                 })
                 .or_else(|| value.get("service.name").and_then(Value::as_str))
+                .or_else(|| otel_resource_service(value))
         })
         .filter(|name| valid_service(name))
         .map(str::to_owned)
@@ -1164,10 +1171,24 @@ fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         .and_then(|value| {
             value
                 .get("severity_text")
+                .or_else(|| value.get("severityText"))
                 .or_else(|| value.get("level"))
                 .and_then(Value::as_str)
         })
         .map(str::to_owned)
+        .or_else(|| {
+            parsed
+                .as_ref()?
+                .get("severityNumber")?
+                .as_u64()
+                .and_then(|number| match number {
+                    21..=24 => Some("critical"),
+                    17..=20 => Some("error"),
+                    13..=16 => Some("warning"),
+                    _ => None,
+                })
+                .map(str::to_owned)
+        })
         .or_else(|| field_value(raw, "level="))
         .unwrap_or_default();
     let role = classify_role(&level, message);
@@ -1209,6 +1230,20 @@ fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         role,
         fingerprint,
     }
+}
+
+fn otel_resource_service(value: &Value) -> Option<&str> {
+    let attributes = value.pointer("/resource/attributes")?;
+    if let Some(items) = attributes.as_array() {
+        return items.iter().find_map(|item| {
+            (item.get("key")?.as_str()? == "service.name")
+                .then(|| item.pointer("/value/stringValue")?.as_str())
+                .flatten()
+        });
+    }
+    attributes
+        .get("service.name")
+        .and_then(|item| item.as_str().or_else(|| item.get("stringValue")?.as_str()))
 }
 
 fn normalize_fingerprint_token(token: &str) -> String {
@@ -2096,6 +2131,23 @@ mod tests {
             normalize_temporal_fragments("count=123456789012"),
             "count=123456789012"
         );
+    }
+
+    #[test]
+    fn flattened_otlp_log_records_keep_service_body_and_source_citations() {
+        let logs = br#"{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"db"}}]},"severityText":"ERROR","timeUnixNano":"1705600751000000000","body":{"stringValue":"disk full"}}
+{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"db"}}]},"severityNumber":17,"timeUnixNano":"1705600752000000000","body":{"stringValue":"disk full"}}"#;
+        let mut reasoner = CheckingReasoner {
+            expected_group_count: 1,
+            answer: assessment("L1", "disk full"),
+        };
+        let report = analyze_with_reasoner(logs, "Why did db fail?", None, &mut reasoner).unwrap();
+        assert_eq!(report.alert_groups.len(), 1);
+        assert_eq!(report.alert_groups[0].service, "db");
+        assert_eq!(report.alert_groups[0].role, "error");
+        assert_eq!(report.alert_groups[0].count, 2);
+        assert_eq!(report.hypothesis_support[0].scope, "direct");
+        assert_eq!(report.hypotheses[0].evidence[0].event_id, "L1");
     }
 
     #[test]
