@@ -174,8 +174,9 @@ python3 scripts/rcaeval-log-probe.py
 ```
 
 In ±5-minute windows around injected faults in one Sock Shop
-service, five cases had no alert or change line from the labeled root service;
-one had one. The selector marks all six reports partial. These cases show a
+service, the current parser found no alert or change from the labeled root
+service in five cases and found one in the sixth. The selector marks all six
+reports partial. These cases show a
 real limit of logs-only diagnosis for faults whose indicators live in metrics
 or traces, not a score for downstream LLM accuracy. The probe prints aggregate
 counts and does not commit the downloaded telemetry.
