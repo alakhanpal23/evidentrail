@@ -110,6 +110,7 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
     if with_metrics:
         root_metrics = [signal for signal in report["metric_signals"] if signal["service"] == root_service]
         strongest = max(root_metrics, key=lambda signal: signal["relative_shift"], default=None)
+        naive = max(report["metric_signals"], key=lambda signal: signal["relative_shift"], default=None)
         result.update({
             "metric_source_lines": report["metric_source_line_count"],
             "metric_signals": report["metric_signal_count"],
@@ -118,6 +119,8 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
             "root_largest_shift_metric": strongest["metric"] if strongest else None,
             "root_largest_relative_shift": round(strongest["relative_shift"], 3) if strongest else None,
             "root_largest_shift_visible": bool(strongest and {strongest["baseline_event_id"], strongest["incident_event_id"]} <= {event["id"] for event in report["evidence"]}),
+            "naive_top_service": naive["service"] if naive else None,
+            "naive_root_service_hit": bool(naive and naive["service"] == root_service),
         })
     if live_model:
         hypotheses = report["hypotheses"]
