@@ -868,9 +868,13 @@ dependencies = [
 name = "evidentrail-corpus"
 version = "0.1.0"
 dependencies = [
+ "core-foundation",
  "evidentrail-ingest",
  "evidentrail-log-model",
+ "getrandom 0.4.3",
  "rusqlite",
+ "security-framework",
+ "security-framework-sys",
  "sha2",
  "zeroize",
 ]

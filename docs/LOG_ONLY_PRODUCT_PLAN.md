@@ -49,9 +49,15 @@ a causal inference or a measured accuracy improvement; held-out graph ablation
 is still required. The parser now recognizes Datadog's nested message, service, severity,
 and explicit peer fields while the corpus retains the exact API log record.
 Existing v1 corpora transactionally reset derived indexes and rebuild them
-under parser/graph v2; unknown versions fail closed. The key is still supplied by a
-caller; production key authority, query access control, broader graph-aware
-retrieval, and a connected user flow are missing. A CloudWatch history-source
+under parser/graph v2; unknown versions fail closed. A source-bound macOS login
+Keychain authority can now create, reopen, and revoke an add-only SQLCipher key;
+its live create/load/delete check passed on a local unlocked Keychain. The
+corpus still receives its key from a caller; connection setup, cross-platform
+key authority, query access control, broader graph-aware retrieval, and a
+connected user flow are missing. The login Keychain is used because this
+unsigned development binary cannot access the entitlement-gated macOS data
+protection Keychain; the login Keychain choice must be documented in the user
+security model. A CloudWatch history-source
 adapter maps internal partitions to unfiltered log-group page requests. An
 optional AWS SDK transport now loads a configured identity, verifies its STS
 caller account on each page, binds source account/region/log group, and makes

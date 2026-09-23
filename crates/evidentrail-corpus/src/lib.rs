@@ -17,6 +17,11 @@ use rusqlite::{Connection, OptionalExtension as _, Transaction, TransactionBehav
 use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
 
+#[cfg(target_os = "macos")]
+mod macos_corpus_keychain;
+#[cfg(target_os = "macos")]
+pub use macos_corpus_keychain::{CorpusKeychainErrorV1, MacOsCorpusKeychainV1};
+
 const PARSER_INDEX_VERSION: i64 = 2;
 const GRAPH_INDEX_VERSION: i64 = 2;
 const TERM_INDEX_VERSION: i64 = 1;
