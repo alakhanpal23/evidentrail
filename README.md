@@ -34,11 +34,12 @@ source.
 | Exact follow-up | Every advertised `E<n>` reference expands to bounded original source events. |
 | Agent-ready output | A compact brief carries evidence, roles, coverage, receipts, and expansion instructions together. |
 | Local by default | Deterministic compilation performs no hosted model call and needs no credential. |
+| Optional investigation | A hosted beta groups duplicate alerts, considers a caller-supplied service graph, and returns source-linked hypotheses. |
 
-Evidentrail is an evidence compiler, not a root-cause chatbot. It does not
-invent a diagnosis, paraphrase a failure, or treat generated text as source
-truth. The downstream agent reasons; Evidentrail controls what evidence reaches
-that reasoning step and preserves the path back to the bytes.
+The default `brief` path is an evidence compiler. A separate opt-in `analyze`
+path proposes root-cause hypotheses, but labels them as such. Its checked
+citations prove only that quoted text appears in supplied source lines; they
+do not prove the explanation or the direction of causality.
 
 ## Accuracy is the release goal
 
@@ -107,6 +108,41 @@ COVERAGE
 The result-scoped alias is not a decorative citation. In a retained product or
 MCP session, `E1` is an exact, bounded retrieval capability for the underlying
 event bytes.
+
+## Model-assisted incident analysis (beta)
+
+`analyze` accepts UTF-8 logs on explicit standard input and optionally a JSON
+service graph. It groups identical alert messages by service and severity,
+keeps rare failures ahead of repeated warnings, and sends bounded examples to
+a hosted model. The output includes group counts, omitted-group counts,
+source-line IDs, source-line SHA-256 digests, and hypotheses with exact checked
+quotes. A fabricated line ID or quote fails the request. When groups were
+omitted, the report says `partial` and `needs_more_evidence: true`.
+
+```json
+{
+  "services": ["api", "db"],
+  "dependencies": [{"from": "api", "to": "db"}]
+}
+```
+
+Here `from` depends on `to`. Supply the graph only when those dependencies are
+known; a connection does not establish a fault cause.
+
+```sh
+read -rs 'OPENAI_API_KEY?Paste OpenAI API key: '; export OPENAI_API_KEY; echo
+target/release/evidentrail analyze \
+  --question "Why did the API fail?" \
+  --topology services.json < incident.log
+```
+
+This beta requires `OPENAI_API_KEY`, uses a single bounded hosted request, and
+does not retain the log after the process exits. Avoid supplying sensitive logs
+unless their transfer to the configured model provider is approved. There is
+no measured real-incident diagnosis advantage yet; use the benchmark protocol
+below to compare it with the offline brief and simpler baselines. The analysis
+path currently supports UTF-8, line-oriented logs only; the default brief
+handles arbitrary source bytes.
 
 ## How it works
 

@@ -9,7 +9,13 @@
 
 mod external_corpus_v3;
 mod hosted_ranking;
+mod incident_analysis;
 mod mcp;
+
+pub use incident_analysis::{
+    AnalysisError, AnalysisReport, IncidentReasoner, ModelAssessment, OpenAiIncidentReasoner,
+    ServiceTopology, analyze_with_reasoner,
+};
 
 use std::error::Error as StdError;
 use std::fmt;

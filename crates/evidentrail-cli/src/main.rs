@@ -18,8 +18,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use evidentrail_authority::{CanonicalUnixPathV1, InternalPathPolicyV1, InternalPathRegistryV1};
 use evidentrail_cli::{
     DEFAULT_TOKEN_BUDGET_V1, HostedRankingDiagnosticRecordV1, MAX_QUESTION_BYTES_V1,
-    MAX_STDIN_BYTES_V1, OpenAiEvidenceRankerV1, StdinBriefOutcomeV1,
-    compile_explicit_stdin_retained_with_contended_ranker_v1,
+    MAX_STDIN_BYTES_V1, OpenAiEvidenceRankerV1, OpenAiIncidentReasoner, StdinBriefOutcomeV1,
+    analyze_with_reasoner, compile_explicit_stdin_retained_with_contended_ranker_v1,
     compile_explicit_stdin_retained_with_contended_shadow_ranker_v1,
     compile_explicit_stdin_retained_with_ranker_v1,
     compile_explicit_stdin_retained_with_shadow_ranker_v1, compile_explicit_stdin_v1,
@@ -45,7 +45,7 @@ use evidentrail_store::{
     DurableRepositoryErrorV2, DurableResultRepositoryV2, MacOsKeychainAuthorityV2,
 };
 
-const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank | --llm-rank-if-contended] < logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nBrief reads only explicit standard input and retention defaults to memory. --llm-rank is\nan explicit memory-mode beta opt-in to one hosted evidence-ordering call. The safer\n--llm-rank-if-contended mode calls only when deterministic packing excluded at least one\nmodel-visible optional block. Deterministic compression remains the fallback and default.\nStreaming V3 is available behind the internal EVIDENTRAIL_STREAMING_V3=1 rollout gate;\ndurable brief retention always uses V3 and is explicit, requires the platform external\nauthority, and fails closed when that authority is locked or unavailable. Doctor inspects\nmetadata for exactly one explicit file; it never reads file contents, approves a source,\nor mints host certification. The product does not discover files, crawl a workspace, or\ninspect ambient logs. Use --question-file when the question should not appear in the\nprocess argument list. The pinned tokenizer conservatively counts one rendered UTF-8 byte\nas one budget unit; this is not a model-token count.\n";
+const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank | --llm-rank-if-contended] < logs\n  evidentrail analyze (--question TEXT | --question-file PATH) [--topology PATH] < utf8-logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nAnalyze is an opt-in hosted incident-hypothesis beta requiring OPENAI_API_KEY. It groups\nrepeated alerts and verifies model citations against supplied source lines. Hypotheses\nand dependency edges do not establish causality. Brief reads only explicit standard input\nand retention defaults to memory. --llm-rank is an explicit memory-mode beta opt-in to\none hosted evidence-ordering call. --llm-rank-if-contended calls only when deterministic\npacking excluded a model-visible optional block. Deterministic compression remains the\nfallback and default. Streaming V3 is behind EVIDENTRAIL_STREAMING_V3=1; durable brief\nretention is explicit and requires external authority. Doctor inspects metadata for one\nexplicit file. The product does not discover files, crawl a workspace, or inspect ambient\nlogs. Use --question-file to keep a question out of the process argument list. The pinned\ntokenizer conservatively counts one rendered UTF-8 byte as one budget unit; this is not\na model-token count.\n";
 
 const DOCTOR_SUCCESS_CODE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_FILE_METADATA_OK";
 const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str =
@@ -56,6 +56,11 @@ struct BriefOptions {
     token_budget: u64,
     retention: McpRetentionSelectionV1,
     ranking_mode: CliRankingModeV1,
+}
+
+struct AnalyzeOptions {
+    question: Vec<u8>,
+    topology_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -82,6 +87,7 @@ struct ServeMcpOptions {
 
 enum ParseDecision {
     Run(BriefOptions),
+    Analyze(AnalyzeOptions),
     Doctor(DoctorOptions),
     ServeMcp(ServeMcpOptions),
     Help,
@@ -139,6 +145,7 @@ fn run() -> Result<ExitCode, CliFailure> {
             Ok(ExitCode::SUCCESS)
         }
         ParseDecision::Run(options) => run_brief(options),
+        ParseDecision::Analyze(options) => run_analyze(options),
         ParseDecision::Doctor(options) => run_doctor(options),
         ParseDecision::ServeMcp(options) => run_mcp(options),
     }
@@ -202,6 +209,9 @@ fn parse_args(
         }
         let path = file.ok_or_else(|| CliFailure::usage("EVIDENTRAIL_CLI_DOCTOR_FILE_REQUIRED"))?;
         return Ok(ParseDecision::Doctor(DoctorOptions { path }));
+    }
+    if command == "analyze" {
+        return parse_analyze_args(args);
     }
     if command != "brief" {
         return Err(CliFailure::usage("EVIDENTRAIL_CLI_UNKNOWN_COMMAND"));
@@ -307,6 +317,97 @@ fn parse_args(
         retention,
         ranking_mode,
     }))
+}
+
+fn parse_analyze_args(
+    mut args: impl Iterator<Item = std::ffi::OsString>,
+) -> Result<ParseDecision, CliFailure> {
+    let mut inline_question = None;
+    let mut question_file = None;
+    let mut topology_path = None;
+    while let Some(argument) = args.next() {
+        let slot = if argument == "--question" {
+            &mut inline_question
+        } else if argument == "--question-file" {
+            &mut question_file
+        } else if argument == "--topology" {
+            &mut topology_path
+        } else if argument == "--help" || argument == "-h" {
+            return Ok(ParseDecision::Help);
+        } else {
+            return Err(CliFailure::usage("EVIDENTRAIL_CLI_UNKNOWN_OPTION"));
+        };
+        let value = args
+            .next()
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_CLI_MISSING_OPTION_VALUE"))?;
+        if slot.replace(value).is_some() {
+            return Err(CliFailure::usage("EVIDENTRAIL_CLI_DUPLICATE_OPTION"));
+        }
+    }
+    if inline_question.is_some() == question_file.is_some() {
+        return Err(CliFailure::usage(
+            "EVIDENTRAIL_CLI_QUESTION_SOURCE_REQUIRED",
+        ));
+    }
+    let question = if let Some(value) = inline_question {
+        value
+            .into_string()
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_CLI_QUESTION_NOT_UTF8"))?
+            .into_bytes()
+    } else {
+        let file = File::open(question_file.expect("one question source"))
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_QUESTION_FILE_OPEN_FAILURE"))?;
+        read_bounded(file, MAX_QUESTION_BYTES_V1).map_err(|error| match error {
+            BoundedReadFailure::Io => {
+                CliFailure::runtime("EVIDENTRAIL_CLI_QUESTION_FILE_READ_FAILURE")
+            }
+            BoundedReadFailure::LimitExceeded => {
+                CliFailure::usage("EVIDENTRAIL_CLI_QUESTION_TOO_LARGE")
+            }
+        })?
+    };
+    if question.is_empty() || question.len() > MAX_QUESTION_BYTES_V1 {
+        return Err(CliFailure::usage("EVIDENTRAIL_CLI_QUESTION_TOO_LARGE"));
+    }
+    Ok(ParseDecision::Analyze(AnalyzeOptions {
+        question,
+        topology_path: topology_path.map(PathBuf::from),
+    }))
+}
+
+fn run_analyze(options: AnalyzeOptions) -> Result<ExitCode, CliFailure> {
+    if io::stdin().is_terminal() {
+        return Err(CliFailure::usage("EVIDENTRAIL_CLI_EXPLICIT_STDIN_REQUIRED"));
+    }
+    let logs = read_bounded(io::stdin().lock(), 16 * 1024 * 1024).map_err(|error| match error {
+        BoundedReadFailure::Io => CliFailure::runtime("EVIDENTRAIL_CLI_STDIN_READ_FAILURE"),
+        BoundedReadFailure::LimitExceeded => CliFailure::usage("EVIDENTRAIL_CLI_INPUT_TOO_LARGE"),
+    })?;
+    let topology = if let Some(path) = options.topology_path {
+        let file = File::open(path)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_TOPOLOGY_FILE_OPEN_FAILURE"))?;
+        Some(read_bounded(file, 64 * 1024).map_err(|error| match error {
+            BoundedReadFailure::Io => {
+                CliFailure::runtime("EVIDENTRAIL_CLI_TOPOLOGY_FILE_READ_FAILURE")
+            }
+            BoundedReadFailure::LimitExceeded => {
+                CliFailure::usage("EVIDENTRAIL_CLI_TOPOLOGY_TOO_LARGE")
+            }
+        })?)
+    } else {
+        None
+    };
+    let question = std::str::from_utf8(&options.question)
+        .map_err(|_| CliFailure::usage("EVIDENTRAIL_CLI_QUESTION_NOT_UTF8"))?;
+    let mut reasoner = OpenAiIncidentReasoner::from_environment()
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let report = analyze_with_reasoner(&logs, question, topology.as_deref(), &mut reasoner)
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    serde_json::to_writer_pretty(io::stdout().lock(), &report)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_STDOUT_WRITE_FAILURE"))?;
+    writeln!(io::stdout().lock())
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_STDOUT_WRITE_FAILURE"))?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn run_doctor(options: DoctorOptions) -> Result<ExitCode, CliFailure> {
