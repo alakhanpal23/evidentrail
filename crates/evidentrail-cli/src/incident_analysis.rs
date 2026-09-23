@@ -111,6 +111,7 @@ pub struct EvidenceEvent {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct AlertGroup {
+    pub id: String,
     pub service: String,
     pub role: &'static str,
     pub count: usize,
@@ -185,8 +186,10 @@ pub struct AnalysisReport {
     pub source_line_count: usize,
     pub alert_group_count: usize,
     pub model_visible_group_count: usize,
+    pub model_visible_group_ids: Vec<String>,
     pub omitted_group_count: usize,
     pub model_inventory_group_count: usize,
+    pub model_inventory_group_ids: Vec<String>,
     pub omitted_inventory_group_count: usize,
     pub model_requested_group_count: usize,
     pub expanded_group_count: usize,
@@ -643,7 +646,9 @@ pub fn analyze_with_reasoner_and_metrics(
     }
     let alert_groups = groups
         .iter()
-        .map(|group| AlertGroup {
+        .enumerate()
+        .map(|(index, group)| AlertGroup {
+            id: format!("G{}", index + 1),
             service: group.service.clone(),
             role: group.role,
             count: group.event_ids.len(),
@@ -720,8 +725,16 @@ pub fn analyze_with_reasoner_and_metrics(
         source_line_count: events.len(),
         alert_group_count: groups.len(),
         model_visible_group_count: visible.len(),
+        model_visible_group_ids: visible
+            .iter()
+            .map(|group| group["id"].as_str().expect("group ID").to_owned())
+            .collect(),
         omitted_group_count: omitted,
         model_inventory_group_count: inventory.len(),
+        model_inventory_group_ids: inventory
+            .iter()
+            .map(|group| group["id"].as_str().expect("group ID").to_owned())
+            .collect(),
         omitted_inventory_group_count: groups.len() - visible_group_indexes.len() - inventory.len(),
         model_requested_group_count: requested.len(),
         expanded_group_count,
@@ -1418,6 +1431,9 @@ mod tests {
         assert_eq!(report.model_requested_group_count, 1);
         assert_eq!(report.expanded_group_count, 1);
         assert_eq!(report.omitted_group_count, 0);
+        assert_eq!(report.alert_groups[3].id, "G4");
+        assert_eq!(report.model_inventory_group_ids, ["G4"]);
+        assert!(report.model_visible_group_ids.contains(&"G4".to_owned()));
     }
 
     struct InvalidSelectionReasoner(Vec<String>);

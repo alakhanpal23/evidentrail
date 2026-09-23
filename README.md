@@ -226,7 +226,10 @@ largest relative shift is not always the injected fault type, so this is an
 evidence-availability check, not a correct-diagnosis score.
 The [combined-source probe](reports/rcaeval-selection/README.md#combined-log-and-metric-selection-probe)
 also checks whether metric summaries crowd out logs and whether the model can
-choose from omitted log groups.
+choose from omitted log groups. Across all 90 pinned Sock Shop cases, every
+alert group from a labeled root service was either initially visible or in the
+group-selection inventory, although only seven cases had such alerts at all.
+This measures access to evidence, not model choice or diagnosis.
 
 The generic-question, metric-only probe removes the labeled service from the
 question and excludes logs that may contain credentials. Its selected evidence

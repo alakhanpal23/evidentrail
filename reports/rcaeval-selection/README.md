@@ -1,4 +1,4 @@
-# Ten-case RCAEval evidence-selection probe
+# RCAEval evidence-selection probes
 
 This is a **selection-only** result. No hosted model was called, and no
 root-cause diagnosis was scored. The input question was the same in every case:
@@ -97,3 +97,28 @@ This is evidence-coverage testing, not root-cause accuracy. All reports are
 diagnosis window. A live model may choose poor groups or interpret visible
 signals incorrectly. The exact line-citation verifier checks attribution,
 not whether a causal claim is true.
+
+## All 90 cases with logs and metrics
+
+`ninety-case-combined.jsonl` is the aggregate output of the same generic
+question and ±300-second window across every pinned RE2 Sock Shop case:
+
+```sh
+python3 scripts/rcaeval-log-probe.py \
+  --with-metrics --generic-question --all-re2-ss
+```
+
+All 90 cases ran within the product's input limits and returned `partial`
+selection reports, with no product errors. The strongest metric shift within
+the labeled service was visible in all 90. Only seven cases had any alert
+group from the labeled root service. Those seven contained 79 such groups;
+14 were initially visible and all 79 were either visible or listed in the
+model's group-selection inventory. This is a **retrieval opportunity**, not
+proof the model chooses those groups or diagnoses the cause.
+
+Nine high-noise cases exceeded the 24 KiB group-inventory budget, leaving
+some non-root groups unlisted (up to 362 in one case). The inventory rotates
+across services, which preserved access to every labeled-root alert group in
+this dataset. That result does not guarantee coverage on another incident
+distribution. The model may expand at most four groups per run, and no hosted
+model was called for this probe.

@@ -107,6 +107,9 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
         return {"case": case, "status": "product_error", "error_code": run.stderr.decode("utf-8", "replace").strip()}
     report = json.loads(run.stdout)
     root_signal = next(signal for signal in report["service_signals"] if signal["service"] == root_service)
+    root_group_ids = {group["id"] for group in report["alert_groups"] if group["service"] == root_service}
+    visible_group_ids = set(report["model_visible_group_ids"])
+    inventory_group_ids = set(report["model_inventory_group_ids"])
     result = {
         "case": case,
         "status": report["status"],
@@ -122,6 +125,9 @@ def probe(case, binary, window, with_metrics, generic_question, metrics_only, li
         "root_service": root_service,
         "root_service_alert_events": sum(root_signal[f"{role}_count"] for role in ("critical", "error", "warning", "change")),
         "root_service_alert_evidence": sum(event["service"] == root_service and event["role"] in ("critical", "error", "warning", "change") for event in report["evidence"]),
+        "root_service_alert_groups": len(root_group_ids),
+        "root_service_visible_groups": len(root_group_ids & visible_group_ids),
+        "root_service_reachable_groups": len(root_group_ids & (visible_group_ids | inventory_group_ids)),
         "focus_log_signal_absent": report["focus_log_signal_absent"],
     }
     if with_metrics:
