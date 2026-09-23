@@ -1,5 +1,11 @@
 # Evidentrail
 
+> **Product direction:** One connected-source, log-only tool for coding agents:
+> fetch scoped logs when called, parse the acquired records, and return only
+> selected original lines with repeat counts. See the
+> [implementation plan](docs/LOG_ONLY_PRODUCT_PLAN.md). The commands described
+> below are the current prototype and do not yet implement that connected flow.
+
 **Model-assisted incident analysis with source-linked evidence.**
 
 Evidentrail groups noisy alerts, combines logs with optional metric changes

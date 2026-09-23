@@ -1,5 +1,8 @@
 # Product roadmap: speed leadership and LLM-assisted evidence
 
+> Historical roadmap. The current single-flow product direction is
+> [connected log selection for coding agents](LOG_ONLY_PRODUCT_PLAN.md).
+
 **Date:** August 29, 2026
 **Status:** Product direction; release claims remain gated by EvidentrailBench
 **Scope:** Extends the deterministic evidence compiler without weakening its
