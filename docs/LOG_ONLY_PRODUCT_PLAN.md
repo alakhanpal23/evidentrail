@@ -294,6 +294,15 @@ model/policy version; a changed source invalidates the cache.
 
 ## Delivery sequence and acceptance gates
 
+A first [frozen connected retrieval fixture](../reports/connected-retrieval-v1.md)
+now runs through the encrypted corpus and compares graph-enabled candidates,
+graph ablation, and recent-log selection under the same raw-byte cap. It
+exposed a zero-term-match omission; the connected path now uses a bounded
+high-severity fallback and reports its candidate count and truncation. The
+fixture is synthetic and uses an all-candidate selector. It does not satisfy
+the model, live-provider, downstream-task, scale, latency, cost, or security
+evaluation gates below.
+
 | Milestone | Concrete deliverable | Gate |
 | --- | --- | --- |
 | 1. One log-pack contract | Connected CLI/MCP selection; exact source/native IDs, repeat counts, bounded result-scoped expansion, metadata outside the log body | Output contains no generated logs or diagnosis; every selected line resolves to an original stored record. The connected MCP flow now supports local expansion with authorization recheck; live provider validation and complete coverage semantics remain. Old commands remain as compatibility wrappers pending replacement verification. |

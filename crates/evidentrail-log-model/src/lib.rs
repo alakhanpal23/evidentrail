@@ -105,6 +105,7 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
                 .get("severity_text")
                 .or_else(|| value.get("severityText"))
                 .or_else(|| value.get("level"))
+                .or_else(|| value.get("status"))
                 .or_else(|| value.pointer("/attributes/status"))
                 .and_then(Value::as_str)
         })
@@ -404,5 +405,11 @@ mod tests {
         assert_eq!(explicit_peer_service(raw).as_deref(), Some("database"));
         let unrelated = r#"{"id":"evt-2","type":"log","attributes":{"service":"checkout","message":"database is mentioned only in text"}}"#;
         assert_eq!(explicit_peer_service(unrelated), None);
+    }
+
+    #[test]
+    fn top_level_log_status_controls_role_even_without_error_words() {
+        let raw = r#"{"service":"billing","status":"error","message":"downstream call blocked"}"#;
+        assert_eq!(parse_event(1, raw).role, "error");
     }
 }

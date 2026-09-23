@@ -28,7 +28,7 @@ pub use macos_corpus_keychain::{
     ConnectedSourceDescriptorV1, CorpusKeychainErrorV1, MacOsCorpusKeychainV1,
 };
 
-const PARSER_INDEX_VERSION: i64 = 2;
+const PARSER_INDEX_VERSION: i64 = 3;
 const GRAPH_INDEX_VERSION: i64 = 2;
 const TERM_INDEX_VERSION: i64 = 1;
 const MAX_RAW_RECORD_BYTES: usize = 16 * 1024 * 1024;
@@ -209,6 +209,8 @@ impl EncryptedHistoryStore {
                      last_native_id BLOB NOT NULL,
                      UNIQUE(service, role, fingerprint_digest)
                  );
+                 CREATE INDEX IF NOT EXISTS log_groups_priority
+                     ON log_groups(role, last_timestamp_millis DESC, group_id DESC);
                  CREATE TABLE IF NOT EXISTS group_members (
                      native_id BLOB PRIMARY KEY REFERENCES history_records(native_id),
                      group_id INTEGER NOT NULL REFERENCES log_groups(group_id)
@@ -291,7 +293,7 @@ impl EncryptedHistoryStore {
                 |row| row.get(0),
             )
             .map_err(|_| CorpusError::Storage)?;
-        if !matches!(version, 1 | PARSER_INDEX_VERSION) {
+        if !matches!(version, 1 | 2 | PARSER_INDEX_VERSION) {
             return Err(CorpusError::IndexVersionMismatch);
         }
         connection
@@ -331,7 +333,7 @@ impl EncryptedHistoryStore {
         }
         if version == 1 {
             // Reset derived state atomically. A crash during the subsequent
-            // bounded backfill leaves version 2 with missing memberships,
+            // bounded backfill leaves version 3 with missing memberships,
             // which `index_unindexed_records` resumes on the next open.
             connection
                 .execute_batch(
@@ -341,14 +343,29 @@ impl EncryptedHistoryStore {
                  DELETE FROM log_groups;
                  DELETE FROM edge_evidence;
                  DELETE FROM service_edges;
-                 UPDATE index_metadata SET parser_version = 2 WHERE singleton = 1;
+                 UPDATE index_metadata SET parser_version = 3 WHERE singleton = 1;
                  UPDATE graph_metadata SET extractor_version = 2,
                      graph_version = 0, backfill_complete = 0 WHERE singleton = 1;
                  UPDATE term_metadata SET backfill_complete = 0 WHERE singleton = 1;
                  COMMIT;",
                 )
                 .map_err(|_| CorpusError::Storage)?;
-        } else if graph_extractor_version == 1 {
+        } else if version == 2 {
+            // Reclassify existing top-level status fields without touching
+            // source bytes or the independently versioned service graph.
+            connection
+                .execute_batch(
+                    "BEGIN IMMEDIATE;
+                 DELETE FROM group_members;
+                 DELETE FROM group_terms;
+                 DELETE FROM log_groups;
+                 UPDATE index_metadata SET parser_version = 3 WHERE singleton = 1;
+                 UPDATE term_metadata SET backfill_complete = 0 WHERE singleton = 1;
+                 COMMIT;",
+                )
+                .map_err(|_| CorpusError::Storage)?;
+        }
+        if version != 1 && graph_extractor_version == 1 {
             connection
                 .execute_batch(
                     "BEGIN IMMEDIATE;
@@ -828,6 +845,52 @@ impl EncryptedHistoryStore {
                     last_native_id: row.get(7)?,
                 })
             })
+            .map_err(|_| CorpusError::Storage)?;
+        let mut groups = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)?;
+        let candidate_pool_truncated = groups.len() > limit;
+        groups.truncate(limit);
+        Ok(CandidateGroupPage {
+            groups,
+            total_groups,
+            candidate_pool_truncated,
+        })
+    }
+
+    /// Fallback when task terms do not match any indexed group. This is a
+    /// bounded high-severity sample, never a completeness claim.
+    pub fn search_priority_groups(&self, limit: usize) -> Result<CandidateGroupPage, CorpusError> {
+        if limit == 0 || limit > 256 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let total_groups = self.group_count()?;
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT group_id, service, role, repeat_count,
+                    first_timestamp_millis, last_timestamp_millis,
+                    first_native_id, last_native_id
+             FROM log_groups WHERE role IN ('critical', 'error', 'warning')
+             ORDER BY role, last_timestamp_millis DESC, group_id DESC LIMIT ?1",
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let rows = statement
+            .query_map(
+                [i64::try_from(limit + 1).map_err(|_| CorpusError::Storage)?],
+                |row| {
+                    Ok(CorpusGroupCard {
+                        group_id: row.get(0)?,
+                        service: row.get(1)?,
+                        role: row.get(2)?,
+                        repeat_count: row.get(3)?,
+                        first_timestamp_millis: row.get(4)?,
+                        last_timestamp_millis: row.get(5)?,
+                        first_native_id: row.get(6)?,
+                        last_native_id: row.get(7)?,
+                    })
+                },
+            )
             .map_err(|_| CorpusError::Storage)?;
         let mut groups = rows
             .collect::<Result<Vec<_>, _>>()
@@ -1831,6 +1894,62 @@ mod tests {
                 1
             );
         }
+        cleanup(&path);
+    }
+
+    #[test]
+    fn v2_index_reclassifies_top_level_status_without_changing_source_bytes_or_graph() {
+        let path = test_path();
+        let key = [26; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        let raw = br#"{"service":"billing","status":"error","message":"downstream call blocked"}"#
+            .to_vec();
+        let graph_version;
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            store
+                .commit_page_checked(&[HistoryRecordV1 {
+                    native_id: b"billing".to_vec(),
+                    event_timestamp_millis: 1,
+                    bytes: raw.clone(),
+                }])
+                .unwrap();
+            graph_version = store.graph_version().unwrap();
+            store
+                .connection
+                .execute("UPDATE log_groups SET role = 'context'", [])
+                .unwrap();
+            store
+                .connection
+                .execute("UPDATE index_metadata SET parser_version = 2", [])
+                .unwrap();
+        }
+        {
+            let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert_eq!(store.get_record(b"billing").unwrap().unwrap().bytes, raw);
+            assert_eq!(store.read_group_cards(0, 10).unwrap()[0].role, "error");
+            assert_eq!(store.graph_version().unwrap(), graph_version);
+            assert_eq!(store.search_priority_groups(10).unwrap().groups.len(), 1);
+        }
+        cleanup(&path);
+    }
+
+    #[test]
+    fn priority_fallback_reports_pool_truncation_and_orders_recent_errors() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[27; 32], &[1; 32], &[2; 32]).unwrap();
+        let records = (0..3).map(|index| HistoryRecordV1 {
+            native_id: format!("error-{index}").into_bytes(),
+            event_timestamp_millis: index,
+            bytes: format!("{{\"service\":\"billing\",\"status\":\"error\",\"message\":\"blocked code{}\"}}", ['a', 'b', 'c'][index as usize]).into_bytes(),
+        }).collect::<Vec<_>>();
+        store.commit_page_checked(&records).unwrap();
+        let page = store.search_priority_groups(1).unwrap();
+        assert_eq!(page.total_groups, 3);
+        assert!(page.candidate_pool_truncated);
+        assert_eq!(page.groups[0].first_native_id, b"error-2");
+        drop(store);
         cleanup(&path);
     }
 

@@ -50,6 +50,11 @@ installation is still under development; no live AWS sandbox has validated this
 flow yet. Datadog identity and tier coverage have not been verified in a live
 provider sandbox. Missing Datadog tiers appear as partial
 coverage in connected query metadata.
+If no task terms match the index, a bounded high-severity fallback supplies
+candidate groups and reports truncation; an empty or truncated result does not
+prove that relevant logs are absent. A [frozen synthetic retrieval fixture](reports/connected-retrieval-v1.md)
+measures this fallback and the graph ablation, but model and live-source
+quality remain unverified.
 `sources disconnect` revokes a CloudWatch source or all tiers in one Datadog
 connection, removes its encrypted local corpus and Keychain entries, and
 rejects concurrent connected operations with a busy error. In-flight MCP

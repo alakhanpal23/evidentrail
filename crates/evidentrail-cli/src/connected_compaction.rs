@@ -39,6 +39,7 @@ pub struct ConnectedLogPack {
     pub total_groups: u64,
     pub candidate_count: usize,
     pub graph_candidate_count: usize,
+    pub fallback_candidate_count: usize,
     pub candidate_pool_truncated: bool,
     pub output_budget_truncated: bool,
     pub selected: Vec<ConnectedLogEntry>,
@@ -59,6 +60,16 @@ pub fn select_connected_logs(
     max_output_bytes: usize,
     selector: &mut impl LogGroupSelector,
 ) -> Result<ConnectedLogPack, CompactionError> {
+    select_connected_logs_with_graph(sources, task, max_output_bytes, selector, true)
+}
+
+fn select_connected_logs_with_graph(
+    sources: &[AuthorizedCorpus<'_>],
+    task: &str,
+    max_output_bytes: usize,
+    selector: &mut impl LogGroupSelector,
+    graph_enabled: bool,
+) -> Result<ConnectedLogPack, CompactionError> {
     if sources.is_empty()
         || sources.len() > MAX_SOURCES
         || task.trim().is_empty()
@@ -75,6 +86,7 @@ pub fn select_connected_logs(
     let mut total_groups = 0u64;
     let mut candidate_pool_truncated = false;
     let mut graph_candidate_count = 0;
+    let mut fallback_candidate_count = 0;
     let mut prepared = Vec::new();
     for (source_index, source) in sources.iter().enumerate() {
         let (bound_tenant, bound_source) = source
@@ -110,13 +122,22 @@ pub fn select_connected_logs(
             .ok_or(CompactionError::Corpus)?;
         candidate_pool_truncated |= lexical.candidate_pool_truncated;
         let mut cards = lexical.groups;
+        if cards.is_empty() {
+            let fallback = source
+                .store
+                .search_priority_groups((LEXICAL_BUDGET / sources.len()).max(1))
+                .map_err(|_| CompactionError::Corpus)?;
+            candidate_pool_truncated |= fallback.candidate_pool_truncated;
+            fallback_candidate_count += fallback.groups.len();
+            cards = fallback.groups;
+        }
         let services = cards
             .iter()
             .map(|card| card.service.clone())
             .filter(|service| !service.is_empty() && service != "unknown")
             .collect::<BTreeSet<_>>();
         candidate_pool_truncated |= services.len() > 32;
-        if !services.is_empty() {
+        if graph_enabled && !services.is_empty() {
             let seeds = services.into_iter().take(32).collect::<Vec<_>>();
             let graph = source
                 .store
@@ -258,6 +279,7 @@ pub fn select_connected_logs(
         total_groups,
         candidate_count,
         graph_candidate_count,
+        fallback_candidate_count,
         candidate_pool_truncated,
         output_budget_truncated,
         selected,
@@ -341,6 +363,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use evidentrail_ingest::HistoryRecordV1;
+    use serde::Deserialize;
 
     use super::*;
 
@@ -371,6 +394,196 @@ mod tests {
                 .take(request["max_selected_groups"].as_u64().unwrap() as usize)
                 .map(|group| group["id"].as_str().unwrap().to_owned())
                 .collect())
+        }
+    }
+
+    struct SelectAllCandidates;
+
+    impl LogGroupSelector for SelectAllCandidates {
+        fn select(&mut self, request: &Value) -> Result<Vec<String>, CompactionError> {
+            Ok(request["groups"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .take(request["max_selected_groups"].as_u64().unwrap() as usize)
+                .map(|group| group["id"].as_str().unwrap().to_owned())
+                .collect())
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct RetrievalFixture {
+        schema_version: u8,
+        raw_byte_budget: usize,
+        noise_groups_per_case: usize,
+        cases: Vec<RetrievalCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct RetrievalCase {
+        id: String,
+        task: String,
+        required_native_ids: Vec<String>,
+        records: Vec<RetrievalRecord>,
+    }
+
+    #[derive(Deserialize)]
+    struct RetrievalRecord {
+        native_id: String,
+        timestamp_millis: i64,
+        raw: String,
+    }
+
+    fn noise_word(mut index: usize) -> String {
+        let mut word = String::new();
+        loop {
+            word.push(char::from(b'a' + (index % 26) as u8));
+            index /= 26;
+            if index == 0 {
+                break;
+            }
+        }
+        word
+    }
+
+    fn pack_lines(pack: &ConnectedLogPack) -> Vec<(Vec<u8>, Vec<u8>)> {
+        pack.selected
+            .iter()
+            .flat_map(|entry| {
+                std::iter::once((entry.first_native_id.clone(), entry.first_raw.clone())).chain(
+                    entry
+                        .last_native_id
+                        .iter()
+                        .cloned()
+                        .zip(entry.last_raw.iter().cloned()),
+                )
+            })
+            .collect()
+    }
+
+    fn recent_lines(store: &EncryptedHistoryStore, max_bytes: usize) -> Vec<(Vec<u8>, Vec<u8>)> {
+        let mut cards = Vec::new();
+        let mut cursor = 0;
+        loop {
+            let page = store.read_group_cards(cursor, 256).unwrap();
+            if page.is_empty() {
+                break;
+            }
+            cursor = page.last().unwrap().group_id;
+            cards.extend(page);
+        }
+        cards.sort_by_key(|card| std::cmp::Reverse((card.last_timestamp_millis, card.group_id)));
+        let mut lines = Vec::new();
+        let mut remaining = max_bytes;
+        for card in cards {
+            if lines.len() == FINAL_SELECTION_LIMIT {
+                break;
+            }
+            let record = store.get_record(&card.last_native_id).unwrap().unwrap();
+            if record.bytes.len() <= remaining {
+                remaining -= record.bytes.len();
+                lines.push((record.native_id, record.bytes));
+            }
+        }
+        lines
+    }
+
+    fn eval_metrics(lines: &[(Vec<u8>, Vec<u8>)], required: &[String], max_bytes: usize) -> Value {
+        let output_bytes = lines.iter().map(|(_, raw)| raw.len()).sum::<usize>();
+        assert!(output_bytes <= max_bytes);
+        let selected = lines
+            .iter()
+            .map(|(id, _)| id.as_slice())
+            .collect::<BTreeSet<_>>();
+        let found = required
+            .iter()
+            .filter(|id| selected.contains(id.as_bytes()))
+            .count();
+        json!({
+            "required_found": found,
+            "required_total": required.len(),
+            "selected_lines": lines.len(),
+            "irrelevant_lines": lines.len() - found,
+            "output_bytes": output_bytes,
+        })
+    }
+
+    #[test]
+    fn frozen_connected_retrieval_reports_graph_ablation_and_recent_baseline() {
+        let fixture: RetrievalFixture = serde_json::from_str(include_str!(
+            "../../../fixtures/connected-retrieval-v1.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture.schema_version, 1);
+        for case in fixture.cases {
+            let path = test_path();
+            let mut store =
+                EncryptedHistoryStore::open(&path, &[7; 32], &[1; 32], &[2; 32]).unwrap();
+            let mut records = case
+                .records
+                .iter()
+                .map(|record| HistoryRecordV1 {
+                    native_id: record.native_id.as_bytes().to_vec(),
+                    event_timestamp_millis: record.timestamp_millis,
+                    bytes: record.raw.as_bytes().to_vec(),
+                })
+                .collect::<Vec<_>>();
+            for index in 0..fixture.noise_groups_per_case {
+                records.push(HistoryRecordV1 {
+                    native_id: format!("noise-{index}").into_bytes(),
+                    event_timestamp_millis: 100 + index as i64,
+                    bytes: format!("{{\"service\":\"noise\",\"status\":\"info\",\"message\":\"heartbeat filler{}\"}}", noise_word(index)).into_bytes(),
+                });
+            }
+            store.commit_page_checked(&records).unwrap();
+            assert_eq!(store.record_count().unwrap(), records.len() as u64);
+            let sources = [AuthorizedCorpus {
+                source_digest: [2; 32],
+                store: &store,
+            }];
+            let graph = select_connected_logs_with_graph(
+                &sources,
+                &case.task,
+                fixture.raw_byte_budget,
+                &mut SelectAllCandidates,
+                true,
+            )
+            .unwrap();
+            let lexical = select_connected_logs_with_graph(
+                &sources,
+                &case.task,
+                fixture.raw_byte_budget,
+                &mut SelectAllCandidates,
+                false,
+            )
+            .unwrap();
+            let graph_lines = pack_lines(&graph);
+            let lexical_lines = pack_lines(&lexical);
+            for (id, raw) in &graph_lines {
+                assert_eq!(store.get_record(id).unwrap().unwrap().bytes, *raw);
+            }
+            let recent = recent_lines(&store, fixture.raw_byte_budget);
+            let result = json!({
+                "case": case.id,
+                "graph": eval_metrics(&graph_lines, &case.required_native_ids, fixture.raw_byte_budget),
+                "lexical_only": eval_metrics(&lexical_lines, &case.required_native_ids, fixture.raw_byte_budget),
+                "recent_baseline": eval_metrics(&recent, &case.required_native_ids, fixture.raw_byte_budget),
+                "candidate_pool_truncated": graph.candidate_pool_truncated,
+                "graph_candidate_count": graph.graph_candidate_count,
+                "fallback_candidate_count": graph.fallback_candidate_count,
+            });
+            println!("CONNECTED_RETRIEVAL_EVAL {result}");
+            if case.id == "old_rare_failure" {
+                assert_eq!(result["graph"]["required_found"], 1);
+            } else if case.id == "graph_linked_clue" {
+                assert_eq!(result["graph"]["required_found"], 2);
+                assert_eq!(result["lexical_only"]["required_found"], 1);
+            } else if case.id == "wording_mismatch" {
+                assert_eq!(result["graph"]["required_found"], 1);
+                assert_eq!(result["graph"]["selected_lines"], 1);
+            }
+            drop(store);
+            cleanup(&path);
         }
     }
 

@@ -396,6 +396,7 @@ pub(crate) fn query_connected_logs(
         "coverage": if partial_source { "partial" } else { "unverified_provider_consistency" },
         "candidate_count": pack.candidate_count,
         "graph_candidate_count": pack.graph_candidate_count,
+        "fallback_candidate_count": pack.fallback_candidate_count,
         "candidate_pool_truncated": pack.candidate_pool_truncated,
         "output_budget_truncated": pack.output_budget_truncated,
         "selected_groups": pack.selected.len(),
@@ -1925,6 +1926,7 @@ mod tests {
             total_groups: 1,
             candidate_count: 1,
             graph_candidate_count: 0,
+            fallback_candidate_count: 0,
             candidate_pool_truncated: false,
             output_budget_truncated: false,
             selected: vec![crate::ConnectedLogEntry {
