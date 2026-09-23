@@ -1,10 +1,11 @@
-//! Supplied-log entry points and an internal indexed-corpus selector.
+//! Supplied-log and connected-source entry points for coding agents.
 //!
 //! The legacy memory and durable modes accept only explicit standard input.
-//! The indexed selector operates on a caller-authorized encrypted corpus;
-//! connection ownership, catch-up, and query authorization are not yet wired
-//! into the public CLI or MCP surface.
+//! On macOS the connected CLI and memory-only MCP tool share source ownership,
+//! catch-up, and global selection over authorized encrypted corpora.
 
+#[cfg(target_os = "macos")]
+mod connected_cli;
 mod connected_compaction;
 mod corpus_compaction;
 mod external_corpus_v3;
@@ -13,9 +14,27 @@ mod incident_analysis;
 mod log_compaction;
 mod mcp;
 
+#[cfg(target_os = "macos")]
+pub use connected_cli::{run as run_sources_cli, run_logs as run_connected_logs_cli};
 pub use connected_compaction::{
     AuthorizedCorpus, ConnectedLogEntry, ConnectedLogPack, select_connected_logs,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CliFailure {
+    pub code: &'static str,
+    pub exit_code: u8,
+}
+
+impl CliFailure {
+    pub const fn usage(code: &'static str) -> Self {
+        Self { code, exit_code: 2 }
+    }
+
+    pub const fn runtime(code: &'static str) -> Self {
+        Self { code, exit_code: 1 }
+    }
+}
 pub use corpus_compaction::{IndexedLogEntry, IndexedLogPack, select_indexed_logs};
 pub use incident_analysis::{
     AnalysisError, AnalysisReport, EvidenceCitation, EvidenceEvent, EvidenceHighlight, FaultType,

@@ -16,11 +16,9 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "macos")]
-mod connected_cli;
-
 use evidentrail_authority::{CanonicalUnixPathV1, InternalPathPolicyV1, InternalPathRegistryV1};
 use evidentrail_cli::{
-    CompactionError, DEFAULT_TOKEN_BUDGET_V1, HostedRankingDiagnosticRecordV1,
+    CliFailure, CompactionError, DEFAULT_TOKEN_BUDGET_V1, HostedRankingDiagnosticRecordV1,
     MAX_QUESTION_BYTES_V1, MAX_STDIN_BYTES_V1, OpenAiEvidenceRankerV1, OpenAiIncidentReasoner,
     StdinBriefOutcomeV1, analyze_with_reasoner_and_metrics_and_traces_and_precedents, compact_logs,
     compile_explicit_stdin_retained_with_contended_ranker_v1,
@@ -31,8 +29,8 @@ use evidentrail_cli::{
 };
 #[cfg(target_os = "macos")]
 use evidentrail_cli::{
-    DurablePublishingMcpRetentionBackendV2, McpRetentionBackendErrorV1,
-    run_mcp_stdio_with_backend_v1,
+    DurablePublishingMcpRetentionBackendV2, McpRetentionBackendErrorV1, run_connected_logs_cli,
+    run_mcp_stdio_with_backend_v1, run_sources_cli,
 };
 use evidentrail_core::UnixTimestampNanos;
 use evidentrail_local_file::{
@@ -111,22 +109,6 @@ enum ParseDecision {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct CliFailure {
-    code: &'static str,
-    exit_code: u8,
-}
-
-impl CliFailure {
-    const fn usage(code: &'static str) -> Self {
-        Self { code, exit_code: 2 }
-    }
-
-    const fn runtime(code: &'static str) -> Self {
-        Self { code, exit_code: 1 }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BoundedReadFailure {
     Io,
     LimitExceeded,
@@ -168,7 +150,7 @@ fn run() -> Result<ExitCode, CliFailure> {
         ParseDecision::Sources(args) => {
             #[cfg(target_os = "macos")]
             {
-                connected_cli::run(args)
+                run_sources_cli(args)
             }
             #[cfg(not(target_os = "macos"))]
             {
@@ -179,7 +161,7 @@ fn run() -> Result<ExitCode, CliFailure> {
         ParseDecision::ConnectedLogs(args) => {
             #[cfg(target_os = "macos")]
             {
-                connected_cli::run_logs(args)
+                run_connected_logs_cli(args)
             }
             #[cfg(not(target_os = "macos"))]
             {

@@ -10,10 +10,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use evidentrail_cli::{
-    AuthorizedCorpus, ConnectedLogPack, OpenAiIncidentReasoner, select_connected_logs,
+use crate::{
+    AuthorizedCorpus, CliFailure, ConnectedLogPack, OpenAiIncidentReasoner, select_connected_logs,
 };
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use evidentrail_corpus::{EncryptedHistoryStore, MacOsCorpusKeychainV1};
 use evidentrail_ingest::{
     AwsCloudWatchTransportV1, CloudWatchCapsV1, CloudWatchHistorySourceV1, CloudWatchPlanV1,
@@ -22,8 +22,6 @@ use evidentrail_ingest::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-
-use crate::CliFailure;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -36,7 +34,7 @@ struct CloudWatchDescriptor {
     profile: Option<String>,
 }
 
-pub(super) fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
+pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
     let mut args = args.into_iter();
     let command = args
         .next()
@@ -66,33 +64,93 @@ struct ConnectedQueryOptions {
     max_raw_bytes: usize,
 }
 
-pub(super) fn run_logs(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
+pub(crate) struct ConnectedQueryResult {
+    pub body: Vec<u8>,
+    pub metadata: serde_json::Value,
+}
+
+pub(crate) struct ConnectedQueryError {
+    pub code: &'static str,
+    pub metadata: Option<serde_json::Value>,
+}
+
+pub fn run_logs(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
     let options = parse_logs_args(args.into_iter())?;
+    let result = match query_connected_logs(&options.task, options.max_raw_bytes) {
+        Ok(result) => result,
+        Err(error) => {
+            if let Some(metadata) = error.metadata {
+                write_metadata(&metadata)?;
+            }
+            return Err(CliFailure::runtime(error.code));
+        }
+    };
+    write_metadata(&result.metadata)?;
+    io::stdout()
+        .lock()
+        .write_all(&result.body)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_OUTPUT_FAILED"))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+fn write_metadata(metadata: &serde_json::Value) -> Result<(), CliFailure> {
+    serde_json::to_writer(io::stderr().lock(), metadata)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_METADATA_WRITE_FAILED"))?;
+    writeln!(io::stderr().lock())
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_METADATA_WRITE_FAILED"))
+}
+
+pub(crate) fn query_connected_logs(
+    task: &str,
+    max_raw_bytes: usize,
+) -> Result<ConnectedQueryResult, ConnectedQueryError> {
+    if task.trim().is_empty()
+        || task.len() > 4096
+        || max_raw_bytes == 0
+        || max_raw_bytes > 256 * 1024
+    {
+        return Err(ConnectedQueryError {
+            code: "EVIDENTRAIL_LOGS_ARGUMENTS_INVALID",
+            metadata: None,
+        });
+    }
+    let query_error = |failure: CliFailure| ConnectedQueryError {
+        code: failure.code,
+        metadata: None,
+    };
     let authority = MacOsCorpusKeychainV1::production();
     let tenant = authority
         .local_tenant_digest()
-        .map_err(|error| CliFailure::runtime(error.code()))?;
+        .map_err(|error| query_error(CliFailure::runtime(error.code())))?;
     let entries = authority
         .list_bound(&tenant)
-        .map_err(|error| CliFailure::runtime(error.code()))?;
+        .map_err(|error| query_error(CliFailure::runtime(error.code())))?;
     if entries.is_empty() || entries.len() > 32 {
-        return Err(CliFailure::runtime(
-            "EVIDENTRAIL_LOGS_SOURCE_COUNT_UNSUPPORTED",
-        ));
+        return Err(ConnectedQueryError {
+            code: "EVIDENTRAIL_LOGS_SOURCE_COUNT_UNSUPPORTED",
+            metadata: None,
+        });
     }
     let high_water = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
+        .map_err(|_| query_error(CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE")))?
         .as_millis() as i64;
     let mut stores = Vec::new();
     let mut source_states = Vec::new();
     for entry in entries {
-        let binding: CloudWatchDescriptor = serde_json::from_slice(&entry.descriptor)
-            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
-        validate_binding(&binding)
-            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+        let binding: CloudWatchDescriptor =
+            serde_json::from_slice(&entry.descriptor).map_err(|_| {
+                query_error(CliFailure::runtime(
+                    "EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE",
+                ))
+            })?;
+        validate_binding(&binding).map_err(|_| {
+            query_error(CliFailure::runtime(
+                "EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE",
+            ))
+        })?;
         let source_id = hex(&entry.source_digest);
-        let path = corpus_path(&entry.source_digest, false)?;
+        let path = corpus_path(&entry.source_digest, false).map_err(query_error)?;
         if !path.is_file() {
             source_states.push(json!({
                 "source_id": source_id,
@@ -102,10 +160,14 @@ pub(super) fn run_logs(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
         }
         let key = authority
             .load(&tenant, &entry.source_digest)
-            .map_err(|error| CliFailure::runtime(error.code()))?;
+            .map_err(|error| query_error(CliFailure::runtime(error.code())))?;
         let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &entry.source_digest)
-            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
-        let source_plan = plan(&binding)?;
+            .map_err(|_| {
+                query_error(CliFailure::runtime(
+                    "EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED",
+                ))
+            })?;
+        let source_plan = plan(&binding).map_err(query_error)?;
         let progress = AwsCloudWatchTransportV1::connect(
             source_plan.clone(),
             &binding.account,
@@ -123,7 +185,7 @@ pub(super) fn run_logs(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
                     "source_id": source_id,
                     "state": progress.status,
                     "reconciliation": progress.reconciliation,
-                    "scanned_through_millis": store.read_checkpoint().map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?.map(|value| value.completed_through_millis),
+                    "scanned_through_millis": store.read_checkpoint().map_err(|_| query_error(CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED")))?.map(|value| value.completed_through_millis),
                     "high_water_millis": high_water,
                 }));
                 stores.push((entry.source_digest, store));
@@ -138,14 +200,10 @@ pub(super) fn run_logs(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
         }
     }
     if stores.is_empty() {
-        serde_json::to_writer(
-            io::stderr().lock(),
-            &json!({"sources": source_states, "coverage": "no_authorized_source"}),
-        )
-        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_METADATA_WRITE_FAILED"))?;
-        writeln!(io::stderr().lock())
-            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_METADATA_WRITE_FAILED"))?;
-        return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_NO_AUTHORIZED_SOURCE"));
+        return Err(ConnectedQueryError {
+            code: "EVIDENTRAIL_LOGS_NO_AUTHORIZED_SOURCE",
+            metadata: Some(json!({"sources": source_states, "coverage": "no_authorized_source"})),
+        });
     }
     let authorized = stores
         .iter()
@@ -155,15 +213,10 @@ pub(super) fn run_logs(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
         })
         .collect::<Vec<_>>();
     let mut selector = OpenAiIncidentReasoner::from_compact_environment()
-        .map_err(|error| CliFailure::runtime(error.code()))?;
-    let pack = select_connected_logs(
-        &authorized,
-        &options.task,
-        options.max_raw_bytes,
-        &mut selector,
-    )
-    .map_err(|error| CliFailure::runtime(error.code()))?;
-    let body = render_connected_logs(&pack)?;
+        .map_err(|error| query_error(CliFailure::runtime(error.code())))?;
+    let pack = select_connected_logs(&authorized, task, max_raw_bytes, &mut selector)
+        .map_err(|error| query_error(CliFailure::runtime(error.code())))?;
+    let body = render_connected_logs(&pack).map_err(query_error)?;
     let partial_source = source_states
         .iter()
         .any(|state| state["state"] != "scanned_to_high_water")
@@ -179,17 +232,9 @@ pub(super) fn run_logs(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
         "output_budget_truncated": pack.output_budget_truncated,
         "selected_groups": pack.selected.len(),
         "total_groups": pack.total_groups,
-        "raw_byte_budget": options.max_raw_bytes,
+        "raw_byte_budget": max_raw_bytes,
     });
-    serde_json::to_writer(io::stderr().lock(), &metadata)
-        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_METADATA_WRITE_FAILED"))?;
-    writeln!(io::stderr().lock())
-        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_METADATA_WRITE_FAILED"))?;
-    io::stdout()
-        .lock()
-        .write_all(&body)
-        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_OUTPUT_FAILED"))?;
-    Ok(ExitCode::SUCCESS)
+    Ok(ConnectedQueryResult { body, metadata })
 }
 
 fn parse_logs_args(
@@ -776,7 +821,7 @@ mod tests {
             graph_candidate_count: 0,
             candidate_pool_truncated: false,
             output_budget_truncated: false,
-            selected: vec![evidentrail_cli::ConnectedLogEntry {
+            selected: vec![crate::ConnectedLogEntry {
                 source_digest: [2; 32],
                 first_native_id: b"event-1".to_vec(),
                 first_raw: b"error\nline".to_vec(),

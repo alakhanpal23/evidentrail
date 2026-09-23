@@ -4,9 +4,9 @@
 > backfill and keep all accessible connected logs indexed, build an
 > evidence-backed service graph from the logs, and return only selected
 > original lines with repeat counts when called. No user-selected time window.
-> See the
-> [implementation plan](docs/LOG_ONLY_PRODUCT_PLAN.md). The commands described
-> below are the current prototype and do not yet implement that connected flow.
+> See the [product goal](docs/PRODUCT_GOAL.md) and
+> [implementation plan](docs/LOG_ONLY_PRODUCT_PLAN.md). The connected flow is
+> partially implemented and has not been validated against live providers.
 
 On macOS, CloudWatch connection registration is available with an AWS profile:
 
@@ -31,8 +31,9 @@ fully verified. `logs` catches up each source, excludes sources whose current
 authorization or sync fails, selects groups globally, and writes original
 source records as JSON lines on stdout. Source status and retrieval truncation
 go to stderr as JSON. The byte budget counts original log bytes, not rendered
-JSON or model tokens. Background scheduling and connected MCP access are still
-under development; no live AWS sandbox has validated this flow yet.
+JSON or model tokens. Background scheduling and source-verified cross-call
+expansion are still under development; no live AWS sandbox has validated this
+flow yet.
 
 The first log-only prototype is available as `compact`. It accepts an explicit
 log stream with no time-window parameter and returns model-selected original
@@ -554,11 +555,15 @@ Run the process-resident MCP server:
 target/release/evidentrail serve-mcp
 ```
 
-It exposes two tools:
+On macOS the memory-only server exposes three tools:
 
 - `evidentrail_logs` compiles explicitly supplied, bounded log bytes.
 - `evidentrail_expand` resolves an advertised result-scoped alias without
   rereading or widening the original source.
+- `evidentrail_connected_logs` takes a task and optional `max_raw_bytes` budget,
+  catches up locally connected sources, and returns selected original records
+  as JSONL plus separate coverage metadata. It currently has no cross-call
+  expansion handle.
 
 `ranking_mode` defaults to `deterministic`. The only hosted alternatives are
 `hosted` and `hosted_if_contended`; both require request-level opt-in.

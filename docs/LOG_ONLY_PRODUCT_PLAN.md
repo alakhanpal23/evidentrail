@@ -77,8 +77,12 @@ scan starts at epoch because a verified provider availability boundary is not
 yet persisted; coarse partitions may spend calls on empty early history. A
 `sources sync` smoke run on this Mac waited for a Keychain authorization prompt
 after rebuilding the binary and was stopped. The connected CLI query has not
-been validated against live AWS, and a connected MCP tool, scheduler, and
-verified completeness semantics remain missing.
+been validated against live AWS. The memory-only macOS MCP server now exposes
+`evidentrail_connected_logs(task, max_raw_bytes)` through the same connected
+query routine as the CLI. A local MCP schema and argument rejection test is
+included, but a live connected MCP call, scheduler, cross-call expansion, and
+verified completeness semantics remain missing. The old supplied-log
+`evidentrail_logs` tool remains until replacement behavior is verified.
 The corpus still receives its key from a caller; cross-platform key authority,
 query access control, broader graph-aware retrieval, and the complete connected
 user flow are missing. The login Keychain is used because this
