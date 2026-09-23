@@ -140,18 +140,45 @@ target/release/evidentrail analyze \
 ```
 
 This beta requires `OPENAI_API_KEY`, uses a single bounded hosted request, and
-does not retain the log after the process exits. Avoid supplying sensitive logs
-unless their transfer to the configured model provider is approved. There is
+does not retain the log after the process exits. The hosted adapter refuses
+requests containing common credential patterns, including DSNs, with a
+contentless error; this guard is not a complete secret detector. Redact and
+review logs before allowing their transfer to a model provider. There is
 no measured real-incident diagnosis advantage yet; use the benchmark protocol
 below to compare it with the offline brief and simpler baselines. The analysis
 path currently supports UTF-8, line-oriented logs only; the default brief
 handles arbitrary source bytes.
+
+Inspect the exact local evidence selection without an API key or hosted call:
+
+```sh
+target/release/evidentrail analyze \
+  --question "Why did the API fail?" \
+  --topology services.json --selection-only < incident.log
+```
 
 The committed synthetic selection regression places one rare database failure
 at the beginning, middle, or end of 3,000 repeated API warnings. The current
 selector retains that failure in all three positions at its 32 KiB example
 budget; a raw 32 KiB tail retains it only at the end. This checks a specific
 noise pattern, not root-cause diagnosis or real-incident performance.
+
+A pinned, six-case [RCAEval](https://github.com/phamquiluan/RCAEval) log-only
+probe is reproducible with `scripts/rcaeval-log-probe.py` after installing
+`pyarrow`:
+
+```sh
+python3 -m pip install pyarrow==21.0.0
+cargo build -p evidentrail-cli --bin evidentrail
+python3 scripts/rcaeval-log-probe.py
+```
+
+In ±5-minute windows around injected faults in one Sock Shop
+service, five cases had no alert or change line from the labeled root service;
+one had one. The selector marks all six reports partial. These cases show a
+real limit of logs-only diagnosis for faults whose indicators live in metrics
+or traces, not a score for downstream LLM accuracy. The probe prints aggregate
+counts and does not commit the downloaded telemetry.
 
 ## How it works
 

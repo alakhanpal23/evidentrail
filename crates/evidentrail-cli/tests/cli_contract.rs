@@ -121,6 +121,38 @@ fn help_states_the_narrow_explicit_input_contract() {
 }
 
 #[test]
+fn selection_preview_runs_without_a_hosted_credential() {
+    let mut child = command()
+        .args([
+            "analyze",
+            "--question",
+            "Why did db fail?",
+            "--selection-only",
+        ])
+        .env_remove("OPENAI_API_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            b"service=db level=info pool_size=0\nservice=db level=error connection refused\n",
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["focus_services"], json!(["db"]));
+    assert_eq!(report["hypotheses"], json!([]));
+    assert_eq!(report["evidence"][0]["id"], "L1");
+}
+
+#[test]
 fn durable_mcp_selection_fails_closed_without_platform_authority() {
     let output = command()
         .args(["serve-mcp", "--retention", "durable"])

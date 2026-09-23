@@ -45,7 +45,7 @@ use evidentrail_store::{
     DurableRepositoryErrorV2, DurableResultRepositoryV2, MacOsKeychainAuthorityV2,
 };
 
-const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank | --llm-rank-if-contended] < logs\n  evidentrail analyze (--question TEXT | --question-file PATH) [--topology PATH] < utf8-logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nAnalyze is an opt-in hosted incident-hypothesis beta requiring OPENAI_API_KEY. It groups\nrepeated alerts and verifies model citations against supplied source lines. Hypotheses\nand dependency edges do not establish causality. Brief reads only explicit standard input\nand retention defaults to memory. --llm-rank is an explicit memory-mode beta opt-in to\none hosted evidence-ordering call. --llm-rank-if-contended calls only when deterministic\npacking excluded a model-visible optional block. Deterministic compression remains the\nfallback and default. Streaming V3 is behind EVIDENTRAIL_STREAMING_V3=1; durable brief\nretention is explicit and requires external authority. Doctor inspects metadata for one\nexplicit file. The product does not discover files, crawl a workspace, or inspect ambient\nlogs. Use --question-file to keep a question out of the process argument list. The pinned\ntokenizer conservatively counts one rendered UTF-8 byte as one budget unit; this is not\na model-token count.\n";
+const HELP: &str = "Evidentrail diagnostic evidence compiler\n\nUSAGE:\n  evidentrail brief (--question TEXT | --question-file PATH) [--token-budget N] [--retention memory|durable] [--llm-rank | --llm-rank-if-contended] < logs\n  evidentrail analyze (--question TEXT | --question-file PATH) [--topology PATH] [--selection-only] < utf8-logs\n  evidentrail doctor --file PATH\n  evidentrail serve-mcp [--retention memory|durable]\n\nAnalyze is an opt-in hosted incident-hypothesis beta requiring OPENAI_API_KEY unless\n--selection-only previews the exact local evidence selection without a model call. It\ngroups repeated alerts and verifies model citations against supplied source lines.\nHypotheses and dependency edges do not establish causality. Brief reads only explicit standard input\n and retention defaults to memory. --llm-rank is an explicit memory-mode\nbeta opt-in to one hosted evidence-ordering call. --llm-rank-if-contended calls only when\ndeterministic packing excluded a model-visible optional block. Deterministic compression\nremains the fallback and default. Streaming V3 is behind EVIDENTRAIL_STREAMING_V3=1;\ndurable brief retention is explicit and requires external authority. Doctor inspects\nmetadata for one explicit file. The product does not discover files, crawl a workspace,\nor inspect ambient logs. Use --question-file to keep a question out of the process argument\nlist. The pinned tokenizer conservatively counts one rendered UTF-8 byte as one budget\nunit; this is not a model-token count.\n";
 
 const DOCTOR_SUCCESS_CODE_V1: &str = "EVIDENTRAIL_CLI_DOCTOR_FILE_METADATA_OK";
 const DOCTOR_INTERNAL_POLICY_FAILURE_V1: &str =
@@ -61,6 +61,7 @@ struct BriefOptions {
 struct AnalyzeOptions {
     question: Vec<u8>,
     topology_path: Option<PathBuf>,
+    selection_only: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -325,7 +326,15 @@ fn parse_analyze_args(
     let mut inline_question = None;
     let mut question_file = None;
     let mut topology_path = None;
+    let mut selection_only = false;
     while let Some(argument) = args.next() {
+        if argument == "--selection-only" {
+            if selection_only {
+                return Err(CliFailure::usage("EVIDENTRAIL_CLI_DUPLICATE_OPTION"));
+            }
+            selection_only = true;
+            continue;
+        }
         let slot = if argument == "--question" {
             &mut inline_question
         } else if argument == "--question-file" {
@@ -372,6 +381,7 @@ fn parse_analyze_args(
     Ok(ParseDecision::Analyze(AnalyzeOptions {
         question,
         topology_path: topology_path.map(PathBuf::from),
+        selection_only,
     }))
 }
 
@@ -399,15 +409,35 @@ fn run_analyze(options: AnalyzeOptions) -> Result<ExitCode, CliFailure> {
     };
     let question = std::str::from_utf8(&options.question)
         .map_err(|_| CliFailure::usage("EVIDENTRAIL_CLI_QUESTION_NOT_UTF8"))?;
-    let mut reasoner = OpenAiIncidentReasoner::from_environment()
-        .map_err(|error| CliFailure::runtime(error.code()))?;
-    let report = analyze_with_reasoner(&logs, question, topology.as_deref(), &mut reasoner)
-        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let report = if options.selection_only {
+        let mut reasoner = SelectionOnlyReasoner;
+        analyze_with_reasoner(&logs, question, topology.as_deref(), &mut reasoner)
+    } else {
+        let mut reasoner = OpenAiIncidentReasoner::from_environment()
+            .map_err(|error| CliFailure::runtime(error.code()))?;
+        analyze_with_reasoner(&logs, question, topology.as_deref(), &mut reasoner)
+    }
+    .map_err(|error| CliFailure::runtime(error.code()))?;
     serde_json::to_writer_pretty(io::stdout().lock(), &report)
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_STDOUT_WRITE_FAILURE"))?;
     writeln!(io::stdout().lock())
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_CLI_STDOUT_WRITE_FAILURE"))?;
     Ok(ExitCode::SUCCESS)
+}
+
+struct SelectionOnlyReasoner;
+
+impl evidentrail_cli::IncidentReasoner for SelectionOnlyReasoner {
+    fn assess(
+        &mut self,
+        _request: &serde_json::Value,
+    ) -> Result<evidentrail_cli::ModelAssessment, evidentrail_cli::AnalysisError> {
+        Ok(evidentrail_cli::ModelAssessment {
+            schema_version: 1,
+            hypotheses: Vec::new(),
+            needs_more_evidence: true,
+        })
+    }
 }
 
 fn run_doctor(options: DoctorOptions) -> Result<ExitCode, CliFailure> {
