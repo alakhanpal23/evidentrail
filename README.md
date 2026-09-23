@@ -187,6 +187,7 @@ python3 -m pip install pyarrow==21.0.0
 cargo build -p evidentrail-cli --bin evidentrail
 python3 scripts/rcaeval-log-probe.py
 python3 scripts/rcaeval-log-probe.py --with-metrics
+python3 scripts/rcaeval-log-probe.py --with-metrics --metrics-only --generic-question
 ```
 
 In ±5-minute windows around injected faults in one Sock Shop
@@ -201,6 +202,19 @@ With optional metrics, all six cases expose source-linked measurements from
 the labeled service, including a large CPU median shift in the CPU case. The
 largest relative shift is not always the injected fault type, so this is an
 evidence-availability check, not a correct-diagnosis score.
+
+The generic-question, metric-only probe removes the labeled service from the
+question and excludes logs that may contain credentials. Its selected evidence
+still contains a measurement from the labeled service in these six cases and four
+additional cases from other Sock Shop services. The benchmark script uses the
+labels only after selection to score coverage; no LLM diagnosis result has
+been measured.
+
+Once `OPENAI_API_KEY` is configured, the same script can run the hosted model
+with `--with-metrics --metrics-only --generic-question --live-model`. It reports
+top-one and top-three root-service matches, citation count, and latency without
+printing model explanations or raw telemetry. A real accuracy claim needs a
+larger held-out set and comparisons against simple metric and log baselines.
 
 ## How it works
 

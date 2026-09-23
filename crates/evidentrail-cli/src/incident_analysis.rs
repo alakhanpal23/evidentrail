@@ -286,8 +286,11 @@ fn parse_metrics(bytes: &[u8], incident_time: i64) -> Result<MetricData, Analysi
             .sort_by(|left, right| left.0.total_cmp(&right.0));
         let (baseline_median, baseline_sample) = median_and_representative(&values.baseline);
         let (incident_median, incident_sample) = median_and_representative(&values.incident);
-        let relative_shift =
-            ((incident_median - baseline_median).abs() / baseline_median.abs().max(1e-6)).min(1e9);
+        let relative_shift = (incident_median - baseline_median).abs()
+            / baseline_median
+                .abs()
+                .max(incident_median.abs() * 0.01)
+                .max(1e-6);
         signals.push(MetricSignal {
             service,
             metric,
@@ -1250,6 +1253,21 @@ mod tests {
         assert_eq!(report.metric_signal_count, 0);
         assert_eq!(report.status, "partial");
         assert!(report.needs_more_evidence);
+    }
+
+    #[test]
+    fn zero_baseline_does_not_produce_unbounded_metric_rank() {
+        let mut metrics = String::new();
+        for index in 0..10 {
+            metrics.push_str(&format!(
+                "{{\"timestamp\":{},\"service\":\"db\",\"metric\":\"errors\",\"value\":{}}}\n",
+                if index < 5 { 700 + index } else { 995 + index },
+                if index < 5 { 0 } else { 10 }
+            ));
+        }
+        let data = parse_metrics(metrics.as_bytes(), 1000).unwrap();
+        assert_eq!(data.signals.len(), 1);
+        assert_eq!(data.signals[0].relative_shift, 100.0);
     }
 
     #[test]

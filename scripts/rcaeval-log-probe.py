@@ -11,8 +11,10 @@ import argparse
 import io
 import json
 import math
+import os
 import subprocess
 import tempfile
+import time
 import urllib.request
 
 import pyarrow.parquet as parquet
@@ -48,21 +50,27 @@ def metric_ndjson(case, injection, window):
     return output.getvalue().encode("utf-8")
 
 
-def probe(case, binary, window, with_metrics):
-    root_service = case.removeprefix("re2ss_").rsplit("_", 2)[0]
+def probe(case, binary, window, with_metrics, generic_question, metrics_only, live_model):
+    root_service = case.split("_", 1)[1].rsplit("_", 2)[0]
     injection = int(fetch(case, "inject_time.txt"))
-    table = parquet.read_table(io.BytesIO(fetch(case, "logs.parquet")), columns=["timestamp", "container_name", "message"])
-    rows = (
-        row for row in table.to_pylist()
-        if abs(row["timestamp"] - injection) <= window
-    )
-    source = b"".join(
-        (json.dumps({"timestamp": row["timestamp"], "service": row["container_name"], "message": row["message"]}, ensure_ascii=False) + "\n").encode("utf-8")
-        for row in rows
-    )
-    if not source or len(source) > 16 * 1024 * 1024:
+    if metrics_only:
+        source = b""
+    else:
+        table = parquet.read_table(io.BytesIO(fetch(case, "logs.parquet")), columns=["timestamp", "container_name", "message"])
+        rows = (
+            row for row in table.to_pylist()
+            if abs(row["timestamp"] - injection) <= window
+        )
+        source = b"".join(
+            (json.dumps({"timestamp": row["timestamp"], "service": row["container_name"], "message": row["message"]}, ensure_ascii=False) + "\n").encode("utf-8")
+            for row in rows
+        )
+    if (not source and not metrics_only) or len(source) > 16 * 1024 * 1024:
         return {"case": case, "status": "window_exceeds_product_limit", "source_bytes": len(source)}
-    command = [binary, "analyze", "--question", f"What caused {root_service} service degradation?", "--selection-only"]
+    question = "Which service and failure mode caused this incident?" if generic_question else f"What caused {root_service} service degradation?"
+    command = [binary, "analyze", "--question", question]
+    if not live_model:
+        command.append("--selection-only")
     with tempfile.TemporaryDirectory(prefix="evidentrail-rcaeval-") as scratch:
         if with_metrics:
             metrics = metric_ndjson(case, injection, window)
@@ -72,6 +80,7 @@ def probe(case, binary, window, with_metrics):
             with open(metric_path, "wb") as output:
                 output.write(metrics)
             command.extend(["--metrics", metric_path, "--incident-time", str(injection)])
+        start = time.perf_counter()
         run = subprocess.run(
             command,
             input=source,
@@ -80,6 +89,7 @@ def probe(case, binary, window, with_metrics):
             check=False,
             timeout=60,
         )
+        elapsed = time.perf_counter() - start
     if run.returncode:
         return {"case": case, "status": "product_error", "error_code": run.stderr.decode("utf-8", "replace").strip()}
     report = json.loads(run.stdout)
@@ -109,6 +119,16 @@ def probe(case, binary, window, with_metrics):
             "root_largest_relative_shift": round(strongest["relative_shift"], 3) if strongest else None,
             "root_largest_shift_visible": bool(strongest and {strongest["baseline_event_id"], strongest["incident_event_id"]} <= {event["id"] for event in report["evidence"]}),
         })
+    if live_model:
+        hypotheses = report["hypotheses"]
+        result.update({
+            "model_latency_seconds": round(elapsed, 3),
+            "top1_service": hypotheses[0]["service"] if hypotheses else None,
+            "top1_root_service_hit": bool(hypotheses and hypotheses[0]["service"] == root_service),
+            "top3_root_service_hit": any(hypothesis["service"] == root_service for hypothesis in hypotheses),
+            "hypothesis_count": len(hypotheses),
+            "citation_count": sum(len(hypothesis["evidence"]) for hypothesis in hypotheses),
+        })
     return result
 
 
@@ -117,13 +137,22 @@ def main():
     parser.add_argument("--binary", default="target/debug/evidentrail")
     parser.add_argument("--window-seconds", type=int, default=300)
     parser.add_argument("--with-metrics", action="store_true")
+    parser.add_argument("--metrics-only", action="store_true")
+    parser.add_argument("--generic-question", action="store_true")
+    parser.add_argument("--live-model", action="store_true")
     parser.add_argument("cases", nargs="*", default=DEFAULT_CASES)
     args = parser.parse_args()
     if args.window_seconds <= 0 or args.window_seconds > 600:
         parser.error("window must be between 1 and 600 seconds")
-    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "window_seconds": args.window_seconds}))
+    if args.metrics_only and not args.with_metrics:
+        parser.error("--metrics-only requires --with-metrics")
+    if args.live_model and not (args.metrics_only and args.with_metrics and args.generic_question):
+        parser.error("--live-model requires --metrics-only --with-metrics --generic-question")
+    if args.live_model and not os.environ.get("OPENAI_API_KEY"):
+        parser.error("--live-model requires OPENAI_API_KEY in the environment")
+    print(json.dumps({"dataset": "phamquiluan/RCAEval", "revision": REVISION, "window_seconds": args.window_seconds, "generic_question": args.generic_question, "metrics_only": args.metrics_only, "live_model": args.live_model}))
     for case in args.cases:
-        print(json.dumps(probe(case, args.binary, args.window_seconds, args.with_metrics), sort_keys=True), flush=True)
+        print(json.dumps(probe(case, args.binary, args.window_seconds, args.with_metrics, args.generic_question, args.metrics_only, args.live_model), sort_keys=True), flush=True)
 
 
 if __name__ == "__main__":
