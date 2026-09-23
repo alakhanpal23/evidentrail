@@ -117,11 +117,21 @@ model's group-selection inventory. This is a **retrieval opportunity**, not
 proof the model chooses those groups or diagnoses the cause.
 
 Nine high-noise cases exceeded the 24 KiB group-inventory budget, leaving
-some non-root groups unlisted (up to 362 in one case). The inventory rotates
+some non-root groups unlisted (up to 104 in one case). The inventory rotates
 across services, which preserved access to every labeled-root alert group in
 this dataset. That result does not guarantee coverage on another incident
 distribution. The model may expand at most four groups per run, and no hosted
 model was called for this probe.
+
+This run also normalizes embedded date, clock-time, and 13-digit timestamp
+shapes when grouping alerts, while preserving status codes and exact source
+lines. Compared with the [pre-normalization run](https://github.com/alakhanpal23/evidentrail/blob/b9a20d8/reports/rcaeval-selection/ninety-case-combined.jsonl),
+total alert groups fell from **10,752 to 9,508** across the 90 cases; 10
+cases changed. Unlisted inventory groups fell from **1,501 to 259**. All 79
+labeled-root alert groups, their 14 initially visible groups, and all 90
+labeled-service strongest metric signals stayed in the same coverage states.
+This checks noise reduction and evidence availability, not whether the grouped
+alerts carry the right causal story.
 
 ## Trace-observed service graph probe
 

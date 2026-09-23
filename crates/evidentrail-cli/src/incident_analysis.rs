@@ -1252,7 +1252,70 @@ fn normalize_fingerprint_token(token: &str) -> String {
     if bytes.len() >= 32 && bytes.iter().all(u8::is_ascii_hexdigit) {
         return "<hex-id>".to_owned();
     }
-    lower
+    normalize_temporal_fragments(&lower)
+}
+
+fn normalize_temporal_fragments(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        let before_digit = index > 0 && bytes[index - 1].is_ascii_digit();
+        if !before_digit
+            && bytes.len() >= index + 10
+            && bytes[index + 4] == b'-'
+            && bytes[index + 7] == b'-'
+            && (0..10)
+                .all(|offset| matches!(offset, 4 | 7) || bytes[index + offset].is_ascii_digit())
+            && bytes
+                .get(index + 10)
+                .is_none_or(|byte| !byte.is_ascii_digit())
+        {
+            output.extend_from_slice(b"<date>");
+            index += 10;
+            continue;
+        }
+        if !before_digit
+            && (index == 0 || bytes[index - 1] != b':')
+            && bytes.len() >= index + 8
+            && bytes[index + 2] == b':'
+            && bytes[index + 5] == b':'
+            && (0..8)
+                .all(|offset| matches!(offset, 2 | 5) || bytes[index + offset].is_ascii_digit())
+        {
+            let mut end = index + 8;
+            if bytes.get(end) == Some(&b'.') && bytes.get(end + 1).is_some_and(u8::is_ascii_digit) {
+                end += 1;
+                while bytes.get(end).is_some_and(u8::is_ascii_digit) {
+                    end += 1;
+                }
+            }
+            if bytes
+                .get(end)
+                .is_none_or(|byte| !byte.is_ascii_digit() && *byte != b':')
+            {
+                output.extend_from_slice(b"<time>");
+                index = end;
+                continue;
+            }
+        }
+        if bytes[index].is_ascii_digit() && !before_digit {
+            let mut end = index + 1;
+            while bytes.get(end).is_some_and(u8::is_ascii_digit) {
+                end += 1;
+            }
+            if end - index == 13 {
+                output.extend_from_slice(b"<epoch_ms>");
+            } else {
+                output.extend_from_slice(&bytes[index..end]);
+            }
+            index = end;
+            continue;
+        }
+        output.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8(output).expect("UTF-8 input with ASCII-only replacements")
 }
 
 fn looks_like_date(token: &str) -> bool {
@@ -2009,6 +2072,30 @@ mod tests {
             "service=api level=warn failed 123e4567-e89b-12d3-a456-426614174001",
         );
         assert_eq!(first.fingerprint, second.fingerprint);
+    }
+
+    #[test]
+    fn embedded_timestamps_do_not_split_alerts_or_erase_status_codes() {
+        let first = parse_event(
+            1,
+            r#"{"service":"api","level":"error","message":"HTTP 500 at 2024-01-20T12:34:56.123Z timestamp=1705770496157"}"#,
+        );
+        let second = parse_event(
+            2,
+            r#"{"service":"api","level":"error","message":"HTTP 500 at 2024-01-21T09:08:07.999Z timestamp=1705770496550"}"#,
+        );
+        let other = parse_event(
+            3,
+            r#"{"service":"api","level":"error","message":"HTTP 503 at 2024-01-21T09:08:07.999Z timestamp=1705770496550"}"#,
+        );
+        assert_eq!(first.fingerprint, second.fingerprint);
+        assert_ne!(first.fingerprint, other.fingerprint);
+        assert!(first.fingerprint.contains("500"));
+        assert!(other.fingerprint.contains("503"));
+        assert_eq!(
+            normalize_temporal_fragments("count=123456789012"),
+            "count=123456789012"
+        );
     }
 
     #[test]

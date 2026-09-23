@@ -44,7 +44,7 @@ you need byte-exact compression with `E<n>` expansion handles.
 
 | Capability | Product behavior |
 |---|---|
-| Alert reduction | `analyze` groups repeated alerts, including messages with changing request or trace IDs. |
+| Alert reduction | `analyze` groups repeated alerts despite changing request IDs and embedded timestamps. |
 | Model-guided retrieval | The model may request omitted log groups before forming hypotheses. |
 | Service context | Supplied edges or trace-observed parent-child calls expose direct and transitive dependents. |
 | Metric context | Optional before/after medians preserve exact measurement citations. |
@@ -129,14 +129,14 @@ event bytes.
 ## Model-assisted incident analysis (beta)
 
 `analyze` accepts UTF-8 logs on explicit standard input and optionally a JSON
-service graph or trace spans. It groups alerts by service and severity, ignoring changing
-request, trace, and span IDs while keeping diagnostic values such as status
-codes distinct. It keeps rare failures ahead of repeated warnings and sends
-bounded examples to a hosted model. Adjacent lines give each failure local
-context. The report
-counts alerts by service and lists direct and transitive dependents derived
-from the supplied graph, so a failing dependency and affected callers can be
-examined together. The output includes group counts, omitted-group counts,
+service graph or trace spans. It groups alerts by service and severity,
+ignoring changing request, trace, and span IDs and embedded timestamp shapes
+while keeping diagnostic values such as status codes distinct. It keeps rare
+failures ahead of repeated warnings and sends bounded examples to a hosted
+model. Adjacent lines give each failure local context. The report counts
+alerts by service and lists direct and transitive dependents derived from
+supplied or trace-observed edges. A failing dependency and affected callers
+can be examined together. The output includes group counts, omitted-group counts,
 source-line IDs, source-line SHA-256 digests, and hypotheses with exact checked
 quotes. Each hypothesis has a service and a fault type (`cpu`, `mem`, `disk`,
 `delay`, `loss`, `socket`, `other`, or `unknown`) so RCA evaluations can score
