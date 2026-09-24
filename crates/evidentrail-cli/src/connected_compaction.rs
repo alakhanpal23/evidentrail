@@ -984,6 +984,92 @@ mod tests {
         }
     }
 
+    #[test]
+    #[ignore = "opt-in connected selection for an externally reproduced repair case"]
+    fn external_repair_connected_selection_eval() {
+        let log_path = PathBuf::from(
+            std::env::var("EVIDENTRAIL_EXTERNAL_REPAIR_LOG")
+                .expect("set EVIDENTRAIL_EXTERNAL_REPAIR_LOG to a reproduced failing-test log"),
+        );
+        let output_dir = PathBuf::from(
+            std::env::var("EVIDENTRAIL_EXTERNAL_REPAIR_OUTPUT_DIR")
+                .expect("set EVIDENTRAIL_EXTERNAL_REPAIR_OUTPUT_DIR"),
+        );
+        let task = std::env::var("EVIDENTRAIL_EXTERNAL_REPAIR_TASK")
+            .expect("set EVIDENTRAIL_EXTERNAL_REPAIR_TASK");
+        let original = fs::read(&log_path).unwrap();
+        assert!(!original.is_empty() && original.len() <= 1024 * 1024);
+        let lines = original
+            .split_inclusive(|byte| *byte == b'\n')
+            .map(Vec::from)
+            .collect::<Vec<_>>();
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
+        let records = lines
+            .iter()
+            .enumerate()
+            .map(|(index, bytes)| HistoryRecordV1 {
+                native_id: format!("line-{index}").into_bytes(),
+                event_timestamp_millis: index as i64,
+                bytes: bytes.clone(),
+            })
+            .collect::<Vec<_>>();
+        store.commit_page_checked(&records).unwrap();
+        let source = || {
+            [AuthorizedCorpus {
+                source_digest: [2; 32],
+                store: &store,
+            }]
+        };
+        for (method, pack) in [
+            (
+                "first_id",
+                select_connected_logs(&source(), &task, 4096, &mut SelectAllCandidates).unwrap(),
+            ),
+            (
+                "severity",
+                select_connected_logs(&source(), &task, 4096, &mut SelectErrors).unwrap(),
+            ),
+        ] {
+            let selected = pack_lines(&pack);
+            for (id, raw) in &selected {
+                assert_eq!(store.get_record(id).unwrap().unwrap().bytes, *raw);
+            }
+            write_executable_eval_logs(&output_dir, "external", method, &selected);
+            println!(
+                "EXTERNAL_REPAIR_SELECTION {}",
+                json!({
+                    "method": method,
+                    "input_lines": lines.len(),
+                    "selected_lines": selected.len(),
+                    "selected_raw_bytes": selected.iter().map(|(_, raw)| raw.len()).sum::<usize>(),
+                    "candidate_pool_truncated": pack.candidate_pool_truncated,
+                    "output_budget_truncated": pack.output_budget_truncated,
+                })
+            );
+        }
+        let mut model = OpenAiIncidentReasoner::from_compact_environment().unwrap();
+        let pack = select_connected_logs(&source(), &task, 4096, &mut model).unwrap();
+        let selected = pack_lines(&pack);
+        for (id, raw) in &selected {
+            assert_eq!(store.get_record(id).unwrap().unwrap().bytes, *raw);
+        }
+        write_executable_eval_logs(&output_dir, "external", "model", &selected);
+        println!(
+            "EXTERNAL_REPAIR_SELECTION {}",
+            json!({
+                "method": "model",
+                "input_lines": lines.len(),
+                "selected_lines": selected.len(),
+                "selected_raw_bytes": selected.iter().map(|(_, raw)| raw.len()).sum::<usize>(),
+                "candidate_pool_truncated": pack.candidate_pool_truncated,
+                "output_budget_truncated": pack.output_budget_truncated,
+            })
+        );
+        drop(store);
+        cleanup(&path);
+    }
+
     fn write_executable_eval_logs(
         directory: &std::path::Path,
         scenario: &str,

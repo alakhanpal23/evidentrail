@@ -129,6 +129,14 @@ each edit and asserts that the unedited service fails. A repeat local-model
 run kept the same 3/3 for every log arm and 2/3 with no logs. This verifies an
 actual behavior change in that small fixture but remains too easy to show
 incremental selection value or real-repository repair success.
+An exploratory [real-repository repair probe](../reports/connected-real-repair-tqdm-2026-09-24.md)
+reproduced BugsInPy `tqdm` bug 1: the buggy revision failed its regression
+test, and the fixed revision passed. Connected selection kept the offending
+traceback line in 12 original lines (795 bytes) for both first-ID and local
+model arms under a 4 KiB budget; severity-only selection returned three lines
+without it. Neither Qwen2.5-Coder 7B nor Qwen3 14B made a verified one-line
+fix within two edits in any log or no-log arm. This one development case is
+negative downstream evidence, not a held-out product qualification.
 
 The CLI now has `sources setup`, a read-only onboarding status that uses the
 registered-source catalog to give the next connect, sync, recovery, service,

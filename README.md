@@ -171,14 +171,22 @@ no repository code or configuration schema, so downstream coding-agent success
 remains unproven.
 A paired synthetic-schema rerun also produced 0/3 verified patches for every
 arm: the local model abstained on all 12 prompts despite being given valid
-assignment syntax and value ranges. Actual repository code and an agentic
-edit loop remain untested.
+assignment syntax and value ranges. These patch-only prompts do not test a
+repository edit loop.
 A bounded synthetic workspace probe lets the same local model choose and read
-a configuration file, edit it, and run the fixture verifier. It accepted edits
+a configuration file, edit it, and run an executable service test plus the
+fixture verifier. It accepted edits
 in 3/3 cases for first-ID, severity, recent, and model-selected log packs, and
 2/3 with no logs. The two easy cases were solvable from files alone; every
 log arm passed the third. This is not evidence of an Evidentrail downstream
 advantage or a real coding-agent fix rate.
+An exploratory [real-repository repair probe](reports/connected-real-repair-tqdm-2026-09-24.md)
+reproduced one BugsInPy `tqdm` regression with a failing buggy revision and a
+passing fixed revision. First-ID and local-model selection each retained the
+offending traceback line in a 795-byte log pack; severity-only selection did
+not. Local Qwen2.5-Coder 7B and Qwen3 14B each failed to produce a verified
+fix within two edits on every arm, including no logs. This one case does not
+qualify a repair benefit or selector route.
 When that fallback or lexical search is truncated, a connected query can
 inspect up to four 32-service directory pages shared across its sources. When
 more than 32 sources are eligible, pages rotate across them and report
