@@ -74,6 +74,19 @@ python3 scripts/score-learning-route.py \
 python3 scripts/score-learning-route.py \
   --manifest /tmp/evidentrail-learning-trials/study.json \
   --results /tmp/evidentrail-learning-trials/verified-results.jsonl
+python3 scripts/audit-learning-repair-study.py \
+  --case-lock reports/learning-repair-2026-09-24/cohort-lock.json \
+  --development-lock reports/learning-repair-2026-09-24/development-lock.json \
+  --history-lock reports/learning-repair-2026-09-24/history-lock.json \
+  --labels reports/learning-repair-2026-09-24/development-labels.jsonl \
+  --artifacts-root /tmp/evidentrail-learning-candidates \
+  --histories /tmp/evidentrail-learning-histories \
+  --packs /tmp/evidentrail-learning-packs \
+  --pack-lock reports/learning-repair-2026-09-24/pack-lock.json \
+  --manifest /tmp/evidentrail-learning-trials/study.json
+python3 scripts/summarize-learning-study-usage.py \
+  --pack-lock reports/learning-repair-2026-09-24/pack-lock.json \
+  --trials /tmp/evidentrail-learning-trials
 ```
 
 Codex CLI usage is a token count, not a provider billing receipt. A dollar
