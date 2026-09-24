@@ -1478,17 +1478,28 @@ fn rotate_datadog(options: DatadogRotateOptions) -> Result<ExitCode, CliFailure>
         })
         .collect::<Result<Vec<_>, _>>()?;
     // New credentials can have narrower restriction queries in the same org.
-    // Remove all old records and derived indexes before changing any key.
-    for (source, _) in &old {
-        let path = corpus_path(source, false)?;
-        corpus_file_exists_safe(&path)?;
-        remove_corpus_files(&path, "EVIDENTRAIL_DATADOG_ROTATION_PURGE_FAILED")?;
-    }
+    // Move old encrypted corpora out of the active paths before changing any
+    // key. A failed, fully rolled-back update can restore them without loss.
+    let paths = old
+        .iter()
+        .map(|(source, _)| corpus_path(source, false))
+        .collect::<Result<Vec<_>, _>>()?;
+    let staged = stage_rotation_corpora(&paths)?;
     let replacement = replace_datadog_secrets_with_rollback(&old, &secret, |source, value| {
         credential_authority
             .replace(&tenant, source, value)
             .map_err(|_| ())
     });
+    if replacement == Err("EVIDENTRAIL_DATADOG_ROTATION_STORE_FAILED") {
+        restore_rotation_corpora(&staged)?;
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_DATADOG_ROTATION_STORE_FAILED",
+        ));
+    }
+    if replacement.is_err() {
+        purge_staged_rotation_corpora(&staged)?;
+        return Err(CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_PARTIAL"));
+    }
     let mut rebuild_failed = false;
     for (source, _) in &old {
         rebuild_failed |= corpus_path(source, true)
@@ -1496,9 +1507,10 @@ fn rotate_datadog(options: DatadogRotateOptions) -> Result<ExitCode, CliFailure>
             .is_err();
     }
     if rebuild_failed {
+        purge_staged_rotation_corpora(&staged)?;
         return Err(CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_PARTIAL"));
     }
-    replacement.map_err(CliFailure::runtime)?;
+    purge_staged_rotation_corpora(&staged)?;
     serde_json::to_writer(
         io::stdout().lock(),
         &json!({
@@ -1542,6 +1554,90 @@ fn recreate_empty_corpus(
         ));
     }
     Ok(())
+}
+
+struct StagedRotationFile {
+    original: PathBuf,
+    staged: PathBuf,
+}
+
+fn stage_rotation_corpora(paths: &[PathBuf]) -> Result<Vec<StagedRotationFile>, CliFailure> {
+    let mut nonce = [0u8; 16];
+    getrandom::fill(&mut nonce)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_STAGE_FAILED"))?;
+    let nonce = hex(&nonce);
+    let mut staged = Vec::new();
+    for path in paths {
+        let result = (|| {
+            let name = path
+                .file_name()
+                .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_STAGE_FAILED"))?;
+            let name = name.to_string_lossy();
+            for suffix in ["", "-wal", "-shm", "-journal"] {
+                let original = path.with_file_name(format!("{name}{suffix}"));
+                let staged_path = path.with_file_name(format!("{name}.rotation-{nonce}{suffix}"));
+                let metadata = match fs::symlink_metadata(&original) {
+                    Ok(metadata) => metadata,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                    Err(_) => {
+                        return Err(CliFailure::runtime(
+                            "EVIDENTRAIL_DATADOG_ROTATION_STAGE_FAILED",
+                        ));
+                    }
+                };
+                let staged_absent = matches!(
+                    staged_path.symlink_metadata(),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound
+                );
+                if !metadata.file_type().is_file() || !staged_absent {
+                    return Err(CliFailure::runtime(
+                        "EVIDENTRAIL_DATADOG_ROTATION_STAGE_FAILED",
+                    ));
+                }
+                fs::rename(&original, &staged_path).map_err(|_| {
+                    CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_STAGE_FAILED")
+                })?;
+                staged.push(StagedRotationFile {
+                    original,
+                    staged: staged_path,
+                });
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            restore_rotation_corpora(&staged)?;
+            return Err(error);
+        }
+    }
+    Ok(staged)
+}
+
+fn restore_rotation_corpora(staged: &[StagedRotationFile]) -> Result<(), CliFailure> {
+    let mut failed = false;
+    for file in staged.iter().rev() {
+        if file.original.symlink_metadata().is_ok()
+            || fs::rename(&file.staged, &file.original).is_err()
+        {
+            failed = true;
+        }
+    }
+    if failed {
+        Err(CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_PARTIAL"))
+    } else {
+        Ok(())
+    }
+}
+
+fn purge_staged_rotation_corpora(staged: &[StagedRotationFile]) -> Result<(), CliFailure> {
+    let mut failed = false;
+    for file in staged {
+        failed |= fs::remove_file(&file.staged).is_err();
+    }
+    if failed {
+        Err(CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_PARTIAL"))
+    } else {
+        Ok(())
+    }
 }
 
 fn replace_datadog_secrets_with_rollback(
@@ -2190,6 +2286,35 @@ mod tests {
         assert_eq!(result, Err("EVIDENTRAIL_DATADOG_ROTATION_STORE_FAILED"));
         assert_eq!(stored[&[1; 32]], b"old-indexes");
         assert_eq!(stored[&[2; 32]], b"old-flex");
+    }
+
+    #[test]
+    fn rotation_stages_and_restores_encrypted_corpus_files() {
+        let base = env::temp_dir().join(format!(
+            "evidentrail-rotation-stage-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&base).unwrap();
+        let path = base.join("source.db");
+        let wal = base.join("source.db-wal");
+        fs::write(&path, b"encrypted database").unwrap();
+        fs::write(&wal, b"encrypted wal").unwrap();
+        let staged = stage_rotation_corpora(&[path.clone()]).unwrap();
+        assert_eq!(staged.len(), 2);
+        assert!(!path.exists());
+        assert!(!wal.exists());
+        restore_rotation_corpora(&staged).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"encrypted database");
+        assert_eq!(fs::read(&wal).unwrap(), b"encrypted wal");
+        let staged = stage_rotation_corpora(&[path.clone()]).unwrap();
+        purge_staged_rotation_corpora(&staged).unwrap();
+        assert!(!path.exists());
+        assert!(!wal.exists());
+        fs::remove_dir(base).unwrap();
     }
 
     #[test]

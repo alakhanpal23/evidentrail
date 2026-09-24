@@ -39,3 +39,22 @@ must never silently train on untrusted log instructions.
 Implementation details and current status live in
 [`LOG_ONLY_PRODUCT_PLAN.md`](LOG_ONLY_PRODUCT_PLAN.md). This goal is the target
 behavior, not a claim that every item has shipped.
+
+## Execution directive
+
+Work toward the completion contract as one product, not separate RCA and
+log-compression tracks. Prioritize correctness of source coverage and access
+control before retrieval quality, and retrieval quality before optimizing model
+cost. At each change, name the user-visible behavior, test the relevant failure
+case, update the implementation-status section of the plan, and keep claims in
+the README limited to verified behavior. Use the smallest model that meets
+measured quality and latency targets on held-out incidents; retain a local-only
+route. Do not infer completeness from a successful page request or infer
+current access from a cached credential check.
+
+Only after real connected queries, expansion, revocation, and migration tests
+pass should obsolete `brief`, `analyze`, RCA, and supplied-log prototype entry
+points be removed. Delete their unreachable implementation, tests, generated
+artifacts, and superseded documentation in the same cleanup phase, while
+keeping shared source-fidelity, security, and evaluation components. Run the
+workspace checks and a fresh installation smoke test after cleanup.

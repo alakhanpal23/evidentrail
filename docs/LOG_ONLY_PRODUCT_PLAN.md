@@ -55,14 +55,18 @@ Datadog restriction queries can change which logs a role may read without a
 credential change. A successful empty search or organization check does not
 prove that previously cached logs remain accessible. Before production use,
 obtain and verify a current access-scope fingerprint covering role assignments,
-role permission grants, restriction-query definitions, and index permissions.
+role permission grants, restriction-query definitions, index permissions, and
+any enabled Data Access Control policies.
 Invalidate affected records and derived state on any change. Fail closed when
 the scope cannot be verified. Exercise a narrowed-scope change in a live
 sandbox and prove that
 queries and expansion cannot return prior out-of-scope records. The
 [Datadog restriction-query API](https://docs.datadoghq.com/api/latest/logs-restriction-queries/)
-documents the access behavior; its configuration read endpoint may require
-additional read-only permission. This gate is not implemented yet.
+documents the access behavior; its configuration read endpoint requires the
+read-only `logs_read_config` permission. Datadog also documents
+[Data Access Control](https://docs.datadoghq.com/account_management/rbac/data_access/)
+as another way API query visibility can change. This gate is not implemented
+yet.
 
 ## One product contract
 

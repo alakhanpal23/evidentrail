@@ -101,19 +101,23 @@ relevant log under a fixed search budget.
 `sources disconnect` revokes a CloudWatch source or all tiers in one Datadog
 connection, removes its encrypted local corpus and Keychain entries, and
 rejects concurrent connected operations with a busy error. In-flight MCP
-responses constructed before revocation may still be delivered. This
+responses constructed before revocation may still be delivered.
 `sources rotate-datadog` reads replacement keys from `DD_API_KEY` and
 `DD_APP_KEY` (or named environment variables), checks that they belong to the
-same organization and can search each already-connected tier. It then clears
-the affected encrypted corpora and derived indexes before updating the
+same organization and can search each already-connected tier. It then moves
+the affected encrypted corpora out of the active paths before updating the
 source-bound Keychain items, because the new keys may have narrower log access.
-The sources start a fresh backfill; records that have expired at Datadog may
-no longer be recoverable. Rotation holds the source lock. A failed
-multi-tier update attempts to restore prior credentials;
+A successful rotation removes the old corpora and starts a fresh backfill;
+records that have expired at Datadog may no longer be recoverable. Rotation
+holds the source lock. A failed multi-tier update attempts to restore prior
+credentials and the old corpora;
 `EVIDENTRAIL_DATADOG_ROTATION_PARTIAL` means recovery must be retried before
 relying on that connection. Isolated login-Keychain replacement and corpus
 rebuild tests pass; rotation has not been exercised against a live Datadog
 sandbox.
+An interrupted rotation can leave encrypted staged corpus files in the source
+directory; the active corpus path remains absent, so those files are not
+queried. Recover or remove them before relying on that connection again.
 Datadog role or restriction-query changes made without rotating keys are not
 yet detected against previously indexed records. Do not rely on this build to
 enforce newly narrowed Datadog permissions over its cached corpus; scope-change
