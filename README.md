@@ -8,7 +8,8 @@
 > [implementation plan](docs/LOG_ONLY_PRODUCT_PLAN.md). The connected flow is
 > partially implemented and has not been validated against live providers.
 
-On macOS, CloudWatch connection registration is available with an AWS profile:
+On macOS, CloudWatch connection registration uses an AWS profile, and Sentry
+error-event registration uses a read-only token:
 
 Start with `target/release/evidentrail sources setup`. It prints a JSON
 onboarding check with registered-source state and the next command to run.
@@ -20,6 +21,8 @@ It never displays credential values or calls partial history complete.
 target/release/evidentrail sources connect-cloudwatch \
   --account 123456789012 --region us-west-2 \
   --log-group /aws/example --profile my-readonly-profile
+target/release/evidentrail sources connect-sentry \
+  --organization my-org --project my-project --region us
 target/release/evidentrail sources connect-datadog --site us1
 target/release/evidentrail sources rotate-datadog --connection-id ID_FROM_CONNECT
 target/release/evidentrail sources recover-datadog --connection-id ID_FROM_CONNECT
@@ -29,6 +32,10 @@ target/release/evidentrail sources sync
 target/release/evidentrail sources service install
 target/release/evidentrail sources service status
 target/release/evidentrail sources disconnect --source-id SOURCE_ID_FROM_LIST
+target/release/evidentrail sources feedback evaluate \
+  --source-id SOURCE_ID_FROM_LIST --task "Find checkout failures"
+target/release/evidentrail sources feedback promote \
+  --source-id SOURCE_ID_FROM_LIST --task "Find checkout failures"
 EVIDENTRAIL_COMPACT_LOCAL_MODEL=YOUR_OLLAMA_MODEL \
   target/release/evidentrail logs --task "Find checkout failures" \
   --max-raw-bytes 32768
@@ -50,6 +57,26 @@ authorization-change validation remains a release gate.
 For cross-account observability, pass the source account's log-group ARN;
 the ARN may use the documented trailing `:*` form. Log-stream ARNs are
 rejected because a connection covers the whole log group.
+Sentry registration uses a `SENTRY_AUTH_TOKEN` with `project:read` and pins
+the project ID to a source-bound encrypted corpus. The supported dataset is
+**project error events**, including full event bodies and stacktraces; each
+returned record is exact JSON from Sentry. Sentry's structured-log Explore
+API is a table query, not a full export, so this connector does not claim to
+ingest all Sentry structured logs. Region choices are `global`, `us`, and `de`.
+The connector pages through error events and checks project identity before
+sync and cached reads. It has local HTTP and parser tests but has not been
+validated against a live Sentry project. Provider retention, missing history,
+or page limits can leave coverage partial.
+
+The MCP `evidentrail_connected_feedback` tool accepts `useful` or `not_useful`
+only for an exact record selected by an unexpired connected result. Ratings
+are stored in that source's encrypted corpus under a digest of the query text.
+They never change ranking automatically. `sources feedback evaluate` reports
+whether at least three independent useful ratings, with no negative rating,
+point to a group missed by a bounded lexical baseline. `promote` explicitly
+adds those groups to the candidate pool for the same task; the model still
+chooses final records. This is a narrow, opt-in repeated-task learning loop,
+not proof that promoted groups improve coding-agent fixes.
 Datadog registration reads `DD_API_KEY` and `DD_APP_KEY` from the environment,
 binds the connection to the authenticated organization, user, and assigned role
 IDs, and requires the read-only `logs_read_config` permission to fingerprint
@@ -70,7 +97,7 @@ indexed logs cannot be safely rechecked after a grant change. Other accessible
 tiers can still register. An existing indexed corpus reports
 `AccessScopeUnverifiable` if the grant becomes scoped or disappears. Credentials
 are stored in separate source-bound macOS login Keychain items; descriptors
-contain no keys. Both registrations create a
+contain no keys. Source registrations create a
 source-bound corpus key and encrypted local corpus, then report
 `registered_backfill_pending`. `sources sync` makes bounded progress from each
 durable checkpoint and replays recent history after reaching its high-water

@@ -77,6 +77,8 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
             value
                 .get("message")
                 .and_then(Value::as_str)
+                .filter(|message| !message.is_empty())
+                .or_else(|| value.get("title").and_then(Value::as_str))
                 .or_else(|| value.get("body").and_then(Value::as_str))
                 .or_else(|| value.pointer("/body/stringValue").and_then(Value::as_str))
                 .or_else(|| value.pointer("/attributes/message").and_then(Value::as_str))
@@ -103,6 +105,14 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         })
         .filter(|name| valid_service(name))
         .map(str::to_owned)
+        .or_else(|| {
+            parsed
+                .as_ref()?
+                .get("projectID")?
+                .as_str()
+                .filter(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
+                .map(|id| format!("sentry-project-{id}"))
+        })
         .or_else(|| bgl.as_ref().map(|record| record.service.clone()))
         .or_else(|| bracketed_service(raw).map(str::to_owned))
         .or_else(|| field_value(raw, "service="))
@@ -553,6 +563,16 @@ fn classify_role(level: &str, message: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sentry_error_event_uses_title_and_project_without_changing_source_bytes() {
+        let raw = r#"{"eventID":"0123456789abcdef0123456789abcdef","projectID":"42","message":"","title":"Checkout TypeError","level":"error"}"#;
+        let parsed = parse_event(1, raw);
+        assert_eq!(parsed.service, "sentry-project-42");
+        assert_eq!(parsed.role, "error");
+        assert!(parsed.fingerprint.contains("checkout typeerror"));
+        assert_eq!(parsed.raw, raw);
+    }
 
     #[test]
     fn datadog_source_record_groups_by_nested_message_and_explicit_peer() {

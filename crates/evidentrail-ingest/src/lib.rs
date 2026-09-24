@@ -16,6 +16,7 @@ mod error;
 mod full_history;
 mod kubernetes;
 mod replay;
+mod sentry;
 
 pub use adapter::{Cancellation, CancellationToken, ExecutionContext, SourceAdapter};
 pub use batch::{
@@ -54,6 +55,7 @@ pub use kubernetes::{
     KubernetesTransportErrorV1, KubernetesTransportV1,
 };
 pub use replay::InMemoryReplayAdapter;
+pub use sentry::SentryErrorHistorySourceV1;
 
 pub use evidentrail_core::EnvelopeSink;
 pub use evidentrail_schema::bounds::MAX_AUTHORIZED_RECORD_BYTES;

@@ -8,6 +8,11 @@ status below. This plan supersedes the two-path direction in `PRODUCT_ROADMAP.md
 The connected macOS CLI and MCP path is implemented but is **not production
 validated**. Users can register read-only CloudWatch log groups and run bounded
 checkpointed backfill and continuous sync into source-bound encrypted corpora.
+Sentry project error-event registration, full-event pagination, project-ID
+binding, and source-scoped sync/query/expansion are implemented and pass local
+HTTP/contract tests, but have not been exercised with a live Sentry project.
+This does not cover Sentry structured logs because its documented Explore
+table endpoint is not a full export API.
 Datadog registration remains experimental: its sources are blocked from sync,
 connected queries, and expansion because the current access fingerprint cannot
 verify Data Access Control policy. Connected CloudWatch queries search the corpus without
@@ -22,7 +27,16 @@ older late arrivals but does not prove complete provider coverage, especially
 when source retention expires or scans repeatedly hit page limits.
 
 The corpus maintains a versioned template index, severe-service directory,
-and explicit-peer service graph. Lexical search, priority fallback, and graph
+and explicit-peer service graph. The parser's version-6 rebuild uses Sentry's
+title when its message is empty and groups by the explicit project ID while
+retaining exact event JSON. Selected-result MCP feedback records explicit
+useful/not-useful ratings in the encrypted source corpus. A separate CLI
+evaluation requires three distinct positive result observations, no negatives,
+and a missed bounded lexical baseline before an operator can promote a group
+for the same task. Promotion injects bounded candidates but does not force
+final model selection; it has local behavioral tests, not held-out evidence of
+better repairs. Broader cross-task learning remains open.
+Lexical search, priority fallback, and graph
 neighbors provide bounded group candidates. When lexical search or fallback
 truncates, model-selected directory pages show bounded original-log examples
 and can retrieve additional severe service groups across eligible sources.
@@ -405,7 +419,7 @@ model/policy version; a changed source invalidates the cache.
 ### Completion goal: usable onboarding and verified log selection
 
 Finish the connected product only when a new user can install the CLI, connect
-a read-only CloudWatch or Datadog source, understand exactly what history was
+a supported read-only CloudWatch, Sentry error-event, or Datadog source, understand exactly what history was
 acquired, keep it synced, and retrieve and expand source-verifiable logs from
 the CLI or MCP without choosing a time window. The public default selector must
 be chosen from held-out evidence and improve a coding agent's verified fixes,
@@ -464,7 +478,7 @@ downstream-task, scale, latency, cost, or security gates below.
 | 2. Full-corpus index and graph | Durable streaming parser, checkpointed template index, evidence-backed service graph, log-only query API | Every acquired record is accounted for; graph edges have source support; a 100K/1M-line corpus is searchable without a user time window or silent truncation. |
 | 3. Model-guided selection | Bounded group cards, retrieval of more examples, verified ID-only selection, local and hosted model options | Rare required clues survive noisy full-corpus tests; graph ablation measures incremental value; output stays within budget. |
 | 4. CloudWatch connection | Real read-only AWS transport, full backfill, incremental sync, and connected-source MCP call | Sandbox account proves empty-page continuation, crash/restart cursors, retention boundaries, permissions/caps, identity checks, and no false-complete result. |
-| 5. More sources | Datadog full-history sync; Sentry only after a complete route is validated | Provider-specific conformance fixtures and live sandbox checks; incomplete query capabilities are exposed rather than hidden. |
+| 5. More sources | Datadog full-history sync; Sentry project error-event sync, with structured logs separately scoped | Provider-specific conformance fixtures and live sandbox checks; incomplete query capabilities are exposed rather than hidden. |
 | 6. Learning loop | Consented feedback labels, offline challenger evaluation, versioned routing and rollback | Held-out required-evidence recall and downstream coding-agent task success improve at a matched output budget, without worse citation integrity, false omissions, latency, or data handling. |
 
 Before calling this an accuracy improvement, compare it with current `brief`,

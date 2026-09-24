@@ -28,7 +28,7 @@ pub use macos_corpus_keychain::{
     ConnectedSourceDescriptorV1, CorpusKeychainErrorV1, MacOsCorpusKeychainV1,
 };
 
-const PARSER_INDEX_VERSION: i64 = 5;
+const PARSER_INDEX_VERSION: i64 = 6;
 const GRAPH_INDEX_VERSION: i64 = 2;
 const TERM_INDEX_VERSION: i64 = 1;
 const MAX_RAW_RECORD_BYTES: usize = 16 * 1024 * 1024;
@@ -73,6 +73,20 @@ pub struct StoredHistoryRecord {
     pub native_id: Vec<u8>,
     pub event_timestamp_millis: i64,
     pub bytes: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FeedbackVerdict {
+    Useful,
+    NotUseful,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FeedbackEvaluation {
+    pub observations: u64,
+    pub positive_groups: u64,
+    pub eligible_groups: u64,
+    pub promoted_groups: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -292,6 +306,20 @@ impl EncryptedHistoryStore {
                  );
                  CREATE INDEX IF NOT EXISTS history_records_time
                      ON history_records(event_timestamp_millis, native_id);
+                 CREATE TABLE IF NOT EXISTS feedback_observations (
+                     task_digest BLOB NOT NULL CHECK (length(task_digest) = 32),
+                     native_id BLOB NOT NULL REFERENCES history_records(native_id) ON DELETE CASCADE,
+                     result_nonce BLOB NOT NULL CHECK (length(result_nonce) = 32),
+                     verdict INTEGER NOT NULL CHECK (verdict IN (-1, 1)),
+                     PRIMARY KEY(task_digest, native_id, result_nonce)
+                 );
+                 CREATE INDEX IF NOT EXISTS feedback_observations_task
+                     ON feedback_observations(task_digest, verdict);
+                 CREATE TABLE IF NOT EXISTS feedback_promotions (
+                     task_digest BLOB NOT NULL CHECK (length(task_digest) = 32),
+                     native_id BLOB NOT NULL REFERENCES history_records(native_id) ON DELETE CASCADE,
+                     PRIMARY KEY(task_digest, native_id)
+                 );
                  CREATE TABLE IF NOT EXISTS log_groups (
                      group_id INTEGER PRIMARY KEY,
                      service TEXT NOT NULL,
@@ -412,7 +440,7 @@ impl EncryptedHistoryStore {
                 |row| row.get(0),
             )
             .map_err(|_| CorpusError::Storage)?;
-        if !matches!(version, 1 | 2 | 3 | 4 | PARSER_INDEX_VERSION) {
+        if !matches!(version, 1 | 2 | 3 | 4 | 5 | PARSER_INDEX_VERSION) {
             return Err(CorpusError::IndexVersionMismatch);
         }
         connection
@@ -469,7 +497,7 @@ impl EncryptedHistoryStore {
         }
         if version == 1 {
             // Reset derived state atomically. A crash during the subsequent
-            // bounded backfill leaves version 5 with missing memberships,
+            // bounded backfill leaves version 6 with missing memberships,
             // which `index_unindexed_records` resumes on the next open.
             connection
                 .execute_batch(
@@ -480,7 +508,7 @@ impl EncryptedHistoryStore {
                  DELETE FROM log_groups;
                  DELETE FROM edge_evidence;
                  DELETE FROM service_edges;
-                 UPDATE index_metadata SET parser_version = 5 WHERE singleton = 1;
+                 UPDATE index_metadata SET parser_version = 6 WHERE singleton = 1;
                  UPDATE graph_metadata SET extractor_version = 2,
                      graph_version = 0, backfill_complete = 0 WHERE singleton = 1;
                  UPDATE term_metadata SET backfill_complete = 0 WHERE singleton = 1;
@@ -489,7 +517,7 @@ impl EncryptedHistoryStore {
                  COMMIT;",
                 )
                 .map_err(|_| CorpusError::Storage)?;
-        } else if matches!(version, 2..=4) {
+        } else if matches!(version, 2..=5) {
             // Rebuild parser-derived groups, terms, and severe-service summaries
             // without touching source bytes or the independently versioned graph.
             connection
@@ -499,7 +527,7 @@ impl EncryptedHistoryStore {
                  DELETE FROM group_terms;
                  DELETE FROM severe_service_groups;
                  DELETE FROM log_groups;
-                 UPDATE index_metadata SET parser_version = 5 WHERE singleton = 1;
+                 UPDATE index_metadata SET parser_version = 6 WHERE singleton = 1;
                  UPDATE term_metadata SET backfill_complete = 0 WHERE singleton = 1;
                  UPDATE severe_service_metadata SET backfill_complete = 0 WHERE singleton = 1;
                  UPDATE severe_service_metadata SET last_group_id = 0 WHERE singleton = 1;
@@ -1321,6 +1349,203 @@ impl EncryptedHistoryStore {
             .optional()
             .map_err(|_| CorpusError::Storage)?;
         group_id.map(|id| self.read_group_by_id(id)).transpose()
+    }
+
+    /// An explicit rating of a previously selected native record. It is
+    /// source-local, keyed by a task digest, and cannot modify ranking alone.
+    pub fn record_feedback(
+        &mut self,
+        task: &str,
+        native_id: &[u8],
+        result_nonce: &[u8; 32],
+        verdict: FeedbackVerdict,
+    ) -> Result<(), CorpusError> {
+        let digest = feedback_task_digest(task)?;
+        let group = self
+            .group_for_record(native_id)?
+            .ok_or(CorpusError::InvalidPageBudget)?;
+        let value = match verdict {
+            FeedbackVerdict::Useful => 1,
+            FeedbackVerdict::NotUseful => -1,
+        };
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|_| CorpusError::Storage)?;
+        transaction
+            .execute(
+                "INSERT INTO feedback_observations(task_digest,native_id,result_nonce,verdict)
+             VALUES (?1,?2,?3,?4)
+             ON CONFLICT(task_digest,native_id,result_nonce)
+             DO UPDATE SET verdict = excluded.verdict",
+                params![digest.as_slice(), native_id, result_nonce.as_slice(), value],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        if verdict == FeedbackVerdict::NotUseful {
+            transaction
+                .execute(
+                    "DELETE FROM feedback_promotions WHERE task_digest=?1 AND native_id IN
+                 (SELECT native_id FROM group_members WHERE group_id=?2)",
+                    params![digest.as_slice(), group.group_id],
+                )
+                .map_err(|_| CorpusError::Storage)?;
+        }
+        transaction.commit().map_err(|_| CorpusError::Storage)?;
+        Ok(())
+    }
+
+    /// Repeated explicit ratings provide a narrow same-task eligibility proxy.
+    /// This is not an independent held-out relevance or downstream-fix eval.
+    pub fn evaluate_feedback(&self, task: &str) -> Result<FeedbackEvaluation, CorpusError> {
+        let digest = feedback_task_digest(task)?;
+        let observations = self
+            .connection
+            .query_row(
+                "SELECT count(*) FROM feedback_observations WHERE task_digest=?1",
+                [digest.as_slice()],
+                |row| row.get(0),
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT gm.group_id,
+                    COUNT(DISTINCT CASE WHEN f.verdict=1 THEN hex(f.result_nonce) END),
+                    SUM(CASE WHEN f.verdict=-1 THEN 1 ELSE 0 END)
+             FROM feedback_observations f
+             JOIN group_members gm ON gm.native_id=f.native_id
+             WHERE f.task_digest=?1 GROUP BY gm.group_id",
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let rows = statement
+            .query_map([digest.as_slice()], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, u64>(1)?,
+                    row.get::<_, u64>(2)?,
+                ))
+            })
+            .map_err(|_| CorpusError::Storage)?;
+        let baseline = self.search_candidate_groups(task, 64)?;
+        let baseline_ids = baseline
+            .groups
+            .iter()
+            .map(|card| card.group_id)
+            .collect::<BTreeSet<_>>();
+        let mut positive_groups = 0;
+        let mut eligible_groups = 0;
+        for row in rows {
+            let (group_id, positives, negatives) = row.map_err(|_| CorpusError::Storage)?;
+            if positives > 0 {
+                positive_groups += 1;
+            }
+            if positives >= 3 && negatives == 0 && !baseline_ids.contains(&group_id) {
+                eligible_groups += 1;
+            }
+        }
+        let promoted_groups = self
+            .connection
+            .query_row(
+                "SELECT count(*) FROM feedback_promotions WHERE task_digest=?1",
+                [digest.as_slice()],
+                |row| row.get(0),
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        Ok(FeedbackEvaluation {
+            observations,
+            positive_groups,
+            eligible_groups,
+            promoted_groups,
+        })
+    }
+
+    pub fn promote_feedback(&mut self, task: &str) -> Result<FeedbackEvaluation, CorpusError> {
+        let digest = feedback_task_digest(task)?;
+        let baseline = self.search_candidate_groups(task, 64)?;
+        let baseline_ids = baseline
+            .groups
+            .iter()
+            .map(|card| card.group_id)
+            .collect::<BTreeSet<_>>();
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT gm.group_id, MIN(f.native_id),
+                    COUNT(DISTINCT CASE WHEN f.verdict=1 THEN hex(f.result_nonce) END),
+                    SUM(CASE WHEN f.verdict=-1 THEN 1 ELSE 0 END)
+             FROM feedback_observations f
+             JOIN group_members gm ON gm.native_id=f.native_id
+             WHERE f.task_digest=?1 GROUP BY gm.group_id",
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let rows = statement
+            .query_map([digest.as_slice()], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, u64>(2)?,
+                    row.get::<_, u64>(3)?,
+                ))
+            })
+            .map_err(|_| CorpusError::Storage)?;
+        let eligible = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)?;
+        drop(statement);
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|_| CorpusError::Storage)?;
+        transaction
+            .execute(
+                "DELETE FROM feedback_promotions WHERE task_digest=?1",
+                [digest.as_slice()],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let mut promoted = 0;
+        for (group_id, native_id, positives, negatives) in eligible {
+            if positives >= 3 && negatives == 0 && !baseline_ids.contains(&group_id) {
+                if promoted == 16 {
+                    break;
+                }
+                transaction.execute(
+                    "INSERT OR IGNORE INTO feedback_promotions(task_digest,native_id) VALUES (?1,?2)",
+                    params![digest.as_slice(), native_id],
+                ).map_err(|_| CorpusError::Storage)?;
+                promoted += 1;
+            }
+        }
+        transaction.commit().map_err(|_| CorpusError::Storage)?;
+        self.evaluate_feedback(task)
+    }
+
+    pub fn search_promoted_groups(
+        &self,
+        task: &str,
+        limit: usize,
+    ) -> Result<Vec<CorpusGroupCard>, CorpusError> {
+        if limit == 0 || limit > 16 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let digest = feedback_task_digest(task)?;
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT DISTINCT gm.group_id FROM feedback_promotions p
+             JOIN group_members gm ON gm.native_id=p.native_id
+             WHERE p.task_digest=?1 ORDER BY gm.group_id LIMIT ?2",
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let ids = statement
+            .query_map(params![digest.as_slice(), limit as i64], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(|_| CorpusError::Storage)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)?;
+        ids.into_iter()
+            .map(|id| self.read_group_by_id(id))
+            .collect()
     }
 
     /// Search the complete indexed group corpus with a bounded lexical candidate pool.
@@ -2248,6 +2473,16 @@ fn upsert_severe_service(
     Ok(())
 }
 
+fn feedback_task_digest(task: &str) -> Result<[u8; 32], CorpusError> {
+    if task.trim().is_empty() || task.len() > 4096 {
+        return Err(CorpusError::InvalidPageBudget);
+    }
+    let mut hash = Sha256::new();
+    hash.update(b"evidentrail/feedback-task/v1\0");
+    hash.update(task.trim().as_bytes());
+    Ok(hash.finalize().into())
+}
+
 fn search_terms(text: &str, cap: usize) -> BTreeSet<String> {
     text.split(|character: char| !character.is_ascii_alphanumeric())
         .filter(|term| term.len() >= 3 && term.len() <= 64)
@@ -2834,6 +3069,51 @@ mod tests {
         assert!(sample.prefix.starts_with(b"header"));
         assert!(sample.suffix.ends_with(b"disk exhausted"));
         assert_eq!(sample.original_byte_len, raw.len() as u64);
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn feedback_requires_three_independent_ratings_and_explicit_promotion() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[7; 32], &[1; 32], &[2; 32]).unwrap();
+        store
+            .commit_page_checked(&[HistoryRecordV1 {
+                native_id: b"rare".to_vec(),
+                event_timestamp_millis: 1,
+                bytes: br#"{"service":"billing","message":"rare upstream timeout"}"#.to_vec(),
+            }])
+            .unwrap();
+        let task = "checkout failure";
+        assert!(
+            store
+                .search_candidate_groups(task, 64)
+                .unwrap()
+                .groups
+                .is_empty()
+        );
+        for nonce in [[1; 32], [2; 32], [3; 32]] {
+            store
+                .record_feedback(task, b"rare", &nonce, FeedbackVerdict::Useful)
+                .unwrap();
+        }
+        let evaluation = store.evaluate_feedback(task).unwrap();
+        assert_eq!(evaluation.observations, 3);
+        assert_eq!(evaluation.eligible_groups, 1);
+        assert!(store.search_promoted_groups(task, 8).unwrap().is_empty());
+        assert_eq!(store.promote_feedback(task).unwrap().promoted_groups, 1);
+        assert_eq!(store.search_promoted_groups(task, 8).unwrap().len(), 1);
+        store
+            .record_feedback(task, b"rare", &[4; 32], FeedbackVerdict::NotUseful)
+            .unwrap();
+        assert!(store.search_promoted_groups(task, 8).unwrap().is_empty());
+        assert_eq!(store.promote_feedback(task).unwrap().promoted_groups, 0);
+        assert!(store.search_promoted_groups(task, 8).unwrap().is_empty());
+        assert!(
+            store
+                .record_feedback(task, b"missing", &[5; 32], FeedbackVerdict::Useful)
+                .is_err()
+        );
         drop(store);
         cleanup(&path);
     }

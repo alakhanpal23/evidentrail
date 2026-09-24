@@ -17,14 +17,15 @@ use crate::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use evidentrail_corpus::{
-    ConnectedSourceDescriptorV1, CorpusKeychainErrorV1, EncryptedHistoryStore,
+    ConnectedSourceDescriptorV1, CorpusKeychainErrorV1, EncryptedHistoryStore, FeedbackVerdict,
     MacOsConnectedCredentialKeychainV1, MacOsCorpusKeychainV1, SyncAttempt, SyncObservation,
 };
 use evidentrail_ingest::{
     AwsCloudWatchTransportV1, CloudWatchCapsV1, CloudWatchHistorySourceV1, CloudWatchPlanV1,
     DatadogAccessIdentityV1, DatadogHistorySourceV1, DatadogSiteV1, DatadogStorageTierV1,
     HistoryPageSourceV1, HistoryPartitionV1, HistorySyncErrorV1, HistorySyncLimitsV1,
-    HistorySyncStatusV1, reconcile_history_range_v1, reconcile_history_v1, synchronize_history_v1,
+    HistorySyncStatusV1, SentryErrorHistorySourceV1, reconcile_history_range_v1,
+    reconcile_history_v1, synchronize_history_v1,
 };
 use rustix::fs::{CWD, FlockOperation, Mode, OFlags, flock, openat};
 use serde::{Deserialize, Serialize};
@@ -60,9 +61,21 @@ struct DatadogDescriptor {
     role_ids: Option<Vec<String>>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct SentryDescriptor {
+    schema_version: u8,
+    provider: String,
+    region: String,
+    organization: String,
+    project: String,
+    project_id: String,
+}
+
 enum SourceBinding {
     CloudWatch(CloudWatchDescriptor),
     Datadog(DatadogDescriptor),
+    Sentry(SentryDescriptor),
 }
 
 // Datadog Data Access Control can change cached-log visibility without
@@ -75,6 +88,7 @@ fn cache_access_block(binding: &SourceBinding) -> Option<&'static str> {
     match binding {
         SourceBinding::CloudWatch(_) => None,
         SourceBinding::Datadog(_) => Some(DATADOG_ACCESS_SCOPE_UNVERIFIABLE),
+        SourceBinding::Sentry(_) => None,
     }
 }
 
@@ -96,6 +110,13 @@ fn parse_binding(descriptor: &[u8]) -> Result<SourceBinding, CliFailure> {
                 .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
             Ok(SourceBinding::Datadog(binding))
         }
+        Some("sentry") => {
+            let binding: SentryDescriptor = serde_json::from_value(value)
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+            validate_sentry_binding(&binding)
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+            Ok(SourceBinding::Sentry(binding))
+        }
         _ => Err(CliFailure::runtime(
             "EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE",
         )),
@@ -111,6 +132,8 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
         connect_cloudwatch(parse_cloudwatch_args(args)?)
     } else if command == "connect-datadog" {
         connect_datadog(parse_datadog_args(args)?)
+    } else if command == "connect-sentry" {
+        connect_sentry(parse_sentry_args(args)?)
     } else if command == "rotate-datadog" {
         rotate_datadog(parse_datadog_rotation_args(args)?, false)
     } else if command == "recover-datadog" {
@@ -125,6 +148,8 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
             return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
         }
         setup_sources()
+    } else if command == "feedback" {
+        feedback_command(args)
     } else if command == "sync" {
         if args.next().is_some() {
             return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
@@ -153,6 +178,141 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
     } else {
         Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_COMMAND"))
     }
+}
+
+pub(crate) fn record_connected_feedback(
+    task: &str,
+    source_digest: &[u8; 32],
+    native_id: &[u8],
+    result_nonce: &[u8; 32],
+    verdict: FeedbackVerdict,
+) -> Result<serde_json::Value, CliFailure> {
+    if task.trim().is_empty() || task.len() > 4096 || native_id.is_empty() {
+        return Err(CliFailure::usage("EVIDENTRAIL_FEEDBACK_ARGUMENTS_INVALID"));
+    }
+    let _guard = connected_catalog_lock()?;
+    let authority = MacOsCorpusKeychainV1::production();
+    let tenant = authority
+        .local_tenant_digest()
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let entries = authority
+        .list_bound(&tenant)
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let entry = entries
+        .into_iter()
+        .find(|entry| &entry.source_digest == source_digest)
+        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_FEEDBACK_SOURCE_REVOKED"))?;
+    let binding = parse_binding(&entry.descriptor)?;
+    if let Some(error) = cache_access_block(&binding) {
+        return Err(CliFailure::runtime(error));
+    }
+    let path = corpus_path(source_digest, false)?;
+    if !corpus_file_exists_safe(&path)? {
+        return Err(CliFailure::runtime("EVIDENTRAIL_FEEDBACK_CORPUS_MISSING"));
+    }
+    let key = authority
+        .load(&tenant, source_digest)
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, source_digest)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_FEEDBACK_CORPUS_FAILURE"))?;
+    let high_water = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
+        .as_millis() as i64;
+    sync_binding(&binding, &tenant, source_digest, &mut store, high_water)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_FEEDBACK_SOURCE_UNAVAILABLE"))?;
+    store
+        .record_feedback(task, native_id, result_nonce, verdict)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_FEEDBACK_REFERENCE_INVALID"))?;
+    let evaluation = store
+        .evaluate_feedback(task)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_FEEDBACK_CORPUS_FAILURE"))?;
+    Ok(json!({
+        "status": "recorded", "source_id": hex(source_digest),
+        "observations": evaluation.observations,
+        "eligible_groups": evaluation.eligible_groups,
+        "promoted_groups": evaluation.promoted_groups,
+        "ranking_changed": false,
+    }))
+}
+
+fn feedback_command(mut args: impl Iterator<Item = OsString>) -> Result<ExitCode, CliFailure> {
+    let action = args
+        .next()
+        .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_FEEDBACK_ACTION_REQUIRED"))?;
+    if action != "evaluate" && action != "promote" {
+        return Err(CliFailure::usage("EVIDENTRAIL_FEEDBACK_ACTION_INVALID"));
+    }
+    let mut source_id = None;
+    let mut task = None;
+    while let Some(option) = args.next() {
+        let target = if option == "--source-id" {
+            &mut source_id
+        } else if option == "--task" {
+            &mut task
+        } else {
+            return Err(CliFailure::usage("EVIDENTRAIL_FEEDBACK_ARGUMENTS_INVALID"));
+        };
+        let value = args
+            .next()
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_FEEDBACK_ARGUMENTS_INVALID"))?
+            .into_string()
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_FEEDBACK_ARGUMENTS_INVALID"))?;
+        if target.replace(value).is_some() {
+            return Err(CliFailure::usage("EVIDENTRAIL_FEEDBACK_ARGUMENTS_INVALID"));
+        }
+    }
+    let digest = parse_source_digest(
+        &source_id.ok_or_else(|| CliFailure::usage("EVIDENTRAIL_FEEDBACK_ARGUMENTS_INVALID"))?,
+    )?;
+    let task = task.ok_or_else(|| CliFailure::usage("EVIDENTRAIL_FEEDBACK_ARGUMENTS_INVALID"))?;
+    if task.trim().is_empty() || task.len() > 4096 {
+        return Err(CliFailure::usage("EVIDENTRAIL_FEEDBACK_ARGUMENTS_INVALID"));
+    }
+    let _guard = connected_catalog_lock()?;
+    let authority = MacOsCorpusKeychainV1::production();
+    let tenant = authority
+        .local_tenant_digest()
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let entries = authority
+        .list_bound(&tenant)
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let entry = entries
+        .into_iter()
+        .find(|entry| entry.source_digest == digest)
+        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_FEEDBACK_SOURCE_REVOKED"))?;
+    let binding = parse_binding(&entry.descriptor)?;
+    if let Some(error) = cache_access_block(&binding) {
+        return Err(CliFailure::runtime(error));
+    }
+    let path = corpus_path(&digest, false)?;
+    if !corpus_file_exists_safe(&path)? {
+        return Err(CliFailure::runtime("EVIDENTRAIL_FEEDBACK_CORPUS_MISSING"));
+    }
+    let key = authority
+        .load(&tenant, &digest)
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &digest)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_FEEDBACK_CORPUS_FAILURE"))?;
+    let high_water = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
+        .as_millis() as i64;
+    sync_binding(&binding, &tenant, &digest, &mut store, high_water)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_FEEDBACK_SOURCE_UNAVAILABLE"))?;
+    let evaluation = if action == "promote" {
+        store.promote_feedback(&task)
+    } else {
+        store.evaluate_feedback(&task)
+    }
+    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_FEEDBACK_CORPUS_FAILURE"))?;
+    write_sources_json(&json!({
+        "status": if action == "promote" { "promotion_evaluated" } else { "evaluation_only" },
+        "source_id": hex(&digest), "observations": evaluation.observations,
+        "positive_groups": evaluation.positive_groups,
+        "eligible_groups": evaluation.eligible_groups,
+        "promoted_groups": evaluation.promoted_groups,
+    }))
 }
 
 fn parse_source_digest(value: &str) -> Result<[u8; 32], CliFailure> {
@@ -624,6 +784,33 @@ fn verify_query_sources(
                     .bind_provider_access_scope(&scope)
                     .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"))?;
             }
+            SourceBinding::Sentry(sentry) => {
+                let credentials = MacOsConnectedCredentialKeychainV1::production();
+                let secret = credentials
+                    .load(tenant, source_digest)
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_UNAVAILABLE"))?;
+                let mut token = sentry_token(&secret)?;
+                let mut source = sentry_source(&sentry, std::mem::take(&mut *token))?;
+                let current_id = source
+                    .current_project_id()
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_UNAVAILABLE"))?;
+                if current_id != sentry.project_id {
+                    return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"));
+                }
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
+                    .as_millis() as i64;
+                source
+                    .fetch_page(
+                        HistoryPartitionV1 {
+                            start_millis: now.saturating_sub(1000),
+                            end_millis: now,
+                        },
+                        None,
+                    )
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_UNAVAILABLE"))?;
+            }
         }
     }
     Ok(())
@@ -977,7 +1164,7 @@ fn sync_cycle() -> Result<SyncCycleSummary, CliFailure> {
         };
         outcomes.push(json!({
             "source_id": hex(&entry.source_digest),
-            "provider": match binding { SourceBinding::CloudWatch(_) => "cloudwatch", SourceBinding::Datadog(_) => "datadog" },
+            "provider": match binding { SourceBinding::CloudWatch(_) => "cloudwatch", SourceBinding::Datadog(_) => "datadog", SourceBinding::Sentry(_) => "sentry" },
             "record_count": record_count,
             "scanned_through_millis": checkpoint.map(|value| value.completed_through_millis),
             "high_water_millis": high_water,
@@ -1122,6 +1309,22 @@ fn sync_binding_inner(
             store
                 .bind_provider_access_scope(&access_scope_digest)
                 .map_err(|_| "AccessScopeChangedOrUnbound".to_owned())?;
+            bounded_sync(&mut source, store, high_water).map_err(|error| format!("{error:?}"))
+        }
+        SourceBinding::Sentry(sentry) => {
+            let credentials = MacOsConnectedCredentialKeychainV1::production();
+            let secret = credentials
+                .load(tenant, source_digest)
+                .map_err(|error| error.code().to_owned())?;
+            let mut token = sentry_token(&secret).map_err(|error| error.code.to_owned())?;
+            let mut source = sentry_source(sentry, std::mem::take(&mut *token))
+                .map_err(|error| error.code.to_owned())?;
+            let current_id = source
+                .current_project_id()
+                .map_err(|error| format!("{error:?}"))?;
+            if current_id != sentry.project_id {
+                return Err("EVIDENTRAIL_SENTRY_PROJECT_CHANGED".to_owned());
+            }
             bounded_sync(&mut source, store, high_water).map_err(|error| format!("{error:?}"))
         }
     }
@@ -1393,6 +1596,179 @@ fn valid_datadog_id(value: &str) -> bool {
                 byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
             }
         })
+}
+
+fn valid_sentry_slug(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn validate_sentry_binding(binding: &SentryDescriptor) -> Result<(), CliFailure> {
+    if binding.schema_version != 1
+        || binding.provider != "sentry"
+        || !matches!(binding.region.as_str(), "global" | "us" | "de")
+        || !valid_sentry_slug(&binding.organization)
+        || !valid_sentry_slug(&binding.project)
+        || binding.project_id.is_empty()
+        || binding.project_id.len() > 32
+        || !binding.project_id.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_INVALID_BINDING"));
+    }
+    Ok(())
+}
+
+struct SentryConnectOptions {
+    region: String,
+    organization: String,
+    project: String,
+    token_env: String,
+}
+
+fn parse_sentry_args(
+    mut args: impl Iterator<Item = OsString>,
+) -> Result<SentryConnectOptions, CliFailure> {
+    let mut region = None;
+    let mut organization = None;
+    let mut project = None;
+    let mut token_env = None;
+    while let Some(option) = args.next() {
+        let target = if option == "--region" {
+            &mut region
+        } else if option == "--organization" {
+            &mut organization
+        } else if option == "--project" {
+            &mut project
+        } else if option == "--token-env" {
+            &mut token_env
+        } else {
+            return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
+        };
+        let value = args
+            .next()
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_SOURCES_MISSING_VALUE"))?
+            .into_string()
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_SOURCES_INVALID_VALUE"))?;
+        if target.replace(value).is_some() {
+            return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_DUPLICATE_OPTION"));
+        }
+    }
+    let options = SentryConnectOptions {
+        region: region.unwrap_or_else(|| "global".to_owned()),
+        organization: organization
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_SENTRY_ORGANIZATION_REQUIRED"))?,
+        project: project.ok_or_else(|| CliFailure::usage("EVIDENTRAIL_SENTRY_PROJECT_REQUIRED"))?,
+        token_env: token_env.unwrap_or_else(|| "SENTRY_AUTH_TOKEN".to_owned()),
+    };
+    if !matches!(options.region.as_str(), "global" | "us" | "de")
+        || !valid_sentry_slug(&options.organization)
+        || !valid_sentry_slug(&options.project)
+        || !valid_env_name(&options.token_env)
+    {
+        return Err(CliFailure::usage("EVIDENTRAIL_SENTRY_OPTIONS_INVALID"));
+    }
+    Ok(options)
+}
+
+fn sentry_token(secret: &[u8]) -> Result<Zeroizing<String>, CliFailure> {
+    let token = std::str::from_utf8(secret)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SENTRY_CREDENTIAL_CORRUPT"))?;
+    if token.is_empty() || token.len() > 2048 || !token.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        return Err(CliFailure::runtime("EVIDENTRAIL_SENTRY_CREDENTIAL_CORRUPT"));
+    }
+    Ok(Zeroizing::new(token.to_owned()))
+}
+
+fn sentry_source(
+    binding: &SentryDescriptor,
+    token: String,
+) -> Result<SentryErrorHistorySourceV1, CliFailure> {
+    let mut source = SentryErrorHistorySourceV1::connect(
+        &binding.region,
+        &binding.organization,
+        &binding.project,
+        token,
+    )
+    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SENTRY_SOURCE_UNAVAILABLE"))?;
+    if binding.project_id != "0" {
+        source
+            .bind_project_id(&binding.project_id)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SENTRY_SOURCE_UNAVAILABLE"))?;
+    }
+    Ok(source)
+}
+
+fn connect_sentry(options: SentryConnectOptions) -> Result<ExitCode, CliFailure> {
+    let token = Zeroizing::new(
+        env::var(&options.token_env)
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_SENTRY_TOKEN_UNAVAILABLE"))?,
+    );
+    sentry_token(token.as_bytes())
+        .map_err(|_| CliFailure::usage("EVIDENTRAIL_SENTRY_TOKEN_INVALID"))?;
+    let provisional = SentryDescriptor {
+        schema_version: 1,
+        provider: "sentry".to_owned(),
+        region: options.region,
+        organization: options.organization,
+        project: options.project,
+        project_id: "0".to_owned(),
+    };
+    let mut source = sentry_source(&provisional, token.to_string())?;
+    let project_id = source
+        .current_project_id()
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SENTRY_READ_VERIFICATION_FAILED"))?;
+    source
+        .bind_project_id(&project_id)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SENTRY_READ_VERIFICATION_FAILED"))?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
+        .as_millis() as i64;
+    source
+        .fetch_page(
+            HistoryPartitionV1 {
+                start_millis: now.saturating_sub(1000),
+                end_millis: now,
+            },
+            None,
+        )
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SENTRY_READ_VERIFICATION_FAILED"))?;
+    let binding = SentryDescriptor {
+        project_id,
+        ..provisional
+    };
+    validate_sentry_binding(&binding)?;
+    let _guard = connected_catalog_lock()?;
+    let authority = MacOsCorpusKeychainV1::production();
+    let credentials = MacOsConnectedCredentialKeychainV1::production();
+    let tenant = authority
+        .local_tenant_digest()
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let descriptor = serde_json::to_vec(&binding)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+    let source_digest = MacOsCorpusKeychainV1::source_digest_for_descriptor(&descriptor)
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let path = corpus_path(&source_digest, true)?;
+    register_corpus(&authority, &tenant, &descriptor, &path)?;
+    if let Err(error) = credentials.create(&tenant, &source_digest, token.as_bytes()) {
+        let _ = remove_corpus_files(&path, "EVIDENTRAIL_SENTRY_REGISTRATION_FAILED");
+        let _ = authority.destroy(&tenant, &source_digest);
+        return Err(CliFailure::runtime(error.code()));
+    }
+    serde_json::to_writer(io::stdout().lock(), &json!({
+        "provider": "sentry", "source_id": hex(&source_digest),
+        "region": binding.region, "organization": binding.organization,
+        "project": binding.project, "dataset": "error_events",
+        "status": "registered_backfill_pending", "coverage": "partial_until_backfill_and_provider_consistency_verified"
+    }))
+    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
+    writeln!(io::stdout().lock())
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn check_datadog_identity(
@@ -2376,6 +2752,15 @@ fn list_sources_value() -> Result<serde_json::Value, CliFailure> {
                 "org_id": binding.org_id,
                 "status": status,
             }),
+            SourceBinding::Sentry(binding) => json!({
+                "source_id": hex(&entry.source_digest),
+                "provider": "sentry",
+                "region": binding.region,
+                "organization": binding.organization,
+                "project": binding.project,
+                "dataset": "error_events",
+                "status": status,
+            }),
         };
         listed.push(summary);
     }
@@ -2408,8 +2793,8 @@ fn source_setup_summary(sources: &serde_json::Value) -> serde_json::Value {
             "coverage": "none",
             "sources": sources,
             "next_actions": [
-                "Configure a read-only AWS profile in your environment.",
-                "Run evidentrail sources connect-cloudwatch --account ID --region REGION --log-group GROUP --profile PROFILE. Datadog sources are currently blocked pending access-scope verification.",
+                "Configure a read-only AWS profile or a project:read SENTRY_AUTH_TOKEN in your environment.",
+                "Run evidentrail sources connect-cloudwatch --account ID --region REGION --log-group GROUP --profile PROFILE, or evidentrail sources connect-sentry --organization ORG --project PROJECT. Sentry covers project error events; Datadog sources are currently blocked pending access-scope verification.",
                 "Run evidentrail sources setup again after registration."
             ]
         });
@@ -2514,7 +2899,10 @@ fn revoke_registered_sources(
     // Remove provider credentials before deleting any corpus. A partial
     // failure then excludes the affected Datadog source from future queries.
     for index in &selected {
-        if matches!(&bindings[*index], SourceBinding::Datadog(_)) {
+        if matches!(
+            &bindings[*index],
+            SourceBinding::Datadog(_) | SourceBinding::Sentry(_)
+        ) {
             match credential_authority.destroy(tenant, &entries[*index].source_digest) {
                 Ok(()) | Err(CorpusKeychainErrorV1::NotFound) => {}
                 Err(_) => return Err(CliFailure::runtime("EVIDENTRAIL_SOURCES_REVOKE_FAILED")),
@@ -2556,7 +2944,7 @@ fn revocation_indices(
         .position(|entry| entry.source_digest == requested_source)
         .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_SOURCES_NOT_FOUND"))?;
     let selected = match &bindings[requested_index] {
-        SourceBinding::CloudWatch(_) => vec![requested_index],
+        SourceBinding::CloudWatch(_) | SourceBinding::Sentry(_) => vec![requested_index],
         SourceBinding::Datadog(target) => bindings
             .iter()
             .enumerate()
@@ -2898,6 +3286,50 @@ mod tests {
         assert!(validate_binding(&invalid).is_err());
         assert!(
             parse_cloudwatch_args(["--account", "123"].into_iter().map(OsString::from)).is_err()
+        );
+    }
+
+    #[test]
+    fn sentry_binding_is_project_scoped_and_never_contains_a_token() {
+        let options = parse_sentry_args(
+            [
+                "--organization",
+                "acme",
+                "--project",
+                "checkout",
+                "--region",
+                "de",
+            ]
+            .into_iter()
+            .map(OsString::from),
+        )
+        .unwrap();
+        assert_eq!(options.token_env, "SENTRY_AUTH_TOKEN");
+        let binding = SentryDescriptor {
+            schema_version: 1,
+            provider: "sentry".to_owned(),
+            region: options.region,
+            organization: options.organization,
+            project: options.project,
+            project_id: "42".to_owned(),
+        };
+        validate_sentry_binding(&binding).unwrap();
+        let encoded = serde_json::to_vec(&binding).unwrap();
+        assert!(!String::from_utf8_lossy(&encoded).contains("SENTRY_AUTH_TOKEN"));
+        assert!(matches!(
+            parse_binding(&encoded).unwrap(),
+            SourceBinding::Sentry(_)
+        ));
+        let mut changed = binding;
+        changed.project_id = "not-numeric".to_owned();
+        assert!(validate_sentry_binding(&changed).is_err());
+        assert!(
+            parse_sentry_args(
+                ["--organization", "acme", "--project", "bad/project"]
+                    .into_iter()
+                    .map(OsString::from)
+            )
+            .is_err()
         );
     }
 

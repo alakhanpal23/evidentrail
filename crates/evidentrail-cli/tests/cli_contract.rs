@@ -507,7 +507,7 @@ fn mcp_process_discovers_compiles_and_expands_exact_supplied_bytes() {
     );
     assert_eq!(
         listed["result"]["tools"].as_array().unwrap().len(),
-        if cfg!(target_os = "macos") { 4 } else { 2 }
+        if cfg!(target_os = "macos") { 5 } else { 2 }
     );
 
     let logs = b"request_id=REQ-10 timeout\0\xff\n";
@@ -626,7 +626,7 @@ fn mcp_process_supports_the_legacy_initialize_fallback() {
     );
     assert_eq!(
         listed["result"]["tools"].as_array().unwrap().len(),
-        if cfg!(target_os = "macos") { 4 } else { 2 }
+        if cfg!(target_os = "macos") { 5 } else { 2 }
     );
     assert!(listed["result"].get("resultType").is_none());
 

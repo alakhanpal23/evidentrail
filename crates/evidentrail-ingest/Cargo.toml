@@ -22,7 +22,7 @@ reqwest.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
-time = { version = "=0.3.55", features = ["parsing"] }
+time = { version = "=0.3.55", features = ["parsing", "formatting"] }
 tokio = { version = "1", optional = true, features = ["rt-multi-thread", "time"] }
 zeroize.workspace = true
 

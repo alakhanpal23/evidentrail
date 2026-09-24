@@ -14,6 +14,7 @@ use crate::sensitive_log::contains_sensitive_data;
 const LEXICAL_BUDGET: usize = 256;
 const GRAPH_BUDGET: usize = 64;
 const REPEATED_SEVERE_BUDGET: usize = 8;
+const PROMOTED_FEEDBACK_BUDGET: usize = 8;
 const GROUPS_PER_PAGE: usize = 64;
 const PAGE_SELECTION_LIMIT: usize = 8;
 const FINAL_SELECTION_LIMIT: usize = 12;
@@ -133,7 +134,8 @@ fn select_connected_logs_with_graph(
     let mut directory_eligible = Vec::with_capacity(sources.len());
     let mut weak_query_sources = Vec::with_capacity(sources.len());
     let mut prepared = Vec::new();
-    for source in sources {
+    let mut promoted_keys = BTreeSet::new();
+    for (source_index, source) in sources.iter().enumerate() {
         let (bound_tenant, bound_source) = source
             .store
             .scope_digests()
@@ -202,12 +204,25 @@ fn select_connected_logs_with_graph(
         needs_directory |= repeated
             .as_ref()
             .is_some_and(|page| page.candidate_pool_truncated);
+        let promotion_limit = PROMOTED_FEEDBACK_BUDGET
+            .saturating_sub(promoted_keys.len())
+            .min((PROMOTED_FEEDBACK_BUDGET / sources.len()).max(1));
+        let promoted = if promotion_limit > 0 {
+            source
+                .store
+                .search_promoted_groups(task, promotion_limit)
+                .map_err(|_| CompactionError::Corpus)?
+        } else {
+            Vec::new()
+        };
+        promoted_keys.extend(promoted.iter().map(|card| (source_index, card.group_id)));
         let mut ranked = cards.into_iter();
-        let mut merged = ranked.next().into_iter().collect::<Vec<_>>();
+        let mut merged = promoted;
         let mut seen = merged
             .iter()
             .map(|card| card.group_id)
             .collect::<BTreeSet<_>>();
+        merged.extend(ranked.next().filter(|card| seen.insert(card.group_id)));
         if let Some(repeated) = repeated {
             merged.extend(
                 repeated
@@ -289,6 +304,11 @@ fn select_connected_logs_with_graph(
         }
     }
     let candidate_count = prepared.len();
+    let promoted_representatives = (0..candidate_count)
+        .filter(|&index| {
+            promoted_keys.contains(&(prepared[index].source_index, prepared[index].card.group_id))
+        })
+        .collect::<Vec<_>>();
     let mut repeated_representatives = (0..candidate_count)
         .filter(|&index| {
             let entry = &prepared[index];
@@ -312,12 +332,17 @@ fn select_connected_logs_with_graph(
         // evidence before the final selector sees it. Carry both bounded
         // kinds through intermediate rounds; neither is forced into output.
         let candidate_set = candidates.iter().copied().collect::<BTreeSet<_>>();
-        let mut reduced = repeated_representatives
+        let mut reduced = promoted_representatives
             .iter()
             .copied()
             .filter(|index| candidate_set.contains(index))
             .collect::<Vec<_>>();
         let mut seen = reduced.iter().copied().collect::<BTreeSet<_>>();
+        for &index in &repeated_representatives {
+            if candidate_set.contains(&index) && seen.insert(index) {
+                reduced.push(index);
+            }
+        }
         for index in service_representatives(&prepared, &candidates) {
             if seen.insert(index) {
                 reduced.push(index);
@@ -728,6 +753,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Instant;
 
+    use evidentrail_corpus::FeedbackVerdict;
     use evidentrail_ingest::HistoryRecordV1;
     use serde::Deserialize;
     use sha2::{Digest, Sha256};
@@ -853,6 +879,67 @@ mod tests {
         .unwrap();
         assert_eq!(broad.candidate_count, 2);
         assert!(pack_lines(&broad).iter().any(|(id, _)| id == b"repeat-1"));
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn promoted_feedback_reaches_connected_candidates_and_negative_rating_revokes_it() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
+        store
+            .commit_page_checked(&[
+                HistoryRecordV1 {
+                    native_id: b"lexical".to_vec(),
+                    event_timestamp_millis: 1,
+                    bytes: b"[checkout] ERROR: checkout failure".to_vec(),
+                },
+                HistoryRecordV1 {
+                    native_id: b"missed".to_vec(),
+                    event_timestamp_millis: 2,
+                    bytes: b"[payments] ERROR: rare upstream timeout".to_vec(),
+                },
+            ])
+            .unwrap();
+        let task = "checkout failure";
+        let query = |store: &EncryptedHistoryStore| {
+            select_connected_logs(
+                &[AuthorizedCorpus {
+                    source_digest: [2; 32],
+                    store,
+                }],
+                task,
+                4096,
+                &mut SelectAllCandidates,
+            )
+            .unwrap()
+        };
+        let before = query(&store);
+        assert!(!pack_lines(&before).iter().any(|(id, _)| id == b"missed"));
+        for nonce in [[1; 32], [2; 32], [3; 32]] {
+            store
+                .record_feedback(task, b"missed", &nonce, FeedbackVerdict::Useful)
+                .unwrap();
+        }
+        assert!(
+            !pack_lines(&query(&store))
+                .iter()
+                .any(|(id, _)| id == b"missed")
+        );
+        store.promote_feedback(task).unwrap();
+        assert!(
+            pack_lines(&query(&store))
+                .iter()
+                .any(|(id, _)| id == b"missed")
+        );
+        store
+            .record_feedback(task, b"missed", &[4; 32], FeedbackVerdict::NotUseful)
+            .unwrap();
+        assert!(
+            !pack_lines(&query(&store))
+                .iter()
+                .any(|(id, _)| id == b"missed")
+        );
         drop(store);
         cleanup(&path);
     }
