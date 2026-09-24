@@ -1,5 +1,10 @@
 # Multi-bug connected-log repair study
 
+The [final evidence report](REPORT.md) and [contentless per-case results](per-case-results.jsonl)
+show 7/11 verified repairs for both connected routes, versus 6/11 with no
+logs. Neither connected route passed the paired evidence gate, so no default
+model or route was changed.
+
 This is an opt-in, source-exact repair study on pinned historical bugs from
 [BugsInPy](https://github.com/reproducing-research-projects/BugsInPy). The
 study screened 79 candidate bugs from Black, The Fuck, FastAPI, PySnooper, and
@@ -102,8 +107,9 @@ python3 scripts/score-connected-repair-study.py \
   --results /tmp/evidentrail-repair-verified.jsonl
 ```
 
-The full paired trial is in progress. No held-out route or model is qualified
-until all eleven held-out cases have complete, independently verified arms,
-the frozen scoring gate passes, and model cost can be established. The Codex
-CLI exposes turn token counts here, but not a reliable dollar price or its
-internal model-call count; reported calls count CLI invocations only.
+The completed [study manifest](study-manifest.json) names the original local
+trial directories so the original edits can be reverified on this host. A
+fresh run recreates those private edits and produces a new manifest; model
+outputs may vary. The Codex CLI exposes turn token counts here, but not a
+reliable dollar price or its internal model-call count; reported calls count
+CLI invocations only.
