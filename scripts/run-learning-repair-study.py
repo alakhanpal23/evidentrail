@@ -219,7 +219,9 @@ def run(args):
                          "log_pack": str(pack) if pack else None,
                          "log_pack_sha256": info["sha256"] if info else None,
                          "elapsed_ms": trial["elapsed_ms"] + selection.get("end_to_end_elapsed_ms", 0),
-                         "model_calls": 1 + selection.get("selected_calls", 0)}
+                         "model_calls": 1 + (selection.get("selected_calls", 0)
+                                             if arm in ("current", "challenger",
+                                                        "challenger_no_memory") else 0)}
             print(json.dumps({"case_id": case["id"], "arm": arm,
                               "agent_elapsed_ms": trial["elapsed_ms"],
                               "protocol_valid": trial["protocol_valid"]},

@@ -53,6 +53,7 @@ def audit(args):
                         "buggy_tree_sha256", "fixed_tree_sha256",
                         "hidden_test_tree_sha256"))
                 or case["source_records_sha256"] != h["source_records_sha256"]
+                or case["test_argv"][1:] != original["test_argv_suffix"]
                 or Path(case["source_records"]).resolve()
                 != (args.histories / case_id / "source-records.jsonl").resolve()
                 or set(case["arms"]) != set(RUNNER.ARMS)):
@@ -60,6 +61,14 @@ def audit(args):
         source = RUNNER.VERIFY.source_records(Path(case["source_records"]))
         for arm in RUNNER.ARMS:
             trial = case["arms"][arm]
+            if Path(trial["edited_tree"]).resolve() != (
+                    args.manifest.parent / case_id / arm).resolve():
+                raise ValueError("trial workspace differs from frozen run location")
+            expected_calls = 1 + (packs[case_id][arm]["selection"]["selected_calls"]
+                                  if arm in ("current", "challenger",
+                                             "challenger_no_memory") else 0)
+            if trial["model_calls"] != expected_calls:
+                raise ValueError("counted CLI runs differ from frozen selection calls")
             if arm == "no_logs":
                 if trial["log_pack"] is not None:
                     raise ValueError("no-logs arm received a pack")

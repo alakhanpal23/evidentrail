@@ -68,11 +68,15 @@ python3 scripts/run-learning-repair-study.py run \
   --pack-lock reports/learning-repair-2026-09-24/pack-lock.json \
   --output-dir /tmp/evidentrail-learning-trials \
   --python /tmp/evidentrail-repair-venv/bin/python
+python3 scripts/finalize-learning-repair-manifest.py \
+  --raw /tmp/evidentrail-learning-trials/study.json \
+  --pack-lock reports/learning-repair-2026-09-24/pack-lock.json \
+  --output /tmp/evidentrail-learning-trials/study-final.json
 python3 scripts/score-learning-route.py \
-  --manifest /tmp/evidentrail-learning-trials/study.json --verify-only \
+  --manifest /tmp/evidentrail-learning-trials/study-final.json --verify-only \
   > /tmp/evidentrail-learning-trials/verified-results.jsonl
 python3 scripts/score-learning-route.py \
-  --manifest /tmp/evidentrail-learning-trials/study.json \
+  --manifest /tmp/evidentrail-learning-trials/study-final.json \
   --results /tmp/evidentrail-learning-trials/verified-results.jsonl
 python3 scripts/audit-learning-repair-study.py \
   --case-lock reports/learning-repair-2026-09-24/cohort-lock.json \
@@ -83,7 +87,7 @@ python3 scripts/audit-learning-repair-study.py \
   --histories /tmp/evidentrail-learning-histories \
   --packs /tmp/evidentrail-learning-packs \
   --pack-lock reports/learning-repair-2026-09-24/pack-lock.json \
-  --manifest /tmp/evidentrail-learning-trials/study.json
+  --manifest /tmp/evidentrail-learning-trials/study-final.json
 python3 scripts/summarize-learning-study-usage.py \
   --pack-lock reports/learning-repair-2026-09-24/pack-lock.json \
   --trials /tmp/evidentrail-learning-trials
