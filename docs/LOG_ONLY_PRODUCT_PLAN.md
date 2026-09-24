@@ -112,16 +112,20 @@ restriction-query definitions through the read-only `logs_read_config` API and
 reads the user's effective global permissions through the user-permissions API.
 The combined fingerprint binds to the encrypted corpus. A changed fingerprint
 excludes the corpus; cached records without the current-version fingerprint
-cannot be adopted and require reconnecting. This is still a partial access
-guard: index permissions and Data Access Control policies may change without
-changing the fingerprint. The identity fields come from Datadog's
+cannot be adopted and require reconnecting. Indexed-tier registration, sync,
+query, and expansion now fail closed when effective `logs_read_index_data` is
+missing or scoped to particular indexes. Datadog documents that per-index
+grants are configured through its UI, while the user-permissions API only
+exposes whether the permission is restricted. Other accessible tiers can still
+register. Data Access Control policies remain an unverified cache-access
+guard and release gate. The identity fields come from Datadog's
 [current-user API](https://docs.datadoghq.com/api/latest/users/get-current-user/).
 A legacy or changed-identity connection must be disconnected and
 reconnected; retention-expired logs may then be unrecoverable. Live provider
 validation of the identity response and change behavior is still required.
 Before production use, obtain and verify a current access-scope fingerprint covering role assignments,
-role permission grants, restriction-query definitions, index permissions, and
-any enabled Data Access Control policies.
+role permission grants, restriction-query definitions, any supported scoped
+index permissions, and any enabled Data Access Control policies.
 Invalidate affected records and derived state on any change. Fail closed when
 the scope cannot be verified. Exercise a narrowed-scope change in a live
 sandbox and prove that

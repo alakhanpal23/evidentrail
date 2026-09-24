@@ -37,10 +37,16 @@ requires `user_access_read`. The combined fingerprint is stored in
 the encrypted corpus. A changed restriction query or global permission excludes
 that corpus from sync, queries, and expansion; reconnect to backfill under the
 new scope. Existing corpora with cached records but no current-version
-fingerprint also require reconnecting. Registration probes indexes, online archives, and Flex
-separately, and reports tiers it
-could not connect. Credentials are stored in separate source-bound macOS login
-Keychain items; descriptors contain no keys. Both registrations create a
+fingerprint also require reconnecting. Registration probes indexes, online
+archives, and Flex separately, and reports tiers it could not connect. The
+indexed tier is refused when
+`logs_read_index_data` is missing or scoped to particular indexes: the
+user-permissions response does not identify those per-index grants, so cached
+indexed logs cannot be safely rechecked after a grant change. Other accessible
+tiers can still register. An existing indexed corpus reports
+`AccessScopeUnverifiable` if the grant becomes scoped or disappears. Credentials
+are stored in separate source-bound macOS login Keychain items; descriptors
+contain no keys. Both registrations create a
 source-bound corpus key and encrypted local corpus, then report
 `registered_backfill_pending`. `sources sync` makes bounded progress from each
 durable checkpoint and replays recent history after reaching its high-water
@@ -166,11 +172,12 @@ discards every active and staged corpus for that connection and starts a fresh
 backfill. If recovery fails, the staged files remain as a fail-closed gate.
 This recovery path has local filesystem tests but has not been exercised with
 live Datadog credentials.
-Datadog index access or Data Access Control policy can still change without
-altering the user, role IDs, or current access-scope fingerprint.
-Do not rely on this build to enforce those narrower permissions over its cached
-corpus; complete scope-change invalidation is a release gate in the product
-plan. Datadog connections registered before the identity binding
+Datadog Data Access Control policy can still change without altering the user,
+role IDs, or current access-scope fingerprint. Do not rely on this build to
+enforce those policies over its cached corpus; complete scope-change
+invalidation is a release gate in the product plan. Scoped index grants remain
+unsupported until a verifiable access route exists. Datadog connections
+registered before the identity binding
 change report `reconnect_required` and are excluded from sync, queries, and
 expansion. Disconnect and connect them again with read-only credentials;
 reconnecting starts a fresh corpus, and logs outside current Datadog retention

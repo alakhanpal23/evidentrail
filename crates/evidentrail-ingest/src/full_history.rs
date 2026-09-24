@@ -58,6 +58,7 @@ pub enum HistorySyncErrorV1 {
     InvalidConfiguration,
     InvalidPage,
     PermissionDenied,
+    AccessScopeUnverifiable,
     AuthenticationChanged,
     TokenExpired,
     Throttled,

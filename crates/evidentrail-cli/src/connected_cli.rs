@@ -1367,9 +1367,6 @@ fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailur
     let identity = identity_source
         .current_access_identity()
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_IDENTITY_FAILED"))?;
-    identity_source
-        .current_access_scope_digest(&identity)
-        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ACCESS_SCOPE_FAILED"))?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
@@ -1387,6 +1384,7 @@ fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailur
             application_key.to_string(),
         )
         .and_then(|mut source| {
+            source.current_access_scope_digest(&identity)?;
             source.fetch_page(
                 HistoryPartitionV1 {
                     start_millis: now.saturating_sub(1000),
@@ -1546,14 +1544,6 @@ fn rotate_datadog(options: DatadogRotateOptions, recovering: bool) -> Result<Exi
             "EVIDENTRAIL_DATADOG_ROTATION_ORG_CHANGED",
         ));
     }
-    DatadogHistorySourceV1::connect(
-        site,
-        DatadogStorageTierV1::Indexes,
-        api_key.to_string(),
-        application_key.to_string(),
-    )
-    .and_then(|source| source.current_access_scope_digest(&identity))
-    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_SCOPE_FAILED"))?;
     for (_, binding) in &bound {
         check_datadog_identity(binding, &identity)
             .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_SCOPE_CHANGED"))?;
@@ -1572,6 +1562,9 @@ fn rotate_datadog(options: DatadogRotateOptions, recovering: bool) -> Result<Exi
             application_key.to_string(),
         )
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_READ_FAILED"))?;
+        source
+            .current_access_scope_digest(&identity)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_SCOPE_FAILED"))?;
         source
             .fetch_page(
                 HistoryPartitionV1 {
