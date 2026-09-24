@@ -2021,7 +2021,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires three pinned RCAEval RE3 log corpora"]
+    #[ignore = "requires pinned RCAEval RE3 log corpora"]
     fn rcaeval_connected_log_only_probe() {
         struct ProbeSelector<'a> {
             root_service: &'a str,
@@ -2082,11 +2082,6 @@ mod tests {
         let labels: Value =
             serde_json::from_slice(&fs::read(Path::new(&directory).join("labels.json")).unwrap())
                 .unwrap();
-        let cases = [
-            ("re3ob_cartservice_f1_1", "cartservice"),
-            ("re3ob_emailservice_f1_1", "emailservice"),
-            ("re3ob_adservice_f3_1", "adservice"),
-        ];
         let run_model = std::env::var("EVIDENTRAIL_RUN_RCAEVAL_MODEL_EVAL").as_deref() == Ok("1");
         let model_name = std::env::var("EVIDENTRAIL_COMPACT_LOCAL_MODEL")
             .unwrap_or_else(|_| "gpt-6-sol".to_owned());
@@ -2094,9 +2089,26 @@ mod tests {
             OpenAiIncidentReasoner::from_compact_environment()
                 .expect("configure a local Ollama model or OPENAI_API_KEY")
         });
-        for (case, root_service) in cases {
+        for (case, label) in labels.as_object().unwrap() {
+            let root_service = label["root_cause_service"].as_str().unwrap();
+            let root_message = label["root_message"].as_str();
+            let root_fingerprint = root_message.map(|message| {
+                evidentrail_log_model::parse_event(
+                    0,
+                    &json!({"service": root_service, "message": message}).to_string(),
+                )
+                .fingerprint
+            });
+            let matches_root_template = |raw: &[u8]| {
+                let Some(fingerprint) = &root_fingerprint else {
+                    return false;
+                };
+                let event =
+                    evidentrail_log_model::parse_event(0, std::str::from_utf8(raw).unwrap());
+                event.service == root_service && event.fingerprint == *fingerprint
+            };
             assert_eq!(labels[case]["root_cause_service"], root_service);
-            assert_eq!(labels[case]["has_root_cause_file"], false);
+            assert_eq!(labels[case]["has_root_cause_file"], root_message.is_some());
             let inject_time = labels[case]["inject_time"].as_i64().unwrap();
             let raw = fs::read(Path::new(&directory).join(format!("{case}.jsonl"))).unwrap();
             let lines = raw
@@ -2108,6 +2120,7 @@ mod tests {
             let ingest_started = Instant::now();
             let mut root_source_lines = 0;
             let mut post_injection_root_source_lines = 0;
+            let mut labeled_source_lines = 0;
             for (start, chunk) in lines.chunks(256).enumerate() {
                 let records = chunk
                     .iter()
@@ -2115,6 +2128,9 @@ mod tests {
                     .map(|(offset, line)| {
                         let row: Value = serde_json::from_slice(line).unwrap();
                         let root = row["service"].as_str() == Some(root_service);
+                        labeled_source_lines += usize::from(
+                            root && root_message.is_some_and(|message| row["message"] == message),
+                        );
                         root_source_lines += usize::from(root);
                         post_injection_root_source_lines +=
                             usize::from(root && row["timestamp"].as_i64().unwrap() >= inject_time);
@@ -2128,7 +2144,22 @@ mod tests {
                 store.commit_page_checked(&records).unwrap();
             }
             let ingest_ms = ingest_started.elapsed().as_millis();
+            if root_message.is_some() {
+                assert_eq!(labeled_source_lines, 1);
+            }
             let recent = recent_lines(&store, 32768);
+            let recent_labeled_lines = recent
+                .iter()
+                .filter(|(_, raw)| {
+                    let row: Value = serde_json::from_slice(raw).unwrap();
+                    row["service"].as_str() == Some(root_service)
+                        && root_message.is_some_and(|message| row["message"] == message)
+                })
+                .count();
+            let recent_template_lines = recent
+                .iter()
+                .filter(|(_, raw)| matches_root_template(raw))
+                .count();
             let recent_root_lines = recent
                 .iter()
                 .filter(|(_, raw)| {
@@ -2179,6 +2210,18 @@ mod tests {
                             && row["timestamp"].as_i64().unwrap() >= inject_time
                     })
                     .count();
+                let selected_labeled_lines = selected
+                    .iter()
+                    .filter(|(_, raw)| {
+                        let row: Value = serde_json::from_slice(raw).unwrap();
+                        row["service"].as_str() == Some(root_service)
+                            && root_message.is_some_and(|message| row["message"] == message)
+                    })
+                    .count();
+                let selected_template_lines = selected
+                    .iter()
+                    .filter(|(_, raw)| matches_root_template(raw))
+                    .count();
                 println!(
                     "RCAEVAL_CONNECTED_EVAL {}",
                     json!({
@@ -2188,6 +2231,7 @@ mod tests {
                         "source_lines": lines.len(),
                         "root_source_lines": root_source_lines,
                         "post_injection_root_source_lines": post_injection_root_source_lines,
+                        "labeled_source_lines": labeled_source_lines,
                         "groups": store.group_count().unwrap(),
                         "ingest_ms": ingest_ms,
                         "query_ms": started.elapsed().as_millis(),
@@ -2200,9 +2244,13 @@ mod tests {
                         "selected_lines": selected.len(),
                         "selected_root_lines": selected_root_lines,
                         "selected_post_injection_root_lines": selected_post_injection_root_lines,
+                        "selected_labeled_lines": selected_labeled_lines,
+                        "selected_template_lines": selected_template_lines,
                         "recent_lines": recent.len(),
                         "recent_root_lines": recent_root_lines,
                         "recent_post_injection_root_lines": recent_post_injection_root_lines,
+                        "recent_labeled_lines": recent_labeled_lines,
+                        "recent_template_lines": recent_template_lines,
                         "candidate_pool_truncated": pack.candidate_pool_truncated,
                         "service_directory_truncated": pack.service_directory_truncated,
                         "output_budget_truncated": pack.output_budget_truncated,
@@ -2245,6 +2293,18 @@ mod tests {
                             && row["timestamp"].as_i64().unwrap() >= inject_time
                     })
                     .count();
+                let selected_labeled_lines = selected
+                    .iter()
+                    .filter(|(_, raw)| {
+                        let row: Value = serde_json::from_slice(raw).unwrap();
+                        row["service"].as_str() == Some(root_service)
+                            && root_message.is_some_and(|message| row["message"] == message)
+                    })
+                    .count();
+                let selected_template_lines = selected
+                    .iter()
+                    .filter(|(_, raw)| matches_root_template(raw))
+                    .count();
                 println!(
                     "RCAEVAL_CONNECTED_EVAL {}",
                     json!({
@@ -2259,6 +2319,9 @@ mod tests {
                         "selected_lines": selected.len(),
                         "selected_root_lines": selected_root_lines,
                         "selected_post_injection_root_lines": selected_post_injection_root_lines,
+                        "selected_labeled_lines": selected_labeled_lines,
+                        "selected_template_lines": selected_template_lines,
+                        "labeled_source_lines": labeled_source_lines,
                         "query_ms": started.elapsed().as_millis(),
                         "selection_calls": pack.selection_calls,
                         "selection_elapsed_ms": pack.selection_elapsed_ms,

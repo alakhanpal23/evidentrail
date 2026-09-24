@@ -128,6 +128,14 @@ coding-agent outcome. Two local model runs on those cases each found the
 labeled service in only 1/3 cases and took 46–92 seconds on the hardest query;
 the first-ID baseline found it in 3/3. Neither local route is qualified for
 unconditional connected selection by this probe.
+An opt-in [seven-case RCAEval line-label probe](reports/connected-rcaeval-labeled-2026-09-24.md)
+checks published root-cause log lines across 596,494 Sock Shop records. The
+first-ID selector found the labeled service in all seven cases but returned
+the exact labeled line or its parsed template in none; a recent-line baseline
+also missed every label. A parser update reduces template fragmentation and
+rebuilds derived indexes on reopen while preserving original log bytes, but
+did not improve line recall on this generic-task probe. Model and downstream
+fix quality remain unqualified.
 An opt-in [executable fault-stream probe](reports/connected-executable-2026-09-24.md)
 uses three frozen synthetic faults with an early causal precursor and a later
 symptom. Both the first-ID baseline and one local model run returned both

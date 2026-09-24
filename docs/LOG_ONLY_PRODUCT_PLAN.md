@@ -3,7 +3,7 @@
 **Status:** product target and acceptance plan, with the current implementation
 status below. This plan supersedes the two-path direction in `PRODUCT_ROADMAP.md`.
 
-## Implementation status (2026-09-23)
+## Implementation status (2026-09-24)
 
 The connected macOS CLI and MCP path is implemented but is **not production
 validated**. Users can register read-only CloudWatch log groups or Datadog
@@ -66,6 +66,17 @@ service in two cases, but still missed the sparse email-service case that the
 first-ID baseline found. That query took 213 seconds. Model size alone has not
 qualified a selector, and this service-membership proxy cannot establish that
 the returned lines would help an agent fix the fault.
+The [seven-case RCAEval line-label probe](../reports/connected-rcaeval-labeled-2026-09-24.md)
+adds a stronger target: a published root-cause log message present once per
+case in 596,494 full-history Sock Shop records. First-ID selection found the
+labeled service in 7/7 but the exact labeled line and its parsed template in
+0/7; severity-only and twelve recent representatives also found no labeled
+line. The parser now recognizes complete Spring Boot and HTTP access preambles,
+with a version-5 rebuild of derived group indexes. Group count fell from
+379,858 to 353,222 in an exploratory matched-corpus comparison, while
+line/template recall remained 0/7. This is a negative selector result under
+a generic task, not evidence that no useful line was returned. No model route
+or downstream repair was evaluated on these seven cases.
 An opt-in live-model harness now runs the actual selector over the same pinned
 12-category BGL proxy and verifies every emitted line against the encrypted
 corpus. A local Qwen2.5-Coder 7B run hit 12/12 categories with 107 off-label

@@ -83,6 +83,9 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         })
         .or_else(|| bgl.as_ref().map(|record| record.message.as_str()))
         .unwrap_or(raw);
+    let spring = parse_spring_boot_message(message);
+    let fingerprint_message = spring.map_or(message, |(_, body)| body);
+    let http_access = parse_http_access_message(fingerprint_message);
     let service = parsed
         .as_ref()
         .and_then(|value| {
@@ -132,10 +135,16 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         .or_else(|| bracketed_level(raw).map(str::to_owned))
         .or_else(|| field_value(raw, "level="))
         .or_else(|| bgl.as_ref().map(|record| record.level.clone()))
+        .or_else(|| spring.map(|(level, _)| level.to_owned()))
+        .or_else(|| http_access.as_ref().map(|(_, level)| (*level).to_owned()))
         .unwrap_or_default();
-    let role = classify_role(&level, message);
-    let fingerprint = if parsed.is_some() || bgl.is_some() {
-        let mut tokens = message.split_ascii_whitespace().collect::<Vec<_>>();
+    let role = classify_role(&level, fingerprint_message);
+    let fingerprint = if let Some((fingerprint, _)) = http_access {
+        fingerprint
+    } else if parsed.is_some() || bgl.is_some() {
+        let mut tokens = fingerprint_message
+            .split_ascii_whitespace()
+            .collect::<Vec<_>>();
         if tokens.first().is_some_and(|token| looks_like_date(token)) {
             tokens.remove(0);
             if tokens.first().is_some_and(|token| looks_like_time(token)) {
@@ -173,6 +182,92 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         fingerprint,
         timestamp,
     }
+}
+
+/// Spring Boot's timestamp, tracing tuple, thread, and logger identify one
+/// occurrence, not the message template. Strip them only for this complete
+/// preamble shape; raw source bytes remain untouched.
+fn parse_spring_boot_message(message: &str) -> Option<(&str, &str)> {
+    let (prefix, body) = message.split_once(" : ")?;
+    if body.is_empty() {
+        return None;
+    }
+    let fields = prefix.split_ascii_whitespace().collect::<Vec<_>>();
+    let [date, time, level, trace, pid, divider, thread, logger] = fields.as_slice() else {
+        return None;
+    };
+    if !looks_like_date(date)
+        || !looks_like_time(time)
+        || !matches!(
+            *level,
+            "FATAL" | "ERROR" | "WARN" | "INFO" | "DEBUG" | "TRACE"
+        )
+        || !trace.starts_with('[')
+        || !trace.ends_with(']')
+        || !trace.contains(',')
+        || !pid.bytes().all(|byte| byte.is_ascii_digit())
+        || *divider != "---"
+        || !thread.starts_with('[')
+        || !thread.ends_with(']')
+        || logger.is_empty()
+    {
+        return None;
+    }
+    Some((level, body))
+}
+
+/// Preserve HTTP method, route, and status while grouping variable request
+/// latency and response size in the common seven-field access-log format.
+fn parse_http_access_message(message: &str) -> Option<(String, &'static str)> {
+    let mut fields = message.split_ascii_whitespace();
+    let method = fields.next()?;
+    let path = fields.next()?;
+    let status = fields.next()?;
+    let duration = fields.next()?;
+    let unit = fields.next()?;
+    let dash = fields.next()?;
+    let bytes = fields.next()?;
+    if fields.next().is_some() {
+        return None;
+    }
+    if !matches!(
+        method,
+        "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS"
+    ) || !path.starts_with('/')
+        || path.len() > 512
+        || status.len() != 3
+        || !status.bytes().all(|byte| byte.is_ascii_digit())
+        || unit != "ms"
+        || dash != "-"
+        || !bytes.bytes().all(|byte| byte.is_ascii_digit())
+        || !duration
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b'.')
+        || duration
+            .parse::<f64>()
+            .ok()
+            .is_none_or(|value| !value.is_finite())
+    {
+        return None;
+    }
+    let status_number = status.parse::<u16>().ok()?;
+    if !(100..=599).contains(&status_number) {
+        return None;
+    }
+    let level = if status_number >= 500 {
+        "error"
+    } else if status_number >= 400 {
+        "warning"
+    } else {
+        "info"
+    };
+    Some((
+        format!(
+            "{} {path} {status} <latency> ms - <bytes>",
+            method.to_ascii_lowercase()
+        ),
+        level,
+    ))
 }
 
 struct BglRecord {
@@ -489,5 +584,54 @@ mod tests {
         assert_eq!(first.fingerprint, second.fingerprint);
         assert!(first.raw.contains(":33569"));
         assert!(second.raw.contains(":33370"));
+    }
+
+    #[test]
+    fn spring_boot_trace_preamble_does_not_fragment_warning_template() {
+        let first = r#"{"service":"carts","message":"2024-11-22 02:51:59.404  WARN [carts,37dd0e6423df9dc9,37dd0e6423df9dc9,false] 7 --- [nio-80-exec-17] o.s.web.servlet.PageNotFound : Request method 'POST' not supported"}"#;
+        let second = r#"{"service":"carts","message":"2024-11-22 05:44:56.787  WARN [carts,4f69084c4e2a939e,4f69084c4e2a939e,false] 7 --- [nio-80-exec-1] o.s.web.servlet.PageNotFound : Request method 'POST' not supported"}"#;
+        let a = parse_event(1, first);
+        let b = parse_event(2, second);
+        assert_eq!(a.fingerprint, b.fingerprint);
+        assert_eq!(a.role, "warning");
+        assert_eq!(a.raw, first);
+        let different = first.replace("'POST'", "'GET'");
+        assert_ne!(a.fingerprint, parse_event(3, &different).fingerprint);
+        assert!(
+            parse_spring_boot_message(
+                "2024-11-22 02:51:59 WARN [broken] x --- [thread] logger : failure"
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn http_access_latency_and_bytes_do_not_fragment_status_and_route() {
+        let first = parse_event(
+            1,
+            r#"{"service":"front-end","message":"POST /cart 500 72.969 ms - 70"}"#,
+        );
+        let second = parse_event(
+            2,
+            r#"{"service":"front-end","message":"POST /cart 500 54.305 ms - 82"}"#,
+        );
+        assert_eq!(first.fingerprint, second.fingerprint);
+        assert_eq!(first.role, "error");
+        assert_ne!(
+            first.fingerprint,
+            parse_event(
+                3,
+                r#"{"service":"front-end","message":"POST /cart 200 54.305 ms - 82"}"#
+            )
+            .fingerprint
+        );
+        assert_ne!(
+            first.fingerprint,
+            parse_event(
+                4,
+                r#"{"service":"front-end","message":"POST /checkout 500 54.305 ms - 82"}"#
+            )
+            .fingerprint
+        );
     }
 }

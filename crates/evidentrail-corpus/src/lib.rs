@@ -28,7 +28,7 @@ pub use macos_corpus_keychain::{
     ConnectedSourceDescriptorV1, CorpusKeychainErrorV1, MacOsCorpusKeychainV1,
 };
 
-const PARSER_INDEX_VERSION: i64 = 4;
+const PARSER_INDEX_VERSION: i64 = 5;
 const GRAPH_INDEX_VERSION: i64 = 2;
 const TERM_INDEX_VERSION: i64 = 1;
 const MAX_RAW_RECORD_BYTES: usize = 16 * 1024 * 1024;
@@ -371,7 +371,7 @@ impl EncryptedHistoryStore {
                 |row| row.get(0),
             )
             .map_err(|_| CorpusError::Storage)?;
-        if !matches!(version, 1 | 2 | 3 | PARSER_INDEX_VERSION) {
+        if !matches!(version, 1 | 2 | 3 | 4 | PARSER_INDEX_VERSION) {
             return Err(CorpusError::IndexVersionMismatch);
         }
         connection
@@ -428,7 +428,7 @@ impl EncryptedHistoryStore {
         }
         if version == 1 {
             // Reset derived state atomically. A crash during the subsequent
-            // bounded backfill leaves version 4 with missing memberships,
+            // bounded backfill leaves version 5 with missing memberships,
             // which `index_unindexed_records` resumes on the next open.
             connection
                 .execute_batch(
@@ -439,7 +439,7 @@ impl EncryptedHistoryStore {
                  DELETE FROM log_groups;
                  DELETE FROM edge_evidence;
                  DELETE FROM service_edges;
-                 UPDATE index_metadata SET parser_version = 4 WHERE singleton = 1;
+                 UPDATE index_metadata SET parser_version = 5 WHERE singleton = 1;
                  UPDATE graph_metadata SET extractor_version = 2,
                      graph_version = 0, backfill_complete = 0 WHERE singleton = 1;
                  UPDATE term_metadata SET backfill_complete = 0 WHERE singleton = 1;
@@ -448,7 +448,7 @@ impl EncryptedHistoryStore {
                  COMMIT;",
                 )
                 .map_err(|_| CorpusError::Storage)?;
-        } else if matches!(version, 2 | 3) {
+        } else if matches!(version, 2..=4) {
             // Rebuild parser-derived groups, terms, and severe-service summaries
             // without touching source bytes or the independently versioned graph.
             connection
@@ -458,7 +458,7 @@ impl EncryptedHistoryStore {
                  DELETE FROM group_terms;
                  DELETE FROM severe_service_groups;
                  DELETE FROM log_groups;
-                 UPDATE index_metadata SET parser_version = 4 WHERE singleton = 1;
+                 UPDATE index_metadata SET parser_version = 5 WHERE singleton = 1;
                  UPDATE term_metadata SET backfill_complete = 0 WHERE singleton = 1;
                  UPDATE severe_service_metadata SET backfill_complete = 0 WHERE singleton = 1;
                  UPDATE severe_service_metadata SET last_group_id = 0 WHERE singleton = 1;
@@ -3052,6 +3052,51 @@ mod tests {
             assert_eq!(groups.len(), 1);
             assert_eq!(groups[0].service, "app");
             assert_eq!(groups[0].role, "critical");
+        }
+        cleanup(&path);
+    }
+
+    #[test]
+    fn v4_index_rebuilds_spring_groups_without_changing_original_records() {
+        let path = test_path();
+        let key = [32; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        let first = br#"{"service":"carts","message":"2024-11-22 02:51:59.404 WARN [carts,aaa,aaa,false] 7 --- [exec-1] logger : Request method 'POST' not supported"}"#.to_vec();
+        let second = br#"{"service":"carts","message":"2024-11-22 05:44:56.787 WARN [carts,bbb,bbb,false] 7 --- [exec-2] logger : Request method 'POST' not supported"}"#.to_vec();
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            store
+                .commit_page_checked(&[
+                    HistoryRecordV1 {
+                        native_id: b"first".to_vec(),
+                        event_timestamp_millis: 1,
+                        bytes: first.clone(),
+                    },
+                    HistoryRecordV1 {
+                        native_id: b"second".to_vec(),
+                        event_timestamp_millis: 2,
+                        bytes: second.clone(),
+                    },
+                ])
+                .unwrap();
+            store
+                .connection
+                .execute("UPDATE log_groups SET role = 'context'", [])
+                .unwrap();
+            store
+                .connection
+                .execute("UPDATE index_metadata SET parser_version = 4", [])
+                .unwrap();
+        }
+        {
+            let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert_eq!(store.get_record(b"first").unwrap().unwrap().bytes, first);
+            assert_eq!(store.get_record(b"second").unwrap().unwrap().bytes, second);
+            let groups = store.read_group_cards(0, 10).unwrap();
+            assert_eq!(groups.len(), 1);
+            assert_eq!(groups[0].repeat_count, 2);
+            assert_eq!(groups[0].role, "warning");
         }
         cleanup(&path);
     }
