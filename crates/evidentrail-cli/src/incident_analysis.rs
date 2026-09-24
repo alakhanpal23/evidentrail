@@ -2624,7 +2624,7 @@ fn request_contains_sensitive_data(value: &Value) -> bool {
 
 pub(crate) fn contains_sensitive_data(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
-    [
+    if [
         "password=",
         "passwd=",
         "api_key=",
@@ -2632,13 +2632,40 @@ pub(crate) fn contains_sensitive_data(text: &str) -> bool {
         "secret=",
         "authorization:",
         "dsn=",
-        "\"password\":",
-        "\"api_key\":",
-        "\"access_token\":",
-        "\"secret\":",
+        "bearer ",
+        "-----begin private key-----",
     ]
     .iter()
     .any(|pattern| lower.contains(pattern))
+    {
+        return true;
+    }
+    [
+        "password",
+        "passwd",
+        "api_key",
+        "apikey",
+        "access_token",
+        "accesstoken",
+        "refresh_token",
+        "session_token",
+        "secret",
+        "client_secret",
+        "private_key",
+        "authorization",
+        "token",
+        "dsn",
+        "connection_string",
+        "aws_access_key_id",
+        "aws_secret_access_key",
+    ]
+    .iter()
+    .any(|key| {
+        let quoted = format!("\"{key}\"");
+        lower
+            .match_indices(&quoted)
+            .any(|(start, _)| lower[start + quoted.len()..].trim_start().starts_with(':'))
+    })
 }
 
 fn extract_output_text(provider: &Value) -> Option<&str> {
@@ -3948,6 +3975,14 @@ mod tests {
         ));
         assert!(request_contains_sensitive_data(
             &json!({"sample":"{\"password\":\"canary\"}"})
+        ));
+        assert!(request_contains_sensitive_data(
+            &json!({"sample":"{\"authorization\" : \"Basic canary\"}"})
+        ));
+        assert!(contains_sensitive_data("{\"client_secret\"  : \"canary\"}"));
+        assert!(contains_sensitive_data("Authorization: Bearer canary"));
+        assert!(!contains_sensitive_data(
+            "token budget exceeded for checkout"
         ));
     }
 
