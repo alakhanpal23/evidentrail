@@ -22,10 +22,16 @@ target/release/evidentrail sources sync
 target/release/evidentrail sources service install
 target/release/evidentrail sources service status
 target/release/evidentrail sources disconnect --source-id SOURCE_ID_FROM_LIST
-EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
+EVIDENTRAIL_COMPACT_LOCAL_MODEL=YOUR_OLLAMA_MODEL \
   target/release/evidentrail logs --task "Find checkout failures" \
   --max-raw-bytes 32768
 ```
+
+For the local selector, start Ollama with a 32K context before calling `logs`
+(for example, `OLLAMA_CONTEXT_LENGTH=32768 ollama serve`). The installed model
+and its context setting are checked by the adapter. Local model routing remains
+experimental; the seven-case probe below did not qualify Qwen2.5-Coder 7B or
+Qwen3 14B as a default.
 
 CloudWatch registration verifies the AWS caller and log-group read access,
 then binds the encrypted corpus to the caller ARN reported by STS. Sync and
@@ -136,7 +142,11 @@ indexed repeated-severity candidate path, it found 3/7 exact lines and 7/7
 parsed templates at the same output budget. This increased selector paging
 and candidate truncation; a recent-line baseline still missed every label.
 The parser groups variable fields while preserving original log bytes. Model
-selection and downstream fix quality remain unqualified.
+selection and downstream fix quality remain unqualified. One local
+Qwen2.5-Coder 7B run selected 3/7 labeled templates and 1/7 exact lines,
+versus 7/7 and 3/7 for first-ID selection, and took 371 seconds across the
+seven queries. This model is not a qualified default; Ollama needed a 32K
+context for the probe.
 An opt-in [executable fault-stream probe](reports/connected-executable-2026-09-24.md)
 uses three frozen synthetic faults with an early causal precursor and a later
 symptom. Both the first-ID baseline and one local model run returned both

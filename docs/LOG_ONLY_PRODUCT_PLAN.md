@@ -81,8 +81,11 @@ recall to 3/7 and parsed-template recall to 7/7 at the same output budget;
 selector calls rose from 17 to 28 and all seven candidate pools reported
 truncation. A lexical-strength gate preserved the prior BGL category results
 for message-specific tasks. These are deterministic selector proxies, not
-proof that repetition implies causal relevance. No model route or downstream
-repair was evaluated on the seven RCAEval cases.
+proof that repetition implies causal relevance. An actual local Qwen2.5-Coder
+7B run with a 32K context found the labeled template in 3/7 cases and the
+exact line in 1/7, taking 370.7 seconds across 28 selector calls. It is not a
+qualified default. No hosted route or downstream repair was evaluated on
+these seven cases.
 An opt-in live-model harness now runs the actual selector over the same pinned
 12-category BGL proxy and verifies every emitted line against the encrypted
 corpus. A local Qwen2.5-Coder 7B run hit 12/12 categories with 107 off-label
