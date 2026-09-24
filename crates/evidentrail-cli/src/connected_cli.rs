@@ -240,7 +240,7 @@ fn feedback_command(mut args: impl Iterator<Item = OsString>) -> Result<ExitCode
     let action = args
         .next()
         .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_FEEDBACK_ACTION_REQUIRED"))?;
-    if action != "evaluate" && action != "promote" {
+    if action != "evaluate" && action != "promote" && action != "rollback" {
         return Err(CliFailure::usage("EVIDENTRAIL_FEEDBACK_ACTION_INVALID"));
     }
     let mut source_id = None;
@@ -302,16 +302,26 @@ fn feedback_command(mut args: impl Iterator<Item = OsString>) -> Result<ExitCode
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_FEEDBACK_SOURCE_UNAVAILABLE"))?;
     let evaluation = if action == "promote" {
         store.promote_feedback(&task)
+    } else if action == "rollback" {
+        store.rollback_feedback(&task)
     } else {
         store.evaluate_feedback(&task)
     }
     .map_err(|_| CliFailure::runtime("EVIDENTRAIL_FEEDBACK_CORPUS_FAILURE"))?;
+    let version = store
+        .feedback_policy_version(&task)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_FEEDBACK_CORPUS_FAILURE"))?;
     write_sources_json(&json!({
-        "status": if action == "promote" { "promotion_evaluated" } else { "evaluation_only" },
+        "status": match action.to_str() {
+            Some("promote") => "promotion_evaluated",
+            Some("rollback") => "promotion_rolled_back",
+            _ => "evaluation_only",
+        },
         "source_id": hex(&digest), "observations": evaluation.observations,
         "positive_groups": evaluation.positive_groups,
         "eligible_groups": evaluation.eligible_groups,
         "promoted_groups": evaluation.promoted_groups,
+        "active_policy_version": version,
     }))
 }
 

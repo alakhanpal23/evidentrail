@@ -8,6 +8,12 @@
 > [implementation plan](docs/LOG_ONLY_PRODUCT_PLAN.md). The connected flow is
 > partially implemented and has not been validated against live providers.
 
+The [source coverage gates](docs/SOURCE_COVERAGE_GATES.md) explain why Datadog
+cached reads and Sentry structured-log ingestion remain unavailable. The
+[paired repair study](docs/CONNECTED_REPAIR_STUDY.md) provides exact-source
+and executable-test verification for selector comparisons; no held-out study
+has yet qualified a default route.
+
 On macOS, CloudWatch connection registration uses an AWS profile, and Sentry
 error-event registration uses a read-only token:
 
@@ -35,6 +41,8 @@ target/release/evidentrail sources disconnect --source-id SOURCE_ID_FROM_LIST
 target/release/evidentrail sources feedback evaluate \
   --source-id SOURCE_ID_FROM_LIST --task "Find checkout failures"
 target/release/evidentrail sources feedback promote \
+  --source-id SOURCE_ID_FROM_LIST --task "Find checkout failures"
+target/release/evidentrail sources feedback rollback \
   --source-id SOURCE_ID_FROM_LIST --task "Find checkout failures"
 EVIDENTRAIL_COMPACT_LOCAL_MODEL=YOUR_OLLAMA_MODEL \
   target/release/evidentrail logs --task "Find checkout failures" \
@@ -72,11 +80,13 @@ The MCP `evidentrail_connected_feedback` tool accepts `useful` or `not_useful`
 only for an exact record selected by an unexpired connected result. Ratings
 are stored in that source's encrypted corpus under a digest of the query text.
 They never change ranking automatically. `sources feedback evaluate` reports
-whether at least three independent useful ratings, with no negative rating,
+whether at least three distinct result ratings marked useful, with no negative rating,
 point to a group missed by a bounded lexical baseline. `promote` explicitly
 adds those groups to the candidate pool for the same task; the model still
-chooses final records. This is a narrow, opt-in repeated-task learning loop,
-not proof that promoted groups improve coding-agent fixes.
+chooses final records. Each promotion creates a source-local policy version;
+`rollback` restores its parent version, and a negative rating removes the
+rejected group from every version. This is a narrow, opt-in repeated-task
+learning loop, not proof that promoted groups improve coding-agent fixes.
 Datadog registration reads `DD_API_KEY` and `DD_APP_KEY` from the environment,
 binds the connection to the authenticated organization, user, and assigned role
 IDs, and requires the read-only `logs_read_config` permission to fingerprint

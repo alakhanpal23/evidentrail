@@ -15,7 +15,10 @@ This does not cover Sentry structured logs because its documented Explore
 table endpoint is not a full export API.
 Datadog registration remains experimental: its sources are blocked from sync,
 connected queries, and expansion because the current access fingerprint cannot
-verify Data Access Control policy. Connected CloudWatch queries search the corpus without
+verify Data Access Control policy. The
+[source coverage audit](SOURCE_COVERAGE_GATES.md) identifies the missing
+Strict/Standard mode and unrestricted-group API evidence; the preview dataset
+list alone cannot safely authorize cached data. Connected CloudWatch queries search the corpus without
 a user-selected time window, let a local or hosted model select advertised
 IDs, and resolve the selected lines to exact original records. Result-scoped
 MCP expansion reads bounded chronological neighbors after checking the source
@@ -34,8 +37,15 @@ useful/not-useful ratings in the encrypted source corpus. A separate CLI
 evaluation requires three distinct positive result observations, no negatives,
 and a missed bounded lexical baseline before an operator can promote a group
 for the same task. Promotion injects bounded candidates but does not force
-final model selection; it has local behavioral tests, not held-out evidence of
-better repairs. Broader cross-task learning remains open.
+final model selection. Promotions now have source-local parent versions and
+an explicit rollback; negative ratings remove rejected groups from every
+snapshot. This has local behavioral tests, not held-out evidence of better
+repairs. Broader cross-task learning remains open. The contentless
+paired-repair study scorer rejects incomplete cases, development/held-out
+leakage, unmatched raw-log budgets, failed buggy/fixed test controls,
+provenance failures, and underpowered comparisons. It does not run the repair
+agent or establish a positive product result; verified repair receipts and
+enough independent held-out cases are still needed.
 Lexical search, priority fallback, and graph
 neighbors provide bounded group candidates. When lexical search or fallback
 truncates, model-selected directory pages show bounded original-log examples

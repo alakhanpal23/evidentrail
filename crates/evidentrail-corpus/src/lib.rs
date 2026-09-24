@@ -320,6 +320,26 @@ impl EncryptedHistoryStore {
                      native_id BLOB NOT NULL REFERENCES history_records(native_id) ON DELETE CASCADE,
                      PRIMARY KEY(task_digest, native_id)
                  );
+                 CREATE TABLE IF NOT EXISTS feedback_policy_versions (
+                     task_digest BLOB NOT NULL CHECK (length(task_digest) = 32),
+                     version INTEGER NOT NULL CHECK (version > 0),
+                     parent_version INTEGER,
+                     PRIMARY KEY(task_digest, version)
+                 );
+                 CREATE TABLE IF NOT EXISTS feedback_policy_members (
+                     task_digest BLOB NOT NULL CHECK (length(task_digest) = 32),
+                     version INTEGER NOT NULL,
+                     native_id BLOB NOT NULL REFERENCES history_records(native_id) ON DELETE CASCADE,
+                     PRIMARY KEY(task_digest, version, native_id),
+                     FOREIGN KEY(task_digest, version)
+                         REFERENCES feedback_policy_versions(task_digest, version) ON DELETE CASCADE
+                 );
+                 CREATE TABLE IF NOT EXISTS feedback_policy_state (
+                     task_digest BLOB PRIMARY KEY CHECK (length(task_digest) = 32),
+                     active_version INTEGER NOT NULL CHECK (active_version > 0),
+                     FOREIGN KEY(task_digest, active_version)
+                         REFERENCES feedback_policy_versions(task_digest, version)
+                 );
                  CREATE TABLE IF NOT EXISTS log_groups (
                      group_id INTEGER PRIMARY KEY,
                      service TEXT NOT NULL,
@@ -1389,6 +1409,13 @@ impl EncryptedHistoryStore {
                     params![digest.as_slice(), group.group_id],
                 )
                 .map_err(|_| CorpusError::Storage)?;
+            transaction
+                .execute(
+                    "DELETE FROM feedback_policy_members WHERE task_digest=?1 AND native_id IN
+                 (SELECT native_id FROM group_members WHERE group_id=?2)",
+                    params![digest.as_slice(), group.group_id],
+                )
+                .map_err(|_| CorpusError::Storage)?;
         }
         transaction.commit().map_err(|_| CorpusError::Storage)?;
         Ok(())
@@ -1496,6 +1523,52 @@ impl EncryptedHistoryStore {
             .connection
             .transaction()
             .map_err(|_| CorpusError::Storage)?;
+        let mut active_version: Option<i64> = transaction
+            .query_row(
+                "SELECT active_version FROM feedback_policy_state WHERE task_digest=?1",
+                [digest.as_slice()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| CorpusError::Storage)?;
+        if active_version.is_none() {
+            let legacy_count: i64 = transaction
+                .query_row(
+                    "SELECT count(*) FROM feedback_promotions WHERE task_digest=?1",
+                    [digest.as_slice()],
+                    |row| row.get(0),
+                )
+                .map_err(|_| CorpusError::Storage)?;
+            if legacy_count > 0 {
+                transaction
+                    .execute(
+                        "INSERT INTO feedback_policy_versions(task_digest,version,parent_version) VALUES (?1,1,NULL)",
+                        [digest.as_slice()],
+                    )
+                    .map_err(|_| CorpusError::Storage)?;
+                transaction
+                    .execute(
+                        "INSERT INTO feedback_policy_members(task_digest,version,native_id)
+                         SELECT task_digest,1,native_id FROM feedback_promotions WHERE task_digest=?1",
+                        [digest.as_slice()],
+                    )
+                    .map_err(|_| CorpusError::Storage)?;
+                active_version = Some(1);
+            }
+        }
+        let next_version: i64 = transaction
+            .query_row(
+                "SELECT COALESCE(MAX(version),0)+1 FROM feedback_policy_versions WHERE task_digest=?1",
+                [digest.as_slice()],
+                |row| row.get(0),
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        transaction
+            .execute(
+                "INSERT INTO feedback_policy_versions(task_digest,version,parent_version) VALUES (?1,?2,?3)",
+                params![digest.as_slice(), next_version, active_version],
+            )
+            .map_err(|_| CorpusError::Storage)?;
         transaction
             .execute(
                 "DELETE FROM feedback_promotions WHERE task_digest=?1",
@@ -1512,9 +1585,76 @@ impl EncryptedHistoryStore {
                     "INSERT OR IGNORE INTO feedback_promotions(task_digest,native_id) VALUES (?1,?2)",
                     params![digest.as_slice(), native_id],
                 ).map_err(|_| CorpusError::Storage)?;
+                transaction.execute(
+                    "INSERT INTO feedback_policy_members(task_digest,version,native_id) VALUES (?1,?2,?3)",
+                    params![digest.as_slice(), next_version, native_id],
+                ).map_err(|_| CorpusError::Storage)?;
                 promoted += 1;
             }
         }
+        transaction
+            .execute(
+                "INSERT INTO feedback_policy_state(task_digest,active_version) VALUES (?1,?2)
+                 ON CONFLICT(task_digest) DO UPDATE SET active_version=excluded.active_version",
+                params![digest.as_slice(), next_version],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        transaction.commit().map_err(|_| CorpusError::Storage)?;
+        self.evaluate_feedback(task)
+    }
+
+    pub fn feedback_policy_version(&self, task: &str) -> Result<Option<i64>, CorpusError> {
+        let digest = feedback_task_digest(task)?;
+        self.connection
+            .query_row(
+                "SELECT active_version FROM feedback_policy_state WHERE task_digest=?1",
+                [digest.as_slice()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| CorpusError::Storage)
+    }
+
+    /// Restore the parent snapshot. A negative rating removes that group's
+    /// members from every snapshot, so rollback cannot resurrect rejected
+    /// evidence.
+    pub fn rollback_feedback(&mut self, task: &str) -> Result<FeedbackEvaluation, CorpusError> {
+        let digest = feedback_task_digest(task)?;
+        let active = self
+            .feedback_policy_version(task)?
+            .ok_or(CorpusError::InvalidPageBudget)?;
+        let parent: i64 = self
+            .connection
+            .query_row(
+                "SELECT parent_version FROM feedback_policy_versions WHERE task_digest=?1 AND version=?2",
+                params![digest.as_slice(), active],
+                |row| row.get(0),
+            )
+            .map_err(|_| CorpusError::InvalidPageBudget)?;
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|_| CorpusError::Storage)?;
+        transaction
+            .execute(
+                "DELETE FROM feedback_promotions WHERE task_digest=?1",
+                [digest.as_slice()],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        transaction
+            .execute(
+                "INSERT INTO feedback_promotions(task_digest,native_id)
+                 SELECT task_digest,native_id FROM feedback_policy_members
+                 WHERE task_digest=?1 AND version=?2",
+                params![digest.as_slice(), parent],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        transaction
+            .execute(
+                "UPDATE feedback_policy_state SET active_version=?2 WHERE task_digest=?1",
+                params![digest.as_slice(), parent],
+            )
+            .map_err(|_| CorpusError::Storage)?;
         transaction.commit().map_err(|_| CorpusError::Storage)?;
         self.evaluate_feedback(task)
     }
@@ -3114,6 +3254,83 @@ mod tests {
                 .record_feedback(task, b"missing", &[5; 32], FeedbackVerdict::Useful)
                 .is_err()
         );
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn feedback_policy_rollback_restores_parent_without_resurrecting_rejected_groups() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[7; 32], &[1; 32], &[2; 32]).unwrap();
+        store
+            .commit_page_checked(&[
+                HistoryRecordV1 {
+                    native_id: b"first".to_vec(),
+                    event_timestamp_millis: 1,
+                    bytes: br#"{"service":"payments","message":"rare upstream timeout"}"#.to_vec(),
+                },
+                HistoryRecordV1 {
+                    native_id: b"second".to_vec(),
+                    event_timestamp_millis: 2,
+                    bytes: br#"{"service":"inventory","message":"stock counter mismatch"}"#
+                        .to_vec(),
+                },
+            ])
+            .unwrap();
+        let task = "checkout failure";
+        for nonce in [[1; 32], [2; 32], [3; 32]] {
+            store
+                .record_feedback(task, b"first", &nonce, FeedbackVerdict::Useful)
+                .unwrap();
+        }
+        assert_eq!(store.promote_feedback(task).unwrap().promoted_groups, 1);
+        assert_eq!(store.feedback_policy_version(task).unwrap(), Some(1));
+        for nonce in [[4; 32], [5; 32], [6; 32]] {
+            store
+                .record_feedback(task, b"second", &nonce, FeedbackVerdict::Useful)
+                .unwrap();
+        }
+        assert_eq!(store.promote_feedback(task).unwrap().promoted_groups, 2);
+        assert_eq!(store.feedback_policy_version(task).unwrap(), Some(2));
+        assert_eq!(store.rollback_feedback(task).unwrap().promoted_groups, 1);
+        assert_eq!(store.feedback_policy_version(task).unwrap(), Some(1));
+        store
+            .record_feedback(task, b"first", &[7; 32], FeedbackVerdict::NotUseful)
+            .unwrap();
+        assert!(store.search_promoted_groups(task, 8).unwrap().is_empty());
+        assert_eq!(store.promote_feedback(task).unwrap().promoted_groups, 1);
+        assert_eq!(store.feedback_policy_version(task).unwrap(), Some(3));
+        assert_eq!(store.rollback_feedback(task).unwrap().promoted_groups, 0);
+        assert!(store.search_promoted_groups(task, 8).unwrap().is_empty());
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn legacy_feedback_promotion_becomes_the_first_rollback_snapshot() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[7; 32], &[1; 32], &[2; 32]).unwrap();
+        store
+            .commit_page_checked(&[HistoryRecordV1 {
+                native_id: b"legacy".to_vec(),
+                event_timestamp_millis: 1,
+                bytes: br#"{"service":"payments","message":"rare upstream timeout"}"#.to_vec(),
+            }])
+            .unwrap();
+        let task = "checkout failure";
+        let digest = feedback_task_digest(task).unwrap();
+        store
+            .connection
+            .execute(
+                "INSERT INTO feedback_promotions(task_digest,native_id) VALUES (?1,?2)",
+                params![digest.as_slice(), b"legacy".as_slice()],
+            )
+            .unwrap();
+        assert_eq!(store.feedback_policy_version(task).unwrap(), None);
+        assert_eq!(store.promote_feedback(task).unwrap().promoted_groups, 0);
+        assert_eq!(store.feedback_policy_version(task).unwrap(), Some(2));
+        assert_eq!(store.rollback_feedback(task).unwrap().promoted_groups, 1);
+        assert_eq!(store.feedback_policy_version(task).unwrap(), Some(1));
         drop(store);
         cleanup(&path);
     }
