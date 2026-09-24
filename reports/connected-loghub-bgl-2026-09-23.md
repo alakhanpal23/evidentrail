@@ -52,7 +52,11 @@ The group-card excerpt cap increased from 160 to 256 characters after the
 probe showed that the shorter excerpt hid the decisive suffixes of two BGL
 alerts. Tests verify those suffixes are now visible to a selector. The 12-way
 deterministic results above do not measure whether a model uses that extra
-context, and the larger excerpt may increase model cost.
+context, and the larger excerpt may increase model cost. Long records now use
+bounded head and tail fragments with an explicit omission marker, so a
+diagnostic suffix beyond the first 512 bytes can still be seen without
+loading the full record into the ranking prompt. Final log output continues
+to resolve exact original bytes by source ID.
 
 Run `bash scripts/eval-loghub-bgl.sh` from the repository root. The script
 fetches the pinned upstream sample into a temporary directory; the test

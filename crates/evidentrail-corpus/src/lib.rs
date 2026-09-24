@@ -75,6 +75,7 @@ pub struct StoredHistoryRecord {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecordSample {
     pub prefix: Vec<u8>,
+    pub suffix: Vec<u8>,
     pub original_byte_len: u64,
 }
 
@@ -1785,8 +1786,9 @@ impl EncryptedHistoryStore {
         }))
     }
 
-    /// Read only a bounded prefix for ranking; callers must resolve the full
-    /// original record by native ID before including it in a log pack.
+    /// Read bounded fragments from both ends for ranking; callers must
+    /// resolve the full original record by native ID before including it in a
+    /// log pack.
     pub fn read_record_sample(
         &self,
         native_id: &[u8],
@@ -1797,12 +1799,14 @@ impl EncryptedHistoryStore {
         }
         self.connection
             .query_row(
-                "SELECT substr(raw, 1, ?2), length(raw) FROM history_records WHERE native_id = ?1",
+                "SELECT substr(raw, 1, ?2), substr(raw, -?2), length(raw)
+                 FROM history_records WHERE native_id = ?1",
                 params![native_id, max_bytes as i64],
                 |row| {
                     Ok(RecordSample {
                         prefix: row.get(0)?,
-                        original_byte_len: row.get(1)?,
+                        suffix: row.get(1)?,
+                        original_byte_len: row.get(2)?,
                     })
                 },
             )
@@ -2423,6 +2427,7 @@ mod tests {
                 store.read_record_sample(b"event-1", 6).unwrap().unwrap(),
                 RecordSample {
                     prefix: b"secret".to_vec(),
+                    suffix: b"al log".to_vec(),
                     original_byte_len: 19
                 }
             );
@@ -2458,6 +2463,30 @@ mod tests {
             EncryptedHistoryStore::open(&path, &key, &[3; 32], &source),
             Err(CorpusError::ScopeMismatch)
         ));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn record_sample_reads_bounded_head_and_tail_of_large_record() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[7; 32], &[1; 32], &[2; 32]).unwrap();
+        let mut raw = b"header".to_vec();
+        raw.extend(std::iter::repeat_n(b'x', 10_000));
+        raw.extend_from_slice(b"disk exhausted");
+        store
+            .commit_page_checked(&[HistoryRecordV1 {
+                native_id: b"long".to_vec(),
+                event_timestamp_millis: 1,
+                bytes: raw.clone(),
+            }])
+            .unwrap();
+        let sample = store.read_record_sample(b"long", 32).unwrap().unwrap();
+        assert_eq!(sample.prefix.len(), 32);
+        assert_eq!(sample.suffix.len(), 32);
+        assert!(sample.prefix.starts_with(b"header"));
+        assert!(sample.suffix.ends_with(b"disk exhausted"));
+        assert_eq!(sample.original_byte_len, raw.len() as u64);
+        drop(store);
         cleanup(&path);
     }
 

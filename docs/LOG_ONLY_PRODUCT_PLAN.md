@@ -45,10 +45,11 @@ line for all 12 message-derived tasks with either deterministic selector,
 versus one with a newest-group baseline, but 147/189 and 136/178 returned
 lines carry other labels. That is a noisy proxy, not a model-quality result or
 proof that those other lines are irrelevant.
-The group cards now expose up to 256 characters from a bounded original-log
-sample, because the previous 160-character cap hid several BGL diagnostic
-suffixes after long system-log prefixes. This increases model input size;
-live-model selection quality and cost still need measurement.
+The group cards now expose up to 256 characters from bounded original-log
+head and tail samples, with an explicit omission marker for longer records.
+The previous 160-character prefix cap hid several BGL diagnostic suffixes
+after long system-log prefixes. This increases model input size; live-model
+selection quality and cost still need measurement.
 
 Local connector and authorization contract tests pass. Live CloudWatch and
 Datadog sandbox validation, complete provider-coverage proofs under retention
