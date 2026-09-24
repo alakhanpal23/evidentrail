@@ -109,17 +109,23 @@ def score(cases, rows):
     sufficiently_independent = len(held) >= 10 and len(projects) >= 3 and len(families) >= 3
     counts = {arm: sum(rows[(case_id, arm)]["repair_test_passes"] for case_id in held)
               for arm in ARMS}
-    comparisons = {}
-    for arm in ("no_logs", "first_id", "severity", "current"):
-        challenger_only = sum(rows[(case_id, "challenger")]["repair_test_passes"]
-                              and not rows[(case_id, arm)]["repair_test_passes"] for case_id in held)
-        baseline_only = sum(rows[(case_id, arm)]["repair_test_passes"]
-                            and not rows[(case_id, "challenger")]["repair_test_passes"] for case_id in held)
-        comparisons[arm] = {
-            "challenger_only": challenger_only,
+    def paired(target, baseline):
+        target_only = sum(rows[(case_id, target)]["repair_test_passes"]
+                          and not rows[(case_id, baseline)]["repair_test_passes"]
+                          for case_id in held)
+        baseline_only = sum(rows[(case_id, baseline)]["repair_test_passes"]
+                            and not rows[(case_id, target)]["repair_test_passes"]
+                            for case_id in held)
+        return {
+            "target_only": target_only,
             "baseline_only": baseline_only,
-            "one_sided_exact_p": one_sided_exact_p(challenger_only, baseline_only),
+            "one_sided_exact_p": one_sided_exact_p(target_only, baseline_only),
         }
+
+    comparisons = {arm: paired("challenger", arm)
+                   for arm in ("no_logs", "first_id", "severity", "current")}
+    current_comparisons = {arm: paired("current", arm)
+                           for arm in ("no_logs", "first_id", "severity")}
     p95 = {arm: percentile_95([rows[(case_id, arm)]["elapsed_ms"] for case_id in held])
            for arm in ARMS} if held else {}
     calls = {arm: sum(rows[(case_id, arm)]["model_calls"] for case_id in held)
@@ -138,6 +144,7 @@ def score(cases, rows):
         "held_out_fault_families": len(families),
         "verified_repair_successes": counts,
         "paired_comparisons": comparisons,
+        "current_vs_baselines": current_comparisons,
         "p95_elapsed_ms": p95,
         "model_calls": calls,
         "challenger_eligible_for_human_review": eligible,

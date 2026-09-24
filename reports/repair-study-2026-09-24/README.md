@@ -5,14 +5,24 @@ This is an opt-in, source-exact repair study on pinned historical bugs from
 study screened 79 candidate bugs from Black, The Fuck, FastAPI, PySnooper, and
 HTTPie in an isolated Python 3.9 environment. Twenty-six reproduced with the
 same hidden regression test failing on buggy source and passing on fixed
-source. Ten of those cases were locked before held-out trials: four projects,
-seven fault families, and a 1,024-byte original-log cap for every arm.
+source. The original lock contains ten cases. PySnooper bug 2 had been used
+for an agent-runner pilot before that lock, so its paired results are
+**development only**. A separately committed supplement prelocked the next
+two eligible, unpiloted Black bugs (8 and 9) and their source-exact packs
+before their agent trials. The final held-out analysis therefore contains
+eleven cases from Black, The Fuck, and FastAPI, across six fault families,
+with a 1,024-byte original-log cap for every arm. The supplement was chosen
+after the first two original trial outcomes were visible, which limits the
+strength of any confirmatory claim; the choice used numeric eligibility,
+not those outcomes or any challenger tuning.
 
 [`locked-cases.json`](locked-cases.json) pins source revisions, exact tree and
 log digests, the task, allowed editable files, and the test command. It was
 committed before any held-out agent run. [`pack-lock.json`](pack-lock.json)
 pins the exact original-log packs and selection metadata; it was committed
-before any held-out repair run. The public [`artifacts/`](artifacts/) directory
+before any held-out repair run. The [supplemental case lock](supplemental-cases.json)
+and [pack lock](supplement-pack-lock.json) were likewise committed before
+their own trials. The public [`artifacts/`](artifacts/) directory
 contains the exact source-record inventories and selected packs. Upstream
 source trees, hidden tests, agent traces, and trial patches stay outside this
 repository. The commands below recreate the source trees from public pinned
@@ -63,7 +73,7 @@ for case_dir in reports/repair-study-2026-09-24/artifacts/*; do
 done
 cargo +1.88.0 build -p evidentrail-cli --bin evidentrail-repair-study-select
 # `prepare` can rerun selection, but model choices can vary. The committed
-# packs are the exact inputs for the original paired trial.
+# packs are the exact inputs for the paired trials.
 python3 scripts/run-connected-repair-study.py run \
   --case-lock reports/repair-study-2026-09-24/locked-cases.json \
   --pack-lock reports/repair-study-2026-09-24/pack-lock.json \
@@ -71,14 +81,29 @@ python3 scripts/run-connected-repair-study.py run \
   --packs reports/repair-study-2026-09-24/artifacts \
   --output-dir /tmp/evidentrail-repair-study-trials \
   --python /tmp/evidentrail-repair-venv/bin/python
+python3 scripts/run-connected-repair-study.py run \
+  --case-lock reports/repair-study-2026-09-24/supplemental-cases.json \
+  --pack-lock reports/repair-study-2026-09-24/supplement-pack-lock.json \
+  --artifacts-root /tmp/evidentrail-repair-cases \
+  --packs reports/repair-study-2026-09-24/artifacts \
+  --output-dir /tmp/evidentrail-repair-study-supplement-trials \
+  --python /tmp/evidentrail-repair-venv/bin/python
+python3 scripts/merge-repair-study-manifests.py \
+  --primary-manifest /tmp/evidentrail-repair-study-trials/study.json \
+  --primary-lock reports/repair-study-2026-09-24/locked-cases.json \
+  --supplement-manifest /tmp/evidentrail-repair-study-supplement-trials/study.json \
+  --supplement-lock reports/repair-study-2026-09-24/supplemental-cases.json \
+  --output /tmp/evidentrail-repair-study-merged.json
 python3 scripts/verify-connected-repair-trials.py \
-  --manifest /tmp/evidentrail-repair-study-trials/study.json \
+  --manifest /tmp/evidentrail-repair-study-merged.json \
   > /tmp/evidentrail-repair-verified.jsonl
 python3 scripts/score-connected-repair-study.py \
-  --manifest /tmp/evidentrail-repair-study-trials/study.json \
+  --manifest /tmp/evidentrail-repair-study-merged.json \
   --results /tmp/evidentrail-repair-verified.jsonl
 ```
 
 The full paired trial is in progress. No held-out route or model is qualified
-until all ten cases have complete, independently verified arms and the frozen
-scoring gate passes.
+until all eleven held-out cases have complete, independently verified arms,
+the frozen scoring gate passes, and model cost can be established. The Codex
+CLI exposes turn token counts here, but not a reliable dollar price or its
+internal model-call count; reported calls count CLI invocations only.
