@@ -551,6 +551,29 @@ fn assess_route_report(report: &serde_json::Value) -> Result<(&str, &str, bool),
     passed &= p95_challenger <= p95_current.max(1).saturating_mul(5) / 4;
     passed &= calls_challenger <= calls_current.max(1).saturating_mul(5) / 4;
     passed &= report["challenger_eligible_for_human_review"].as_bool() == Some(true);
+    // A shadow report may omit cost. Promotion cannot: all paired arms must
+    // have metered model cost, including the memory-off ablation. CLI token
+    // estimates and a missing price are not a billing receipt.
+    let cost = &report["model_cost_microusd"];
+    let measured_costs: Option<Vec<u64>> = [
+        "no_logs",
+        "first_id",
+        "severity",
+        "current",
+        "challenger",
+        "challenger_no_memory",
+    ]
+    .iter()
+    .map(|arm| cost[arm].as_u64().filter(|value| *value > 0))
+    .collect();
+    if let Some(values) = measured_costs {
+        passed &= report["model_cost_basis"].as_str() == Some("metered_api")
+            && report["cost_guardrail_passed"].as_bool() == Some(true)
+            && values[4] <= values[3].saturating_mul(5) / 4
+            && values[4] <= values[5].saturating_mul(5) / 4;
+    } else {
+        passed = false;
+    }
     let ablation = &report["memory_ablation"];
     if ablation.is_null() {
         return Ok((selector, model, false));
@@ -3460,7 +3483,20 @@ mod tests {
             "memory_off_only":0,"one_sided_exact_p":0.001,
             "raw_budget_matched":true,"source_exact":true,"qualified":true});
         report["route_eligible_for_promotion"] = serde_json::json!(true);
+        assert!(!assess_route_report(&report).unwrap().2);
+        report["model_cost_basis"] = serde_json::json!("metered_api");
+        report["cost_guardrail_passed"] = serde_json::json!(true);
+        report["model_cost_microusd"] = serde_json::json!({
+            "no_logs":100,"first_id":100,"severity":100,
+            "current":100,"challenger":110,"challenger_no_memory":110
+        });
         assert!(assess_route_report(&report).unwrap().2);
+        report["model_cost_microusd"]["challenger"] = serde_json::json!(126);
+        assert!(!assess_route_report(&report).unwrap().2);
+        report["model_cost_microusd"]["challenger"] = serde_json::json!(110);
+        report["model_cost_basis"] = serde_json::json!("cli_estimate");
+        assert!(!assess_route_report(&report).unwrap().2);
+        report["model_cost_basis"] = serde_json::json!("metered_api");
         report["memory_ablation"]["memory_off_only"] = serde_json::json!(1);
         assert!(!assess_route_report(&report).unwrap().2);
     }

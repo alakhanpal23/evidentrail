@@ -42,6 +42,16 @@ def score_ablation(cases, rows, scorer):
     }
 
 
+def cost_guardrail(costs, basis):
+    """Accept complete metered API costs, never an inferred CLI price."""
+    if basis != "metered_api" or not isinstance(costs, dict):
+        return False
+    if any(type(costs.get(arm)) is not int or costs[arm] <= 0 for arm in ARMS):
+        return False
+    return (4 * costs["challenger"] <= 5 * costs["current"]
+            and 4 * costs["challenger"] <= 5 * costs["challenger_no_memory"])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True, type=Path)
@@ -72,9 +82,15 @@ def main():
         raise ValueError("results differ from independently rerun verifier")
     report = scorer.score(cases, rows)
     report["memory_ablation"] = score_ablation(cases, rows, scorer)
+    # The existing verifier has no provider-metered selector or repair-agent
+    # billing receipt. A CLI token proxy must not silently qualify promotion.
+    report["model_cost_basis"] = "unavailable"
+    report["model_cost_microusd"] = None
+    report["cost_guardrail_passed"] = cost_guardrail(
+        report["model_cost_microusd"], report["model_cost_basis"])
     report["route_eligible_for_promotion"] = (report["challenger_eligible_for_human_review"]
-                                               and report["memory_ablation"]["qualified"])
-    report["cost_usd"] = None  # verifier records calls, not token usage or billing
+                                               and report["memory_ablation"]["qualified"]
+                                               and report["cost_guardrail_passed"])
     report.update({field: frozen[field] for field in
                    ("repair_agent_model", "current_route", "challenger_route")})
     report["challenger_no_memory_route"] = memory_off_route

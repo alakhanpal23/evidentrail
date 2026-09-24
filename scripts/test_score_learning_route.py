@@ -57,5 +57,14 @@ class MemoryAblationTests(unittest.TestCase):
                 for arm in ("challenger", "challenger_no_memory")}
         self.assertFalse(route.score_ablation(cases, rows, base)["qualified"])
 
+    def test_cost_guardrail_fails_closed_without_complete_metering(self):
+        costs = {arm: 100 for arm in route.ARMS}
+        self.assertTrue(route.cost_guardrail(costs, "metered_api"))
+        self.assertFalse(route.cost_guardrail(None, "metered_api"))
+        self.assertFalse(route.cost_guardrail(costs, "cli_estimate"))
+        self.assertFalse(route.cost_guardrail({**costs, "challenger": 126}, "metered_api"))
+        self.assertFalse(route.cost_guardrail({**costs, "first_id": 0}, "metered_api"))
+        self.assertFalse(route.cost_guardrail({**costs, "severity": True}, "metered_api"))
+
 if __name__ == "__main__":
     unittest.main()
