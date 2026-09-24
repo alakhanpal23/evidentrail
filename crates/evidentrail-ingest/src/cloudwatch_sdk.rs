@@ -166,17 +166,28 @@ fn valid_scope(binding: &CloudWatchPlanV1, caller_account: &str) -> bool {
         return false;
     }
     if !group.starts_with("arn:") {
-        return account == caller_account;
+        return account == caller_account && valid_log_group_name(group);
     }
     let parts = group.splitn(7, ':').collect::<Vec<_>>();
     parts.len() == 7
         && parts[0] == "arn"
+        && !parts[1].is_empty()
+        && parts[1]
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
         && parts[2] == "logs"
         && parts[3] == region
         && parts[4] == account
         && parts[5] == "log-group"
-        && !parts[6].is_empty()
-        && !parts[6].ends_with('*')
+        && valid_log_group_name(parts[6].strip_suffix(":*").unwrap_or(parts[6]))
+}
+
+fn valid_log_group_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 512
+        && name.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b'/' | b'#')
+        })
 }
 
 fn valid_account(value: &str) -> bool {
@@ -257,6 +268,10 @@ mod tests {
             &binding("123456789012", "us-east-1", arn),
             "999999999999"
         ));
+        assert!(valid_scope(
+            &binding("123456789012", "us-east-1", &format!("{arn}:*")),
+            "999999999999"
+        ));
         assert!(!valid_scope(
             &binding("123456789012", "us-west-2", arn),
             "999999999999"
@@ -264,6 +279,21 @@ mod tests {
         assert!(!valid_scope(
             &binding("999999999999", "us-east-1", arn),
             "999999999999"
+        ));
+        for invalid in [
+            format!("{arn}:log-stream:only-one"),
+            format!("{arn}:*:*"),
+            "arn:aws:logs:us-east-1:123456789012:log-group:bad:name".to_owned(),
+            "arn:aws:logs:us-east-1:123456789012:log-group:bad*".to_owned(),
+        ] {
+            assert!(!valid_scope(
+                &binding("123456789012", "us-east-1", &invalid),
+                "999999999999"
+            ));
+        }
+        assert!(!valid_scope(
+            &binding("123456789012", "us-east-1", "bad:name"),
+            "123456789012"
         ));
     }
 

@@ -28,6 +28,9 @@ EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
 ```
 
 CloudWatch registration verifies the AWS caller and log-group read access.
+For cross-account observability, pass the source account's log-group ARN;
+the ARN may use the documented trailing `:*` form. Log-stream ARNs are
+rejected because a connection covers the whole log group.
 Datadog registration reads `DD_API_KEY` and `DD_APP_KEY` from the environment,
 binds the connection to the authenticated organization, user, and assigned role
 IDs, and requires the read-only `logs_read_config` permission to fingerprint
