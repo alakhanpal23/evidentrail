@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use reqwest::blocking::Client;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderValue};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::{Value, value::RawValue};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use zeroize::Zeroizing;
@@ -256,9 +256,19 @@ impl HistoryPageSourceV1 for DatadogHistorySourceV1 {
 
 #[derive(Deserialize)]
 struct SearchResponse {
-    data: Option<Vec<Box<RawValue>>>,
+    #[serde(default, deserialize_with = "present_raw_data")]
+    data: Option<Box<RawValue>>,
     meta: Option<SearchMeta>,
     links: Option<SearchLinks>,
+}
+
+fn present_raw_data<'de, D>(deserializer: D) -> Result<Option<Box<RawValue>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // Preserve an explicit null, which Datadog documents as terminal, while
+    // a missing field defaults to None and remains invalid.
+    Box::<RawValue>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -294,12 +304,22 @@ fn parse_page(
         return Err(HistorySyncErrorV1::Provider);
     }
     let cursor = meta.page.and_then(|page| page.after);
-    if cursor.as_deref() == Some("")
-        || (response.links.and_then(|links| links.next).is_some() && cursor.is_none())
-    {
+    let has_next_link = response.links.and_then(|links| links.next).is_some();
+    if cursor.as_deref() == Some("") || (has_next_link && cursor.is_none()) {
         return Err(HistorySyncErrorV1::InvalidPage);
     }
     let data = response.data.ok_or(HistorySyncErrorV1::InvalidPage)?;
+    if data.get() == "null" {
+        if has_next_link {
+            return Err(HistorySyncErrorV1::InvalidPage);
+        }
+        return Ok(HistoryPageV1 {
+            records: Vec::new(),
+            next_token: None,
+        });
+    }
+    let data: Vec<Box<RawValue>> =
+        serde_json::from_str(data.get()).map_err(|_| HistorySyncErrorV1::InvalidPage)?;
     if data.len() > PAGE_LIMIT {
         return Err(HistorySyncErrorV1::InvalidPage);
     }
@@ -313,10 +333,7 @@ fn parse_page(
             .filter(|id| !id.is_empty())
             .ok_or(HistorySyncErrorV1::InvalidPage)?;
         if event.get("type").and_then(Value::as_str) != Some("log")
-            || event
-                .pointer("/attributes/message")
-                .and_then(Value::as_str)
-                .is_none()
+            || !event.get("attributes").is_some_and(Value::is_object)
         {
             return Err(HistorySyncErrorV1::InvalidPage);
         }
@@ -427,6 +444,22 @@ mod tests {
         assert_eq!(page.records[0].native_id, b"id-1");
         assert_eq!(page.records[0].event_timestamp_millis, 5);
         assert_eq!(page.records[0].bytes, raw.as_bytes());
+        let no_message = br#"{"data":[{"id":"id-2","type":"log","attributes":{"timestamp":"1970-01-01T00:00:00.006Z","service":"checkout"}}],"meta":{"status":"done"}}"#;
+        let page = parse_page(no_message, PARTITION).unwrap();
+        assert_eq!(page.records.len(), 1);
+        assert_eq!(page.records[0].native_id, b"id-2");
+        assert_eq!(page.records[0].event_timestamp_millis, 6);
+        let terminal = parse_page(
+            br#"{"data":null,"meta":{"status":"done","page":{"after":"stale"}}}"#,
+            PARTITION,
+        )
+        .unwrap();
+        assert!(terminal.records.is_empty());
+        assert!(terminal.next_token.is_none());
+        assert_eq!(
+            parse_page(br#"{"meta":{"status":"done"}}"#, PARTITION),
+            Err(HistorySyncErrorV1::InvalidPage)
+        );
         assert_eq!(
             parse_page(
                 br#"{"data":[],"meta":{"status":"done","warnings":[{"code":"partial"}]}}"#,
