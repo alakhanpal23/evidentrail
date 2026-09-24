@@ -64,6 +64,14 @@ every arm; the sparse service reached the final model page, but neither model
 selected it. A larger held-out set with line-level relevance labels and
 downstream coding tasks is needed before choosing a model route.
 
+A follow-up Qwen2.5-Coder 7B run used a stricter instruction to select the
+smallest directly useful set. It again included the labeled service only in
+the cart case (1/3), missing email and ad despite those services appearing in
+the final advertised groups. The email model query took 41.5 seconds. A
+separate BGL run showed only a small aggregate off-label reduction, so this
+instruction was reverted. These are single local runs and root-service
+membership remains a proxy, not a causal relevance judgment.
+
 Reproduce with `python3 -m pip install pyarrow==21.0.0` and
 `python3 scripts/eval-rcaeval-connected.py`. To add actual model selection,
 configure `EVIDENTRAIL_COMPACT_LOCAL_MODEL` for a running Ollama model or

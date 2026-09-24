@@ -25,6 +25,15 @@ The model improved this narrow output-noise proxy, but often selected the full
 This run does not qualify the model for production routing; the separate pinned
 RCAEval probe found the labeled root service in only 1/3 cases with this model.
 
+A second local run tested an instruction to select the smallest directly useful
+set and to prioritize concrete task phrases. It still hit all 12 categories,
+returning 104 off-label lines among 146 in 483.2 seconds, with four truncated
+queries. The three-line reduction from the first run is too small to establish
+an improvement from one run, and the DTLB task regressed from zero to 11
+off-label lines. The same instruction still missed two of three labeled
+services in the RCAEval probe. The instruction was reverted; these figures are
+an evaluated candidate, not the shipped selector behavior.
+
 The label is a proxy for task relevance, not proof that another label is
 irrelevant or that a coding agent can fix an incident. The tasks were derived
 from the sample, so these numbers cannot establish generalization. A run may
