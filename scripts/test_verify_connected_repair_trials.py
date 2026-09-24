@@ -13,6 +13,12 @@ SPEC = importlib.util.spec_from_file_location(
 )
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+SCORE_SPEC = importlib.util.spec_from_file_location(
+    "score_connected_repair_study",
+    Path(__file__).with_name("score-connected-repair-study.py"),
+)
+SCORE = importlib.util.module_from_spec(SCORE_SPEC)
+SCORE_SPEC.loader.exec_module(SCORE)
 
 
 class VerifiedTrialTests(unittest.TestCase):
@@ -20,7 +26,9 @@ class VerifiedTrialTests(unittest.TestCase):
         buggy = root / "buggy"
         buggy.mkdir()
         (buggy / "app.py").write_text("VALUE = 0\n")
-        (buggy / "test_app.py").write_text(
+        hidden = root / "hidden"
+        hidden.mkdir()
+        (hidden / "test_app.py").write_text(
             "import unittest\nfrom app import VALUE\n"
             "class Check(unittest.TestCase):\n"
             "    def test_value(self): self.assertEqual(VALUE, 1)\n"
@@ -54,9 +62,11 @@ class VerifiedTrialTests(unittest.TestCase):
                 "id": "synthetic-1", "project": "synthetic", "fault_family": "config",
                 "split": "development", "raw_budget": 4096,
                 "buggy_tree": "buggy", "fixed_tree": "fixed",
+                "hidden_test_tree": "hidden",
                 "source_records": "source.jsonl", "editable_paths": ["app.py"],
                 "buggy_tree_sha256": MODULE.tree_digest(buggy),
                 "fixed_tree_sha256": MODULE.tree_digest(fixed),
+                "hidden_test_tree_sha256": MODULE.tree_digest(hidden),
                 "source_records_sha256": MODULE.file_hash(source).hex(),
                 "test_argv": [sys.executable, "-m", "unittest", "test_app.Check.test_value"],
                 "arms": arms,
@@ -82,6 +92,28 @@ class VerifiedTrialTests(unittest.TestCase):
             (Path(temp) / "challenger" / "test_app.py").write_text("# bypassed\n")
             with self.assertRaises(ValueError):
                 MODULE.verify(manifest)
+
+    def test_hidden_tests_never_appear_in_agent_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, _ = self.fixture(Path(temp))
+            self.assertFalse((Path(temp) / "buggy" / "test_app.py").exists())
+            self.assertEqual(len(MODULE.verify(manifest)), 5)
+
+    def test_scorer_rechecks_trial_receipts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, _ = self.fixture(Path(temp))
+            rows = {(row["case_id"], row["arm"]): row for row in MODULE.verify(manifest)}
+            SCORE.verify_receipts(manifest, rows)
+            rows[("synthetic-1", "first_id")]["repair_test_passes"] = True
+            with self.assertRaises(ValueError):
+                SCORE.verify_receipts(manifest, rows)
+
+    def test_timed_out_buggy_control_cannot_count_as_a_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, _ = self.fixture(Path(temp))
+            with self.assertRaisesRegex(ValueError, "timed out"):
+                MODULE.test_passes(Path(temp) / "buggy", Path(temp) / "hidden",
+                                   [sys.executable, "-c", "import time; time.sleep(2)"], 1)
 
 
 if __name__ == "__main__":

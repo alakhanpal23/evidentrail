@@ -1,0 +1,752 @@
+{
+  "cases": [
+    {
+      "arms": {
+        "challenger": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-4/challenger",
+          "elapsed_ms": 83971,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-4/challenger.jsonl",
+          "log_pack_sha256": "d1bab37dde779e45b2e773319a79257c80a0948918887949678a0dcd2db2cf23",
+          "model_calls": 2
+        },
+        "current": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-4/current",
+          "elapsed_ms": 42095,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-4/current.jsonl",
+          "log_pack_sha256": "e39c188c9367b89fc5321deacd4b0e4dbad4f1c13205bdb4210f387565c22aac",
+          "model_calls": 2
+        },
+        "first_id": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-4/first_id",
+          "elapsed_ms": 42182,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-4/first_id.jsonl",
+          "log_pack_sha256": "d1bab37dde779e45b2e773319a79257c80a0948918887949678a0dcd2db2cf23",
+          "model_calls": 1
+        },
+        "no_logs": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-4/no_logs",
+          "elapsed_ms": 43013,
+          "log_pack": null,
+          "log_pack_sha256": null,
+          "model_calls": 1
+        },
+        "severity": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-4/severity",
+          "elapsed_ms": 64262,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-4/severity.jsonl",
+          "log_pack_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "model_calls": 1
+        }
+      },
+      "buggy_tree": "/tmp/evidentrail-repair-cases/black-4/buggy",
+      "buggy_tree_sha256": "07b501a87d445b1dc80168ad8bd2a510c4275c10942ff4daec1843bf3f8515f4",
+      "editable_paths": [
+        "black.py"
+      ],
+      "fault_family": "formatter_lexing",
+      "fixed_tree": "/tmp/evidentrail-repair-cases/black-4/fixed",
+      "fixed_tree_sha256": "d496ece199a8b89eb1788e25d77b6dda81c414ffd165a0a2b4f164dce3730694",
+      "hidden_test_tree": "/tmp/evidentrail-repair-cases/black-4/hidden-tests",
+      "hidden_test_tree_sha256": "6ea4f82ab00a66daef867b97b71d45c006137995e1d101b35c10858d8acdb8e2",
+      "id": "black-4",
+      "project": "black",
+      "raw_budget": 1024,
+      "source_records": "/tmp/evidentrail-repair-cases/black-4/source-records.jsonl",
+      "source_records_sha256": "944a0cba05f127d4cacb3d5625f8ba8e117a71c01859fb9b1654796b7b792350",
+      "split": "held_out",
+      "test_argv": [
+        "/tmp/evidentrail-repair-venv/bin/python",
+        "-m",
+        "unittest",
+        "-q",
+        "tests.test_black.BlackTestCase.test_beginning_backslash"
+      ]
+    },
+    {
+      "arms": {
+        "challenger": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-5/challenger",
+          "elapsed_ms": 57643,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-5/challenger.jsonl",
+          "log_pack_sha256": "91754574e70b3fa61ffa6b02baed64726c63b68dbfa271507fb646925edcf7a0",
+          "model_calls": 2
+        },
+        "current": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-5/current",
+          "elapsed_ms": 30812,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-5/current.jsonl",
+          "log_pack_sha256": "91754574e70b3fa61ffa6b02baed64726c63b68dbfa271507fb646925edcf7a0",
+          "model_calls": 2
+        },
+        "first_id": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-5/first_id",
+          "elapsed_ms": 40648,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-5/first_id.jsonl",
+          "log_pack_sha256": "f7f8652a7f20cc7c39c438666fce9b28007f90da986f1f3c4c69b34185abf096",
+          "model_calls": 1
+        },
+        "no_logs": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-5/no_logs",
+          "elapsed_ms": 31677,
+          "log_pack": null,
+          "log_pack_sha256": null,
+          "model_calls": 1
+        },
+        "severity": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-5/severity",
+          "elapsed_ms": 44833,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-5/severity.jsonl",
+          "log_pack_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "model_calls": 1
+        }
+      },
+      "buggy_tree": "/tmp/evidentrail-repair-cases/black-5/buggy",
+      "buggy_tree_sha256": "c4fb3668d797dbb9f840036bf526abe98691c95900354819a1c9a8b686fd71eb",
+      "editable_paths": [
+        "black.py"
+      ],
+      "fault_family": "formatter_lexing",
+      "fixed_tree": "/tmp/evidentrail-repair-cases/black-5/fixed",
+      "fixed_tree_sha256": "4bbfb5913c75409101c3fed340a343c1629f2c4d06db671a36a1a4383d8eeb0f",
+      "hidden_test_tree": "/tmp/evidentrail-repair-cases/black-5/hidden-tests",
+      "hidden_test_tree_sha256": "41e07a3287c08ae97a0d1aeaacd75b0623807e4a0cf1b01c3663c1912c565b39",
+      "id": "black-5",
+      "project": "black",
+      "raw_budget": 1024,
+      "source_records": "/tmp/evidentrail-repair-cases/black-5/source-records.jsonl",
+      "source_records_sha256": "38b1d7a5cb298512b3963d88186156155d3225a8acb4717af78a3adfe416bbd0",
+      "split": "held_out",
+      "test_argv": [
+        "/tmp/evidentrail-repair-venv/bin/python",
+        "-m",
+        "unittest",
+        "-q",
+        "tests.test_black.BlackTestCase.test_function_trailing_comma"
+      ]
+    },
+    {
+      "arms": {
+        "challenger": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-7/challenger",
+          "elapsed_ms": 87668,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-7/challenger.jsonl",
+          "log_pack_sha256": "bc655620606940b036d37871684336f4d6cfa8aaa50c5619d00b9794a8ded865",
+          "model_calls": 2
+        },
+        "current": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-7/current",
+          "elapsed_ms": 52525,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-7/current.jsonl",
+          "log_pack_sha256": "449804ea6009e2e6ba13d3304df69acede2e0944abd8d18440e2ae1ee0e210ef",
+          "model_calls": 2
+        },
+        "first_id": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-7/first_id",
+          "elapsed_ms": 41698,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-7/first_id.jsonl",
+          "log_pack_sha256": "bc655620606940b036d37871684336f4d6cfa8aaa50c5619d00b9794a8ded865",
+          "model_calls": 1
+        },
+        "no_logs": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-7/no_logs",
+          "elapsed_ms": 94059,
+          "log_pack": null,
+          "log_pack_sha256": null,
+          "model_calls": 1
+        },
+        "severity": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-7/severity",
+          "elapsed_ms": 39329,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-7/severity.jsonl",
+          "log_pack_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "model_calls": 1
+        }
+      },
+      "buggy_tree": "/tmp/evidentrail-repair-cases/black-7/buggy",
+      "buggy_tree_sha256": "aa7cc02bc515f8e2c3f37e9ab9c94ddf136ad06012f16856b127ecd4006e26cf",
+      "editable_paths": [
+        "black.py"
+      ],
+      "fault_family": "formatter_grammar",
+      "fixed_tree": "/tmp/evidentrail-repair-cases/black-7/fixed",
+      "fixed_tree_sha256": "54af12c7ca734dd8d6cc04e222eb5613822a7f2ebea89a29164e61c81104257c",
+      "hidden_test_tree": "/tmp/evidentrail-repair-cases/black-7/hidden-tests",
+      "hidden_test_tree_sha256": "3adfc9583a56729b40f42acf907488d0e2a73605f4a221112537e8cbe8d4db6d",
+      "id": "black-7",
+      "project": "black",
+      "raw_budget": 1024,
+      "source_records": "/tmp/evidentrail-repair-cases/black-7/source-records.jsonl",
+      "source_records_sha256": "fb23a27e24a602583d802e97633f40b0fa5b45dee29c97366dad335b3f926b01",
+      "split": "held_out",
+      "test_argv": [
+        "/tmp/evidentrail-repair-venv/bin/python",
+        "-m",
+        "unittest",
+        "-q",
+        "tests.test_black.BlackTestCase.test_tuple_assign"
+      ]
+    },
+    {
+      "arms": {
+        "challenger": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-11/challenger",
+          "elapsed_ms": 39241,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-11/challenger.jsonl",
+          "log_pack_sha256": "7a3c75bddec4f99df931613b4ef554101b5f0a7e27ef2728bd92d3c06cc369d8",
+          "model_calls": 2
+        },
+        "current": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-11/current",
+          "elapsed_ms": 76440,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-11/current.jsonl",
+          "log_pack_sha256": "682e71f63aa6442402574d3659e75d29a9c0766feacad074e661cd287c9a9429",
+          "model_calls": 2
+        },
+        "first_id": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-11/first_id",
+          "elapsed_ms": 43175,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-11/first_id.jsonl",
+          "log_pack_sha256": "45b00c03079d43ff91408f0930d7b97305ec86eedd89ababcbcaf930faa09379",
+          "model_calls": 1
+        },
+        "no_logs": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-11/no_logs",
+          "elapsed_ms": 48878,
+          "log_pack": null,
+          "log_pack_sha256": null,
+          "model_calls": 1
+        },
+        "severity": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/black-11/severity",
+          "elapsed_ms": 80693,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/black-11/severity.jsonl",
+          "log_pack_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "model_calls": 1
+        }
+      },
+      "buggy_tree": "/tmp/evidentrail-repair-cases/black-11/buggy",
+      "buggy_tree_sha256": "583de7a3a766d1df38a01d8073840f9a268660aae89dcaad818c39419ae78702",
+      "editable_paths": [
+        "black.py"
+      ],
+      "fault_family": "formatter_comments",
+      "fixed_tree": "/tmp/evidentrail-repair-cases/black-11/fixed",
+      "fixed_tree_sha256": "fd7bb476fd9af34246a658e20b461115f58060ac7290890d7797eec0c3c0417b",
+      "hidden_test_tree": "/tmp/evidentrail-repair-cases/black-11/hidden-tests",
+      "hidden_test_tree_sha256": "1b8eae59d1ea5dc10967dd34e6c56f2f51e649caafe99e7b566ec7107a9c33a4",
+      "id": "black-11",
+      "project": "black",
+      "raw_budget": 1024,
+      "source_records": "/tmp/evidentrail-repair-cases/black-11/source-records.jsonl",
+      "source_records_sha256": "3c161813a2f922125029f49fb5706933fbbbce36f0d1b67a76c17a90fa5567e6",
+      "split": "held_out",
+      "test_argv": [
+        "/tmp/evidentrail-repair-venv/bin/python",
+        "-m",
+        "unittest",
+        "-q",
+        "tests.test_black.BlackTestCase.test_comments6"
+      ]
+    },
+    {
+      "arms": {
+        "challenger": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-1/challenger",
+          "elapsed_ms": 36813,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/thefuck-1/challenger.jsonl",
+          "log_pack_sha256": "6107b05ec3cc713ce66d15070dc45d3b06a8eabe874803fb06d0f81db3e4b187",
+          "model_calls": 2
+        },
+        "current": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-1/current",
+          "elapsed_ms": 22324,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/thefuck-1/current.jsonl",
+          "log_pack_sha256": "6dff43dc751235049e6d466a63d1a65d2539cd28aaa6eec2a1f72dd03ade173d",
+          "model_calls": 2
+        },
+        "first_id": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-1/first_id",
+          "elapsed_ms": 24616,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/thefuck-1/first_id.jsonl",
+          "log_pack_sha256": "e017c0b14dfc3b8ccc7ba31c1a6fb4f13e2d619e6b808ec60b1cf48e197b71ea",
+          "model_calls": 1
+        },
+        "no_logs": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-1/no_logs",
+          "elapsed_ms": 28822,
+          "log_pack": null,
+          "log_pack_sha256": null,
+          "model_calls": 1
+        },
+        "severity": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-1/severity",
+          "elapsed_ms": 19105,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/thefuck-1/severity.jsonl",
+          "log_pack_sha256": "0c93277d209d2465fad325807cf9220bb3c3cd315ea29bb83f3189aab61e3495",
+          "model_calls": 1
+        }
+      },
+      "buggy_tree": "/tmp/evidentrail-repair-cases/thefuck-1/buggy",
+      "buggy_tree_sha256": "0830c657837e37254ec0f117c8a40af219a1cb28a1e29bc5b88dfcdc845c7c16",
+      "editable_paths": [
+        "thefuck/rules/pip_unknown_command.py"
+      ],
+      "fault_family": "command_rule",
+      "fixed_tree": "/tmp/evidentrail-repair-cases/thefuck-1/fixed",
+      "fixed_tree_sha256": "a8983c3f67750480cb115c9e06eac4adc7a0afdd1c450272d74d3978221930b3",
+      "hidden_test_tree": "/tmp/evidentrail-repair-cases/thefuck-1/hidden-tests",
+      "hidden_test_tree_sha256": "27e3f0c7e0b13bdcb5f0845e22ec14da8a848acecc5f04a5a9222263beab8dcf",
+      "id": "thefuck-1",
+      "project": "thefuck",
+      "raw_budget": 1024,
+      "source_records": "/tmp/evidentrail-repair-cases/thefuck-1/source-records.jsonl",
+      "source_records_sha256": "e3fd587d43fd95844b7a6f7313b47615c821f432cc8e2260bb04c0f983e41b63",
+      "split": "held_out",
+      "test_argv": [
+        "/tmp/evidentrail-repair-venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/rules/test_pip_unknown_command.py::test_get_new_command"
+      ]
+    },
+    {
+      "arms": {
+        "challenger": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-25/challenger",
+          "elapsed_ms": 22562,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/thefuck-25/challenger.jsonl",
+          "log_pack_sha256": "f88ecc0ee12416418d8c2dbcf9b8a64b948d5a2486a8eb57abc3f2763a22cf98",
+          "model_calls": 2
+        },
+        "current": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-25/current",
+          "elapsed_ms": 22444,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/thefuck-25/current.jsonl",
+          "log_pack_sha256": "47cc444a6c39aed278888a2dee5559bba3dc9291e0890e04a4f7213b82e89781",
+          "model_calls": 2
+        },
+        "first_id": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-25/first_id",
+          "elapsed_ms": 32376,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/thefuck-25/first_id.jsonl",
+          "log_pack_sha256": "c7763384dc5d3476c8b205542503e793a775c899589a322f1d133d675470502e",
+          "model_calls": 1
+        },
+        "no_logs": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-25/no_logs",
+          "elapsed_ms": 43782,
+          "log_pack": null,
+          "log_pack_sha256": null,
+          "model_calls": 1
+        },
+        "severity": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-25/severity",
+          "elapsed_ms": 23664,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/thefuck-25/severity.jsonl",
+          "log_pack_sha256": "88c4c08f0cac423cd7904b967f15b5986d7d4ec6dc1b880fbc5e232e3fd559cf",
+          "model_calls": 1
+        }
+      },
+      "buggy_tree": "/tmp/evidentrail-repair-cases/thefuck-25/buggy",
+      "buggy_tree_sha256": "97b8821d9a4e2be8e9d269b400db14ddcf33282c8dc699c90e946c1b153e7dcf",
+      "editable_paths": [
+        "thefuck/rules/mkdir_p.py"
+      ],
+      "fault_family": "command_rule",
+      "fixed_tree": "/tmp/evidentrail-repair-cases/thefuck-25/fixed",
+      "fixed_tree_sha256": "76c6b1b0198851f30c4c8cf10859c43b0f4ac0bc9b2bf5b719fac0054d89edb6",
+      "hidden_test_tree": "/tmp/evidentrail-repair-cases/thefuck-25/hidden-tests",
+      "hidden_test_tree_sha256": "4549a28a2a5f7972d9c368b5ec1e9e4210e513cb139c0783b424b42ff2f531c1",
+      "id": "thefuck-25",
+      "project": "thefuck",
+      "raw_budget": 1024,
+      "source_records": "/tmp/evidentrail-repair-cases/thefuck-25/source-records.jsonl",
+      "source_records_sha256": "c1be4c866237a8c9b2eb2d41170b2dd239972f88de9fdf1c26f4df51c586ba32",
+      "split": "held_out",
+      "test_argv": [
+        "/tmp/evidentrail-repair-venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/rules/test_mkdir_p.py::test_get_new_command"
+      ]
+    },
+    {
+      "arms": {
+        "challenger": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-26/challenger",
+          "elapsed_ms": 17925,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/thefuck-26/challenger.jsonl",
+          "log_pack_sha256": "15ab32f1d4c646d84d6ea0b5b59d007d22682aada0d81be2036b491c206be7e3",
+          "model_calls": 2
+        },
+        "current": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-26/current",
+          "elapsed_ms": 19817,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/thefuck-26/current.jsonl",
+          "log_pack_sha256": "f294de3d560872f36962ae2832c1cfcf72bc7376372f8c1a3315c1be793dc81d",
+          "model_calls": 2
+        },
+        "first_id": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-26/first_id",
+          "elapsed_ms": 12599,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/thefuck-26/first_id.jsonl",
+          "log_pack_sha256": "257d924e4e94d9c5e62c6f87729141886e505c0e9dc6aca645f8e3c46c98cae4",
+          "model_calls": 1
+        },
+        "no_logs": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-26/no_logs",
+          "elapsed_ms": 22492,
+          "log_pack": null,
+          "log_pack_sha256": null,
+          "model_calls": 1
+        },
+        "severity": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/thefuck-26/severity",
+          "elapsed_ms": 15575,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/thefuck-26/severity.jsonl",
+          "log_pack_sha256": "97bd58fc17271ee5d0e236a0a89ace81ce0637de09d654d4267f834df727c810",
+          "model_calls": 1
+        }
+      },
+      "buggy_tree": "/tmp/evidentrail-repair-cases/thefuck-26/buggy",
+      "buggy_tree_sha256": "3ce2378db3366737859fb10058df5c5397989557c471822f43debd4becabc2c4",
+      "editable_paths": [
+        "thefuck/rules/vagrant_up.py"
+      ],
+      "fault_family": "command_rule",
+      "fixed_tree": "/tmp/evidentrail-repair-cases/thefuck-26/fixed",
+      "fixed_tree_sha256": "6e500c8b42d1d89db9fa3d035886a2f668b190f18ca6f46e202f8e872b6c8457",
+      "hidden_test_tree": "/tmp/evidentrail-repair-cases/thefuck-26/hidden-tests",
+      "hidden_test_tree_sha256": "8fc6a58da85883b6dae958c804cf3bee7dd9e5e290981579af7c831be4b411ca",
+      "id": "thefuck-26",
+      "project": "thefuck",
+      "raw_budget": 1024,
+      "source_records": "/tmp/evidentrail-repair-cases/thefuck-26/source-records.jsonl",
+      "source_records_sha256": "82c305d1374db3f9e146f310d30fce426cc38335738bc2c832f47d8aa5b5d8ce",
+      "split": "held_out",
+      "test_argv": [
+        "/tmp/evidentrail-repair-venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/rules/test_vagrant_up.py::test_get_new_command"
+      ]
+    },
+    {
+      "arms": {
+        "challenger": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/fastapi-1/challenger",
+          "elapsed_ms": 32840,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/fastapi-1/challenger.jsonl",
+          "log_pack_sha256": "dbd3bdf290096795fa4371bd2596076c1cde12e110414214469b0b5a1a8bda45",
+          "model_calls": 2
+        },
+        "current": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/fastapi-1/current",
+          "elapsed_ms": 37947,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/fastapi-1/current.jsonl",
+          "log_pack_sha256": "604ec47ea9c4494e8a19e358decdfa0245b3399ac6685e668547db99c33c57f4",
+          "model_calls": 2
+        },
+        "first_id": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/fastapi-1/first_id",
+          "elapsed_ms": 24372,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/fastapi-1/first_id.jsonl",
+          "log_pack_sha256": "198fe6025ef041a4974c10edf16b738544fe47dfeb8c312bbb8f413293118bc6",
+          "model_calls": 1
+        },
+        "no_logs": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/fastapi-1/no_logs",
+          "elapsed_ms": 58207,
+          "log_pack": null,
+          "log_pack_sha256": null,
+          "model_calls": 1
+        },
+        "severity": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/fastapi-1/severity",
+          "elapsed_ms": 42406,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/fastapi-1/severity.jsonl",
+          "log_pack_sha256": "a4e24b52ba68cfe6571fc30a19b61404c092e01226b306fe88f9468a2decb605",
+          "model_calls": 1
+        }
+      },
+      "buggy_tree": "/tmp/evidentrail-repair-cases/fastapi-1/buggy",
+      "buggy_tree_sha256": "47daf29c24fe1f8ba66939ccf25108cec38bc5f49a8704f969e3ec82a07103ba",
+      "editable_paths": [
+        "fastapi/applications.py",
+        "fastapi/encoders.py",
+        "fastapi/openapi/utils.py",
+        "fastapi/routing.py"
+      ],
+      "fault_family": "api_serialization",
+      "fixed_tree": "/tmp/evidentrail-repair-cases/fastapi-1/fixed",
+      "fixed_tree_sha256": "6d043143331f25fe0dc5983a0c49192c86ab7dba52464637db173167225c7c92",
+      "hidden_test_tree": "/tmp/evidentrail-repair-cases/fastapi-1/hidden-tests",
+      "hidden_test_tree_sha256": "539622b7b89ebb4cb573e808e004c989f441bed4f52efddb35ba51a5a9c22752",
+      "id": "fastapi-1",
+      "project": "fastapi",
+      "raw_budget": 1024,
+      "source_records": "/tmp/evidentrail-repair-cases/fastapi-1/source-records.jsonl",
+      "source_records_sha256": "2760fc8e1b4fc037c20f63636d7ce1d012aa427b71f650cc7a4c5fe04f72ff82",
+      "split": "held_out",
+      "test_argv": [
+        "/tmp/evidentrail-repair-venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/test_jsonable_encoder.py::test_encode_model_with_default"
+      ]
+    },
+    {
+      "arms": {
+        "challenger": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/fastapi-2/challenger",
+          "elapsed_ms": 19802,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/fastapi-2/challenger.jsonl",
+          "log_pack_sha256": "59d7c86ae5fb2152e5284077014c02b906a4fa21b57e7c54136b932cc91fa020",
+          "model_calls": 2
+        },
+        "current": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/fastapi-2/current",
+          "elapsed_ms": 25515,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/fastapi-2/current.jsonl",
+          "log_pack_sha256": "77806b6a8afd289a2861c6f13b4873bd241e4d2da4b7ce72c13309378da256cc",
+          "model_calls": 2
+        },
+        "first_id": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/fastapi-2/first_id",
+          "elapsed_ms": 18755,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/fastapi-2/first_id.jsonl",
+          "log_pack_sha256": "d4eddd14d033db90b93cb18ac824b10913d986d0913bcdf825d8c68b3a49de1f",
+          "model_calls": 1
+        },
+        "no_logs": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/fastapi-2/no_logs",
+          "elapsed_ms": 16426,
+          "log_pack": null,
+          "log_pack_sha256": null,
+          "model_calls": 1
+        },
+        "severity": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/fastapi-2/severity",
+          "elapsed_ms": 21682,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/fastapi-2/severity.jsonl",
+          "log_pack_sha256": "91123a00c3fd17f5f6a34290b4ed3a77a939840ac8e5ce137ba5abec0546d941",
+          "model_calls": 1
+        }
+      },
+      "buggy_tree": "/tmp/evidentrail-repair-cases/fastapi-2/buggy",
+      "buggy_tree_sha256": "0e98d0e8dd28b6e0c4475c576bd98b5aa57d1d359e99ed066600179ae28e981f",
+      "editable_paths": [
+        "fastapi/routing.py"
+      ],
+      "fault_family": "api_dependency",
+      "fixed_tree": "/tmp/evidentrail-repair-cases/fastapi-2/fixed",
+      "fixed_tree_sha256": "02cb697ce9eb00dfc45883bf1f2b1060d02b68441bbbdb617330d296e902f426",
+      "hidden_test_tree": "/tmp/evidentrail-repair-cases/fastapi-2/hidden-tests",
+      "hidden_test_tree_sha256": "a6dc3a6606288f9a3eb4383b2f4f24a294b7020f2fe60ba2625b8318bdb20cea",
+      "id": "fastapi-2",
+      "project": "fastapi",
+      "raw_budget": 1024,
+      "source_records": "/tmp/evidentrail-repair-cases/fastapi-2/source-records.jsonl",
+      "source_records_sha256": "db3b95590a87dd6e6b03664a9aff6ae17493ae0ce3e562a3bcb5bc46832dba4a",
+      "split": "held_out",
+      "test_argv": [
+        "/tmp/evidentrail-repair-venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/test_ws_router.py::test_router_ws_depends_with_override"
+      ]
+    },
+    {
+      "arms": {
+        "challenger": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/PySnooper-2/challenger",
+          "elapsed_ms": 32551,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/PySnooper-2/challenger.jsonl",
+          "log_pack_sha256": "85bc9ed89a273e70d4753e969bbfc75b2421eb8db8a5caea688b1b6efbc55efc",
+          "model_calls": 2
+        },
+        "current": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/PySnooper-2/current",
+          "elapsed_ms": 37315,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/PySnooper-2/current.jsonl",
+          "log_pack_sha256": "ff6e7356cb041f06e0ed7c93fd519d53f993fbecd06c763c71647e23ef71b4b8",
+          "model_calls": 2
+        },
+        "first_id": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/PySnooper-2/first_id",
+          "elapsed_ms": 34211,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/PySnooper-2/first_id.jsonl",
+          "log_pack_sha256": "4022c599c5142844a8921e0a0b5e1bf944e7a5ad146bb701723858c5f437d62a",
+          "model_calls": 1
+        },
+        "no_logs": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/PySnooper-2/no_logs",
+          "elapsed_ms": 41799,
+          "log_pack": null,
+          "log_pack_sha256": null,
+          "model_calls": 1
+        },
+        "severity": {
+          "edited_tree": "/tmp/evidentrail-repair-study-trials/PySnooper-2/severity",
+          "elapsed_ms": 39410,
+          "log_pack": "/tmp/evidentrail-repair-study-packs/PySnooper-2/severity.jsonl",
+          "log_pack_sha256": "441ad9e0e3ef599d6ad815031cfd43d628d8092cf55fcdf0ad17343aad681568",
+          "model_calls": 1
+        }
+      },
+      "buggy_tree": "/tmp/evidentrail-repair-cases/PySnooper-2/buggy",
+      "buggy_tree_sha256": "05ecc45557c92d4d7fbfc315a865d01ccd287172d4f7ef858f2dbb51b2f4f0a3",
+      "editable_paths": [
+        "pysnooper/tracer.py"
+      ],
+      "fault_family": "output_representation",
+      "fixed_tree": "/tmp/evidentrail-repair-cases/PySnooper-2/fixed",
+      "fixed_tree_sha256": "226bb77fd38e2cdc87fa95af2f7993e72e2c4d503ff9e443e470f9079b1df320",
+      "hidden_test_tree": "/tmp/evidentrail-repair-cases/PySnooper-2/hidden-tests",
+      "hidden_test_tree_sha256": "c6c8279b78580fd5c9de1bfc24b002a0c54bf7a4db7deb7bc7ed917df3312ded",
+      "id": "PySnooper-2",
+      "project": "PySnooper",
+      "raw_budget": 1024,
+      "source_records": "/tmp/evidentrail-repair-cases/PySnooper-2/source-records.jsonl",
+      "source_records_sha256": "6571ff96ab755f3bf00d113b75341eb3b0e5eb740fd2a5dc50f691699d2b7be2",
+      "split": "development",
+      "test_argv": [
+        "/tmp/evidentrail-repair-venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-s",
+        "tests/test_pysnooper.py::test_custom_repr_single"
+      ]
+    },
+    {
+      "arms": {
+        "challenger": {
+          "edited_tree": "/tmp/evidentrail-repair-study-supplement-trials/black-8/challenger",
+          "elapsed_ms": 30370,
+          "log_pack": "/tmp/evidentrail-repair-supplement-packs/black-8/challenger.jsonl",
+          "log_pack_sha256": "efae68a5faf5273d34382834db3b4fee7e086ed727beadb0a5d25edeee69369a",
+          "model_calls": 2
+        },
+        "current": {
+          "edited_tree": "/tmp/evidentrail-repair-study-supplement-trials/black-8/current",
+          "elapsed_ms": 49294,
+          "log_pack": "/tmp/evidentrail-repair-supplement-packs/black-8/current.jsonl",
+          "log_pack_sha256": "b3a5a5519b561e50fac34bcc88b712ad2d21da381c2223b7b2a85ecb8c9824fb",
+          "model_calls": 2
+        },
+        "first_id": {
+          "edited_tree": "/tmp/evidentrail-repair-study-supplement-trials/black-8/first_id",
+          "elapsed_ms": 15501,
+          "log_pack": "/tmp/evidentrail-repair-supplement-packs/black-8/first_id.jsonl",
+          "log_pack_sha256": "efae68a5faf5273d34382834db3b4fee7e086ed727beadb0a5d25edeee69369a",
+          "model_calls": 1
+        },
+        "no_logs": {
+          "edited_tree": "/tmp/evidentrail-repair-study-supplement-trials/black-8/no_logs",
+          "elapsed_ms": 34970,
+          "log_pack": null,
+          "log_pack_sha256": null,
+          "model_calls": 1
+        },
+        "severity": {
+          "edited_tree": "/tmp/evidentrail-repair-study-supplement-trials/black-8/severity",
+          "elapsed_ms": 67669,
+          "log_pack": "/tmp/evidentrail-repair-supplement-packs/black-8/severity.jsonl",
+          "log_pack_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "model_calls": 1
+        }
+      },
+      "buggy_tree": "/tmp/evidentrail-repair-cases/black-8/buggy",
+      "buggy_tree_sha256": "6aa885b2293714690d75ef797af931c2f2c82754bcf9201d6a5e3cb87e03b442",
+      "editable_paths": [
+        "black.py"
+      ],
+      "fault_family": "formatter_comments",
+      "fixed_tree": "/tmp/evidentrail-repair-cases/black-8/fixed",
+      "fixed_tree_sha256": "6a96d7389cc41b0c48aed5cc23f3369a2dccb418a653b47e27873a6e67be35dd",
+      "hidden_test_tree": "/tmp/evidentrail-repair-cases/black-8/hidden-tests",
+      "hidden_test_tree_sha256": "992152fad011286dea8300ba0afadf7ba65e6b5a0636033999e6bf83be251d82",
+      "id": "black-8",
+      "project": "black",
+      "raw_budget": 1024,
+      "source_records": "/tmp/evidentrail-repair-cases/black-8/source-records.jsonl",
+      "source_records_sha256": "beb6872163962df948c329887d2521853de508796f27e5f3786b20510ee55625",
+      "split": "held_out",
+      "test_argv": [
+        "/tmp/evidentrail-repair-venv/bin/python",
+        "-m",
+        "unittest",
+        "-q",
+        "tests.test_black.BlackTestCase.test_comments7"
+      ]
+    },
+    {
+      "arms": {
+        "challenger": {
+          "edited_tree": "/tmp/evidentrail-repair-study-supplement-trials/black-9/challenger",
+          "elapsed_ms": 30592,
+          "log_pack": "/tmp/evidentrail-repair-supplement-packs/black-9/challenger.jsonl",
+          "log_pack_sha256": "8af1a84c206badcbe43195602658ef06b3ffb14e48f6831df06289dd4a12fc3a",
+          "model_calls": 2
+        },
+        "current": {
+          "edited_tree": "/tmp/evidentrail-repair-study-supplement-trials/black-9/current",
+          "elapsed_ms": 27124,
+          "log_pack": "/tmp/evidentrail-repair-supplement-packs/black-9/current.jsonl",
+          "log_pack_sha256": "6b6036be88527a76ec2ee3e7a768a2a1c1e1320ca0ebcd05fce4e27c590b0929",
+          "model_calls": 2
+        },
+        "first_id": {
+          "edited_tree": "/tmp/evidentrail-repair-study-supplement-trials/black-9/first_id",
+          "elapsed_ms": 27062,
+          "log_pack": "/tmp/evidentrail-repair-supplement-packs/black-9/first_id.jsonl",
+          "log_pack_sha256": "fc229b55ca7a54b4daf52c7e7c48b9c2ac57449ac3bdf144bfccd545fc1ead4a",
+          "model_calls": 1
+        },
+        "no_logs": {
+          "edited_tree": "/tmp/evidentrail-repair-study-supplement-trials/black-9/no_logs",
+          "elapsed_ms": 25981,
+          "log_pack": null,
+          "log_pack_sha256": null,
+          "model_calls": 1
+        },
+        "severity": {
+          "edited_tree": "/tmp/evidentrail-repair-study-supplement-trials/black-9/severity",
+          "elapsed_ms": 25023,
+          "log_pack": "/tmp/evidentrail-repair-supplement-packs/black-9/severity.jsonl",
+          "log_pack_sha256": "ffc27ad4463671aae9d40ae365c57422f20d34ec0265b2da735af9d65d35253f",
+          "model_calls": 1
+        }
+      },
+      "buggy_tree": "/tmp/evidentrail-repair-cases/black-9/buggy",
+      "buggy_tree_sha256": "28c2b0d45ca33ae723dbd6a2348b64ed48d6da6dcbcf9b36899c2e4e9ff30cd2",
+      "editable_paths": [
+        "black.py"
+      ],
+      "fault_family": "formatter_grammar",
+      "fixed_tree": "/tmp/evidentrail-repair-cases/black-9/fixed",
+      "fixed_tree_sha256": "e082f3bbba6d04589ab4365ffc602da11f4ff84484d1a170efb671e6d378826e",
+      "hidden_test_tree": "/tmp/evidentrail-repair-cases/black-9/hidden-tests",
+      "hidden_test_tree_sha256": "c470490243818715b472d021be5b11a24e4b8f138004c10780cd9d618fc51f00",
+      "id": "black-9",
+      "project": "black",
+      "raw_budget": 1024,
+      "source_records": "/tmp/evidentrail-repair-cases/black-9/source-records.jsonl",
+      "source_records_sha256": "702371f20b11dc36393f3c513fbe394500fabf049aef26df217970cf18ae5dbd",
+      "split": "held_out",
+      "test_argv": [
+        "/tmp/evidentrail-repair-venv/bin/python",
+        "-m",
+        "unittest",
+        "-q",
+        "tests.test_black.BlackTestCase.test_python2_print_function"
+      ]
+    }
+  ],
+  "challenger_route": "connected_compaction/codex-cli-0.156.1/gpt-6-luna/low/study-bridge-v1",
+  "current_route": "connected_compaction/codex-cli-0.156.1/gpt-6-sol/low/study-bridge-v1",
+  "pilot_exclusion": "PySnooper-2 was used for an agent-runner pilot before the held-out lock. Its paired trials are reported as development data only.",
+  "repair_agent_model": "codex-cli-0.156.1/gpt-6-sol/low",
+  "schema_version": 1
+}

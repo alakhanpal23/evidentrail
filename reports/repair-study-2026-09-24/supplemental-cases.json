@@ -1,0 +1,64 @@
+{
+  "case_source": "BugsInPy pinned buggy/fixed revisions; fixed tests hidden",
+  "cases": [
+    {
+      "bug_id": 8,
+      "buggy_commit": "e6ddb68c786256e1cb0c76b42d10c212ef34cb2a",
+      "buggy_tree_sha256": "6aa885b2293714690d75ef797af931c2f2c82754bcf9201d6a5e3cb87e03b442",
+      "editable_paths": [
+        "black.py"
+      ],
+      "failing_log_bytes": 2996,
+      "failing_log_sha256": "5933015693dc405bdd04e86d360e393414adacbaed7494a0e4ded71ed9e77332",
+      "fault_family": "formatter_comments",
+      "fixed_commit": "6b994fdb8ab70ce4c2eafb8f2f0ff2648f3ff1ef",
+      "fixed_tree_sha256": "6a96d7389cc41b0c48aed5cc23f3369a2dccb418a653b47e27873a6e67be35dd",
+      "hidden_test_tree_sha256": "992152fad011286dea8300ba0afadf7ba65e6b5a0636033999e6bf83be251d82",
+      "id": "black-8",
+      "project": "black",
+      "raw_budget": 1024,
+      "source_records_sha256": "beb6872163962df948c329887d2521853de508796f27e5f3786b20510ee55625",
+      "split": "held_out",
+      "task": "Fix the reported failure in tests.test_black.BlackTestCase.test_comments7 in black.",
+      "test_argv_suffix": [
+        "-m",
+        "unittest",
+        "-q",
+        "tests.test_black.BlackTestCase.test_comments7"
+      ]
+    },
+    {
+      "bug_id": 9,
+      "buggy_commit": "026c81b83454f176a9f9253cbfb70be2c159d822",
+      "buggy_tree_sha256": "28c2b0d45ca33ae723dbd6a2348b64ed48d6da6dcbcf9b36899c2e4e9ff30cd2",
+      "editable_paths": [
+        "black.py"
+      ],
+      "failing_log_bytes": 1209,
+      "failing_log_sha256": "618c86bb3207751bbd9caa44dadae761a200b986224528a719e9ef9ec7bdbf4e",
+      "fault_family": "formatter_grammar",
+      "fixed_commit": "d6db1c12a8e14833fe22da377cddc2bd1f43dc14",
+      "fixed_tree_sha256": "e082f3bbba6d04589ab4365ffc602da11f4ff84484d1a170efb671e6d378826e",
+      "hidden_test_tree_sha256": "c470490243818715b472d021be5b11a24e4b8f138004c10780cd9d618fc51f00",
+      "id": "black-9",
+      "project": "black",
+      "raw_budget": 1024,
+      "source_records_sha256": "702371f20b11dc36393f3c513fbe394500fabf049aef26df217970cf18ae5dbd",
+      "split": "held_out",
+      "task": "Fix the reported failure in tests.test_black.BlackTestCase.test_python2_print_function in black.",
+      "test_argv_suffix": [
+        "-m",
+        "unittest",
+        "-q",
+        "tests.test_black.BlackTestCase.test_python2_print_function"
+      ]
+    }
+  ],
+  "challenger_route": "connected_compaction/codex-cli-0.156.1/gpt-6-luna/low/study-bridge-v1",
+  "current_route": "connected_compaction/codex-cli-0.156.1/gpt-6-sol/low/study-bridge-v1",
+  "development_exclusion": "tqdm 1 and PySnooper 2 were used in prior development probes; supplement adds the next two eligible Black IDs after the original lock",
+  "repair_agent_model": "codex-cli-0.156.1/gpt-6-sol/low",
+  "repair_prompt_version": "source-only-repair-v1",
+  "schema_version": 1,
+  "selection_prompt_version": "codex-group-rank-v1"
+}
