@@ -27,9 +27,12 @@ class ScreenRealControlTests(unittest.TestCase):
                 subprocess.run(argv, cwd=repo, check=True, capture_output=True)
             (repo / "app.py").write_text("VALUE = 0\n")
             (repo / "tests").mkdir()
+            (repo / "tests" / "__init__.py").write_text("")
             (repo / "tests" / "test_app.py").write_text(
+                "import unittest\n"
                 "from app import VALUE\n"
-                "def test_value(): assert VALUE == 1\n"
+                "class TestApp(unittest.TestCase):\n"
+                "    def test_value(self): self.assertEqual(VALUE, 1)\n"
             )
             subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
             subprocess.run(["git", "commit", "-qm", "buggy"], cwd=repo,
@@ -47,7 +50,9 @@ class ScreenRealControlTests(unittest.TestCase):
                 f'buggy_commit_id="{buggy}"\nfixed_commit_id="{fixed}"\n'
                 'test_file="tests/test_app.py"\n'
             )
-            (bug / "run_test.sh").write_text("pytest -q tests/test_app.py::test_value\n")
+            (bug / "run_test.sh").write_text(
+                "python -m unittest -q tests.test_app.TestApp.test_value\n"
+            )
             output = root / "output"
             result = SCREEN.screen_case("example", bug, repo, output, sys.executable, 30)
             self.assertEqual(result["status"], "reproduced")
