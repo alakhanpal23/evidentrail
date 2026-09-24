@@ -41,9 +41,9 @@ def editable_paths(patch):
     return sorted(set(paths))
 
 
-def freeze(artifacts, benchmark):
+def freeze(artifacts, benchmark, selected_cases=CASES):
     cases = []
-    for project, bug_id, family in CASES:
+    for project, bug_id, family in selected_cases:
         name = f"{project}-{bug_id}"
         root = artifacts / name
         control = json.loads((root / "control.json").read_text())
@@ -85,10 +85,20 @@ def main():
     parser.add_argument("--artifacts-root", required=True, type=Path)
     parser.add_argument("--benchmark-projects", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--case", action="append", metavar="PROJECT:ID:FAMILY",
+                        help="Freeze only these screened cases, in the supplied order")
     args = parser.parse_args()
     if args.output.exists():
         parser.error("refusing to overwrite frozen study lock")
-    locked = freeze(args.artifacts_root, args.benchmark_projects)
+    selected = CASES
+    if args.case:
+        try:
+            selected = tuple((project, int(bug_id), family)
+                             for project, bug_id, family in
+                             (value.split(":", 2) for value in args.case))
+        except (ValueError, TypeError) as error:
+            parser.error(f"invalid --case: {error}")
+    locked = freeze(args.artifacts_root, args.benchmark_projects, selected)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(locked, indent=2, sort_keys=True) + "\n")
     print(json.dumps({"locked_cases": len(locked["cases"]),
