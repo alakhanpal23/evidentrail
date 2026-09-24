@@ -127,6 +127,11 @@ RCA/brief commands still exist; delete those obsolete product paths only after
 the connected replacement and migration contract are verified. The
 [README](../README.md) describes the current user flow and its limits; this
 plan defines the target behavior and acceptance gates.
+Connected queries currently hold the catalog lock through model selection,
+pausing background sync during a long query. The watcher now treats this lock
+contention as a normal retry rather than exponentially backing off, but
+shortening the lock scope while preserving revocation and source verification
+remains a release gate.
 
 CloudWatch registration now pins the STS caller ARN in the source descriptor.
 Every transport reconnect and provider page checks the same ARN, and legacy

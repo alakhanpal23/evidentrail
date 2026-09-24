@@ -191,17 +191,16 @@ fn parse_watch_interval(mut args: impl Iterator<Item = OsString>) -> Result<Dura
 fn watch_sources(interval: Duration) -> Result<ExitCode, CliFailure> {
     let mut consecutive_errors = 0u32;
     loop {
-        match sync_cycle() {
-            Ok(false) => consecutive_errors = 0,
-            Ok(true) => consecutive_errors = consecutive_errors.saturating_add(1),
-            Err(error) => {
-                consecutive_errors = consecutive_errors.saturating_add(1);
+        let outcome = sync_cycle();
+        let (next_errors, delay) = watch_cycle_delay(interval, consecutive_errors, &outcome);
+        if let Err(error) = outcome {
+            if error.code != "EVIDENTRAIL_SOURCES_BUSY" {
                 serde_json::to_writer(
                     io::stderr().lock(),
                     &json!({
                         "status": "sync_cycle_error",
                         "code": error.code,
-                        "consecutive_errors": consecutive_errors,
+                        "consecutive_errors": next_errors,
                     }),
                 )
                 .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
@@ -209,10 +208,27 @@ fn watch_sources(interval: Duration) -> Result<ExitCode, CliFailure> {
                     .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
             }
         }
+        consecutive_errors = next_errors;
         // Every pass releases the catalog lock. A supervisor restarts the
         // process after a crash; persistent checkpoints make replay safe.
-        thread::sleep(watch_delay(interval, consecutive_errors));
+        thread::sleep(delay);
     }
+}
+
+fn watch_cycle_delay(
+    interval: Duration,
+    consecutive_errors: u32,
+    outcome: &Result<bool, CliFailure>,
+) -> (u32, Duration) {
+    let next_errors = match outcome {
+        Ok(false)
+        | Err(CliFailure {
+            code: "EVIDENTRAIL_SOURCES_BUSY",
+            ..
+        }) => 0,
+        Ok(true) | Err(_) => consecutive_errors.saturating_add(1),
+    };
+    (next_errors, watch_delay(interval, next_errors))
 }
 
 fn watch_delay(interval: Duration, consecutive_errors: u32) -> Duration {
@@ -2395,6 +2411,22 @@ mod tests {
         assert_eq!(
             watch_delay(Duration::from_secs(60), 100),
             Duration::from_secs(3600)
+        );
+        assert_eq!(
+            watch_cycle_delay(
+                Duration::from_secs(60),
+                5,
+                &Err(CliFailure::runtime("EVIDENTRAIL_SOURCES_BUSY")),
+            ),
+            (0, Duration::from_secs(60))
+        );
+        assert_eq!(
+            watch_cycle_delay(
+                Duration::from_secs(60),
+                5,
+                &Err(CliFailure::runtime("EVIDENTRAIL_SOURCES_PROVIDER_FAILED")),
+            ),
+            (6, Duration::from_secs(3600))
         );
     }
 

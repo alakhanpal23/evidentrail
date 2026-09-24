@@ -67,6 +67,10 @@ source-bound corpus key and encrypted local corpus, then report
 durable checkpoint and replays recent history after reaching its high-water
 mark. `sources watch` repeats these passes, releasing the source lock after
 each pass and backing off to at most one hour when a provider or source fails.
+If a connected query holds the catalog lock during model selection, the watcher
+retries at its normal interval without counting that contention as a provider
+failure. Sync can still pause for the length of that query; reducing the lock
+scope remains release work.
 After the recent seven-day replay completes, at most eight spare provider pages
 per sync pass walk older history with a durable source-local cursor. A
 completed sweep is not repeated until its boundary is at least a day old.
