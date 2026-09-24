@@ -3454,15 +3454,15 @@ mod tests {
             "model_calls":{"current":100,"challenger":110},
             "challenger_eligible_for_human_review":true
         });
-        assert_eq!(assess_route_report(&report).unwrap().2, false);
+        assert!(!assess_route_report(&report).unwrap().2);
         report["memory_ablation"] = serde_json::json!({"held_out_cases":10,
             "memory_on_verified_repairs":10,"memory_off_verified_repairs":0,
             "memory_off_only":0,"one_sided_exact_p":0.001,
             "raw_budget_matched":true,"source_exact":true,"qualified":true});
         report["route_eligible_for_promotion"] = serde_json::json!(true);
-        assert_eq!(assess_route_report(&report).unwrap().2, true);
+        assert!(assess_route_report(&report).unwrap().2);
         report["memory_ablation"]["memory_off_only"] = serde_json::json!(1);
-        assert_eq!(assess_route_report(&report).unwrap().2, false);
+        assert!(!assess_route_report(&report).unwrap().2);
     }
     use super::*;
     use evidentrail_ingest::{HistoryPageV1, HistoryRecordV1};
