@@ -114,6 +114,10 @@ multi-tier update attempts to restore prior credentials;
 relying on that connection. Isolated login-Keychain replacement and corpus
 rebuild tests pass; rotation has not been exercised against a live Datadog
 sandbox.
+Datadog role or restriction-query changes made without rotating keys are not
+yet detected against previously indexed records. Do not rely on this build to
+enforce newly narrowed Datadog permissions over its cached corpus; scope-change
+invalidation is a release gate in the product plan.
 
 The first log-only prototype is available as `compact`. It accepts an explicit
 log stream with no time-window parameter and returns model-selected original

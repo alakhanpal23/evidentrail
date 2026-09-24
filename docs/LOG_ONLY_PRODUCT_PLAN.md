@@ -51,6 +51,19 @@ the connected replacement and migration contract are verified. The
 [README](../README.md) describes the current user flow and its limits; this
 plan defines the target behavior and acceptance gates.
 
+Datadog restriction queries can change which logs a role may read without a
+credential change. A successful empty search or organization check does not
+prove that previously cached logs remain accessible. Before production use,
+obtain and verify a current access-scope fingerprint covering role assignments,
+role permission grants, restriction-query definitions, and index permissions.
+Invalidate affected records and derived state on any change. Fail closed when
+the scope cannot be verified. Exercise a narrowed-scope change in a live
+sandbox and prove that
+queries and expansion cannot return prior out-of-scope records. The
+[Datadog restriction-query API](https://docs.datadoghq.com/api/latest/logs-restriction-queries/)
+documents the access behavior; its configuration read endpoint may require
+additional read-only permission. This gate is not implemented yet.
+
 ## One product contract
 
 Connect read-only log sources once. Evidentrail backfills **all logs available
