@@ -65,7 +65,7 @@ flow yet. Datadog identity and tier coverage have not been verified in a live
 provider sandbox. Missing Datadog tiers appear as partial
 coverage in connected query metadata.
 If no task terms match the index, a bounded high-severity fallback samples
-both old and new groups and supplies
+the oldest and newest groups plus interior points across observed time, and supplies
 candidate groups and reports truncation; an empty or truncated result does not
 prove that relevant logs are absent. A [frozen synthetic retrieval fixture](reports/connected-retrieval-v1.md)
 measures this fallback and the graph ablation, but model and live-source

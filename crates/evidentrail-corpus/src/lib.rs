@@ -1030,8 +1030,8 @@ impl EncryptedHistoryStore {
     }
 
     /// Fallback when task terms do not match any indexed group. This is a
-    /// bounded high-severity sample from both ends of accessible history,
-    /// never a completeness claim.
+    /// bounded high-severity sample across observed history, never a
+    /// completeness claim.
     pub fn search_priority_groups(&self, limit: usize) -> Result<CandidateGroupPage, CorpusError> {
         if limit == 0 || limit > 256 {
             return Err(CorpusError::InvalidPageBudget);
@@ -1046,22 +1046,58 @@ impl EncryptedHistoryStore {
                 candidate_pool_truncated: false,
             });
         }
-        newest.truncate(limit.div_ceil(2));
-        let oldest = self.read_severe_groups(limit / 2, false)?;
+        if limit == 1 {
+            newest.truncate(1);
+            return Ok(CandidateGroupPage {
+                groups: newest,
+                total_groups,
+                candidate_pool_truncated: true,
+            });
+        }
+        let end_budget = (limit / 3).max(1);
+        let max_timestamp = newest[0].last_timestamp_millis;
+        let remaining_recent = newest.split_off(end_budget);
+        let oldest = self.read_severe_groups(end_budget, false)?;
+        let min_timestamp = oldest[0].last_timestamp_millis;
+        let interior_budget = limit.saturating_sub(newest.len() + oldest.len());
+        let per_anchor = interior_budget.div_ceil(8);
+        let mut streams = vec![oldest, newest];
+        let span = i128::from(max_timestamp) - i128::from(min_timestamp);
+        for part in [4, 2, 6, 1, 3, 5, 7, 8] {
+            let anchor = i128::from(min_timestamp) + span * part / 9;
+            let anchor = i64::try_from(anchor).map_err(|_| CorpusError::Storage)?;
+            streams.push(self.read_severe_groups_from_time(anchor, per_anchor)?);
+        }
         let mut groups = Vec::with_capacity(limit);
         let mut seen = BTreeSet::new();
-        let mut recent = newest.into_iter();
-        let mut early = oldest.into_iter();
+        let mut streams = streams.into_iter().map(Vec::into_iter).collect::<Vec<_>>();
         loop {
             let mut advanced = false;
-            for next in [early.next(), recent.next()].into_iter().flatten() {
-                advanced = true;
-                if seen.insert(next.group_id) {
-                    groups.push(next);
+            for stream in &mut streams {
+                if let Some(next) = stream.next() {
+                    advanced = true;
+                    if seen.insert(next.group_id) {
+                        groups.push(next);
+                        if groups.len() == limit {
+                            return Ok(CandidateGroupPage {
+                                groups,
+                                total_groups,
+                                candidate_pool_truncated,
+                            });
+                        }
+                    }
                 }
             }
             if !advanced {
                 break;
+            }
+        }
+        for next in remaining_recent {
+            if seen.insert(next.group_id) {
+                groups.push(next);
+                if groups.len() == limit {
+                    break;
+                }
             }
         }
         Ok(CandidateGroupPage {
@@ -1069,6 +1105,50 @@ impl EncryptedHistoryStore {
             total_groups,
             candidate_pool_truncated,
         })
+    }
+
+    fn read_severe_groups_from_time(
+        &self,
+        at_or_after_millis: i64,
+        limit: usize,
+    ) -> Result<Vec<CorpusGroupCard>, CorpusError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT group_id, service, role, repeat_count,
+                        first_timestamp_millis, last_timestamp_millis,
+                        first_native_id, last_native_id
+                 FROM log_groups
+                 WHERE role IN ('critical', 'error', 'warning')
+                   AND last_timestamp_millis >= ?1
+                 ORDER BY last_timestamp_millis ASC, group_id ASC LIMIT ?2",
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let rows = statement
+            .query_map(
+                params![
+                    at_or_after_millis,
+                    i64::try_from(limit).map_err(|_| CorpusError::Storage)?
+                ],
+                |row| {
+                    Ok(CorpusGroupCard {
+                        group_id: row.get(0)?,
+                        service: row.get(1)?,
+                        role: row.get(2)?,
+                        repeat_count: row.get(3)?,
+                        first_timestamp_millis: row.get(4)?,
+                        last_timestamp_millis: row.get(5)?,
+                        first_native_id: row.get(6)?,
+                        last_native_id: row.get(7)?,
+                    })
+                },
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)
     }
 
     fn read_severe_groups(

@@ -426,6 +426,12 @@ mod tests {
         task: String,
         #[serde(default)]
         noise_status: Option<String>,
+        #[serde(default)]
+        noise_groups_before: usize,
+        #[serde(default)]
+        noise_groups_after: Option<usize>,
+        #[serde(default)]
+        noise_after_start_millis: Option<i64>,
         required_native_ids: Vec<String>,
         records: Vec<RetrievalRecord>,
     }
@@ -531,15 +537,35 @@ mod tests {
                     bytes: record.raw.as_bytes().to_vec(),
                 })
                 .collect::<Vec<_>>();
-            for index in 0..fixture.noise_groups_per_case {
+            let before = case.noise_groups_before;
+            let after = case
+                .noise_groups_after
+                .unwrap_or(fixture.noise_groups_per_case);
+            for index in 0..before + after {
+                let (native_id, timestamp_millis) = if index < before {
+                    (format!("noise-before-{index}"), 100 + index as i64)
+                } else {
+                    (
+                        format!("noise-after-{index}"),
+                        case.noise_after_start_millis.unwrap_or(600) + (index - before) as i64,
+                    )
+                };
                 records.push(HistoryRecordV1 {
-                    native_id: format!("noise-{index}").into_bytes(),
-                    event_timestamp_millis: 100 + index as i64,
+                    native_id: native_id.into_bytes(),
+                    event_timestamp_millis: timestamp_millis,
                     bytes: format!("{{\"service\":\"noise\",\"status\":\"{}\",\"message\":\"heartbeat filler{}\"}}", case.noise_status.as_deref().unwrap_or("info"), noise_word(index)).into_bytes(),
                 });
             }
             store.commit_page_checked(&records).unwrap();
             assert_eq!(store.record_count().unwrap(), records.len() as u64);
+            let fallback_contains_billing = if case.id.contains("error") {
+                let fallback = store.search_priority_groups(256).unwrap();
+                Some(fallback.groups.iter().any(|card| {
+                    card.first_native_id == b"billing" || card.last_native_id == b"billing"
+                }))
+            } else {
+                None
+            };
             let sources = [AuthorizedCorpus {
                 source_digest: [2; 32],
                 store: &store,
@@ -586,6 +612,7 @@ mod tests {
                 "candidate_pool_truncated": graph.candidate_pool_truncated,
                 "graph_candidate_count": graph.graph_candidate_count,
                 "fallback_candidate_count": graph.fallback_candidate_count,
+                "fallback_contains_billing": fallback_contains_billing,
             });
             println!("CONNECTED_RETRIEVAL_EVAL {result}");
             if case.id == "old_rare_failure" {
@@ -600,6 +627,16 @@ mod tests {
                 assert!(graph.candidate_pool_truncated);
                 assert_eq!(result["graph"]["required_found"], 1);
                 assert_eq!(result["severity_selector"]["required_found"], 1);
+            } else if case.id == "middle_rare_error_amid_600_errors" {
+                assert!(graph.candidate_pool_truncated);
+                assert_eq!(fallback_contains_billing, Some(true));
+                assert_eq!(result["graph"]["required_found"], 1);
+                assert_eq!(result["severity_selector"]["required_found"], 1);
+            } else if case.id == "dense_middle_clue_amid_800_errors" {
+                assert!(graph.candidate_pool_truncated);
+                assert_eq!(fallback_contains_billing, Some(false));
+                assert_eq!(result["graph"]["required_found"], 0);
+                assert_eq!(result["severity_selector"]["required_found"], 0);
             }
             drop(store);
             cleanup(&path);
