@@ -1,6 +1,7 @@
 //! Datadog Logs Search full-history pages for one storage tier.
 //! Internal time partitions come from the shared synchronizer, never a task.
 
+use std::collections::BTreeSet;
 use std::io::Read as _;
 use std::thread;
 use std::time::Duration;
@@ -103,6 +104,13 @@ pub struct DatadogHistorySourceV1 {
     application_key: Zeroizing<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DatadogAccessIdentityV1 {
+    pub org_id: String,
+    pub user_id: String,
+    pub role_ids: Vec<String>,
+}
+
 impl DatadogHistorySourceV1 {
     /// One source covers one tier across all indexes. The caller must run each
     /// authorized tier and report tiers that are inaccessible or unavailable.
@@ -150,7 +158,7 @@ impl DatadogHistorySourceV1 {
     /// Verify the organization associated with these credentials. This must
     /// be checked against the immutable connection descriptor before pages
     /// are accepted into a source corpus.
-    pub fn current_org_id(&self) -> Result<String, HistorySyncErrorV1> {
+    pub fn current_access_identity(&self) -> Result<DatadogAccessIdentityV1, HistorySyncErrorV1> {
         let (api_header, app_header) = self.credential_headers()?;
         let response = send_with_rate_limit_retry(|| {
             self.client
@@ -175,7 +183,12 @@ impl DatadogHistorySourceV1 {
         if bytes.len() as u64 > MAX_IDENTITY_RESPONSE_BYTES {
             return Err(HistorySyncErrorV1::InvalidPage);
         }
-        parse_current_org_id(&bytes)
+        parse_current_access_identity(&bytes)
+    }
+
+    pub fn current_org_id(&self) -> Result<String, HistorySyncErrorV1> {
+        self.current_access_identity()
+            .map(|identity| identity.org_id)
     }
 }
 
@@ -186,12 +199,28 @@ struct CurrentUserResponse {
 
 #[derive(Deserialize)]
 struct CurrentUserData {
+    #[serde(rename = "type")]
+    resource_type: String,
+    id: String,
     relationships: CurrentUserRelationships,
 }
 
 #[derive(Deserialize)]
 struct CurrentUserRelationships {
     org: CurrentUserOrg,
+    roles: CurrentUserRoles,
+}
+
+#[derive(Deserialize)]
+struct CurrentUserRoles {
+    data: Vec<CurrentRoleIdentity>,
+}
+
+#[derive(Deserialize)]
+struct CurrentRoleIdentity {
+    #[serde(rename = "type")]
+    resource_type: String,
+    id: String,
 }
 
 #[derive(Deserialize)]
@@ -206,25 +235,50 @@ struct CurrentOrgIdentity {
     id: String,
 }
 
-fn parse_current_org_id(bytes: &[u8]) -> Result<String, HistorySyncErrorV1> {
-    let body: CurrentUserResponse =
-        serde_json::from_slice(bytes).map_err(|_| HistorySyncErrorV1::InvalidPage)?;
-    if body.data.relationships.org.data.resource_type != "orgs" {
-        return Err(HistorySyncErrorV1::InvalidPage);
-    }
-    let id = body.data.relationships.org.data.id;
-    if id.len() != 36
-        || !id.bytes().enumerate().all(|(index, byte)| {
+fn valid_uuid(id: &str) -> bool {
+    id.len() == 36
+        && id.bytes().enumerate().all(|(index, byte)| {
             if matches!(index, 8 | 13 | 18 | 23) {
                 byte == b'-'
             } else {
                 byte.is_ascii_hexdigit()
             }
         })
+}
+
+fn parse_current_access_identity(
+    bytes: &[u8],
+) -> Result<DatadogAccessIdentityV1, HistorySyncErrorV1> {
+    let body: CurrentUserResponse =
+        serde_json::from_slice(bytes).map_err(|_| HistorySyncErrorV1::InvalidPage)?;
+    if body.data.resource_type != "users"
+        || !valid_uuid(&body.data.id)
+        || body.data.relationships.org.data.resource_type != "orgs"
     {
         return Err(HistorySyncErrorV1::InvalidPage);
     }
-    Ok(id.to_ascii_lowercase())
+    let org_id = body.data.relationships.org.data.id;
+    if !valid_uuid(&org_id) {
+        return Err(HistorySyncErrorV1::InvalidPage);
+    }
+    let roles = body.data.relationships.roles.data;
+    if roles.is_empty()
+        || roles.len() > 128
+        || roles
+            .iter()
+            .any(|role| role.resource_type != "roles" || !valid_uuid(&role.id))
+    {
+        return Err(HistorySyncErrorV1::InvalidPage);
+    }
+    let role_ids = roles
+        .into_iter()
+        .map(|role| role.id.to_ascii_lowercase())
+        .collect::<BTreeSet<_>>();
+    Ok(DatadogAccessIdentityV1 {
+        org_id: org_id.to_ascii_lowercase(),
+        user_id: body.data.id.to_ascii_lowercase(),
+        role_ids: role_ids.into_iter().collect(),
+    })
 }
 
 impl HistoryPageSourceV1 for DatadogHistorySourceV1 {
@@ -404,18 +458,22 @@ mod tests {
     };
 
     #[test]
-    fn current_user_org_identity_is_required_and_normalized() {
-        let response = br#"{"data":{"relationships":{"org":{"data":{"type":"orgs","id":"A1234567-1234-1234-1234-123456789ABC"}}}}}"#;
+    fn current_user_access_identity_is_required_and_normalized() {
+        let response = br#"{"data":{"type":"users","id":"B1234567-1234-1234-1234-123456789ABC","relationships":{"org":{"data":{"type":"orgs","id":"A1234567-1234-1234-1234-123456789ABC"}},"roles":{"data":[{"type":"roles","id":"C1234567-1234-1234-1234-123456789ABC"}]}}}}"#;
         assert_eq!(
-            parse_current_org_id(response).unwrap(),
-            "a1234567-1234-1234-1234-123456789abc"
+            parse_current_access_identity(response).unwrap(),
+            DatadogAccessIdentityV1 {
+                org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+                user_id: "b1234567-1234-1234-1234-123456789abc".to_owned(),
+                role_ids: vec!["c1234567-1234-1234-1234-123456789abc".to_owned()],
+            }
         );
         for invalid in [
-            br#"{"data":{"relationships":{"org":{"data":{"type":"users","id":"a1234567-1234-1234-1234-123456789abc"}}}}}"#.as_slice(),
-            br#"{"data":{"relationships":{"org":{"data":{"type":"orgs","id":"wrong"}}}}}"#.as_slice(),
+            br#"{"data":{"type":"users","id":"b1234567-1234-1234-1234-123456789abc","relationships":{"org":{"data":{"type":"users","id":"a1234567-1234-1234-1234-123456789abc"}},"roles":{"data":[]}}}}"#.as_slice(),
+            br#"{"data":{"type":"users","id":"b1234567-1234-1234-1234-123456789abc","relationships":{"org":{"data":{"type":"orgs","id":"wrong"}},"roles":{"data":[]}}}}"#.as_slice(),
             br#"{"data":{}}"#.as_slice(),
         ] {
-            assert_eq!(parse_current_org_id(invalid), Err(HistorySyncErrorV1::InvalidPage));
+            assert_eq!(parse_current_access_identity(invalid), Err(HistorySyncErrorV1::InvalidPage));
         }
     }
 
@@ -442,7 +500,7 @@ mod tests {
             assert!(headers.starts_with("get /api/v2/current_user http/1.1"));
             assert!(headers.contains("dd-api-key: api-test"));
             assert!(headers.contains("dd-application-key: app-test"));
-            let body = r#"{"data":{"relationships":{"org":{"data":{"type":"orgs","id":"a1234567-1234-1234-1234-123456789abc"}}}}}"#;
+            let body = r#"{"data":{"type":"users","id":"b1234567-1234-1234-1234-123456789abc","relationships":{"org":{"data":{"type":"orgs","id":"a1234567-1234-1234-1234-123456789abc"}},"roles":{"data":[{"type":"roles","id":"c1234567-1234-1234-1234-123456789abc"}]}}}}"#;
             write!(
                 socket,
                 "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",

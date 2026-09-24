@@ -22,9 +22,9 @@ use evidentrail_corpus::{
 };
 use evidentrail_ingest::{
     AwsCloudWatchTransportV1, CloudWatchCapsV1, CloudWatchHistorySourceV1, CloudWatchPlanV1,
-    DatadogHistorySourceV1, DatadogSiteV1, DatadogStorageTierV1, HistoryPageSourceV1,
-    HistoryPartitionV1, HistorySyncErrorV1, HistorySyncLimitsV1, HistorySyncStatusV1,
-    reconcile_history_range_v1, reconcile_history_v1, synchronize_history_v1,
+    DatadogAccessIdentityV1, DatadogHistorySourceV1, DatadogSiteV1, DatadogStorageTierV1,
+    HistoryPageSourceV1, HistoryPartitionV1, HistorySyncErrorV1, HistorySyncLimitsV1,
+    HistorySyncStatusV1, reconcile_history_range_v1, reconcile_history_v1, synchronize_history_v1,
 };
 use rustix::fs::{CWD, FlockOperation, Mode, OFlags, flock, openat};
 use serde::{Deserialize, Serialize};
@@ -51,6 +51,10 @@ struct DatadogDescriptor {
     tier: String,
     connection_id: String,
     org_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    user_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    role_ids: Option<Vec<String>>,
 }
 
 enum SourceBinding {
@@ -314,6 +318,13 @@ pub(crate) fn query_connected_logs(
             }));
             continue;
         }
+        if matches!(&binding, SourceBinding::Datadog(datadog) if datadog.schema_version == 1) {
+            source_states.push(json!({
+                "source_id": source_id,
+                "state": "excluded_reconnect_required"
+            }));
+            continue;
+        }
         let path = corpus_path(&entry.source_digest, false).map_err(query_error)?;
         if !corpus_file_exists_safe(&path).map_err(query_error)? {
             source_states.push(json!({
@@ -470,6 +481,9 @@ pub(crate) fn expand_connected_logs(
     if matches!(&binding, SourceBinding::Datadog(datadog) if interrupted_rotations.contains(&datadog.connection_id))
     {
         return Err(failure("EVIDENTRAIL_DATADOG_ROTATION_INTERRUPTED"));
+    }
+    if matches!(&binding, SourceBinding::Datadog(datadog) if datadog.schema_version == 1) {
+        return Err(failure("EVIDENTRAIL_DATADOG_RECONNECT_REQUIRED"));
     }
     let path = corpus_path(source_digest, false).map_err(map_failure)?;
     if !corpus_file_exists_safe(&path).map_err(map_failure)? {
@@ -665,6 +679,15 @@ fn sync_cycle() -> Result<bool, CliFailure> {
             }));
             continue;
         }
+        if matches!(&binding, SourceBinding::Datadog(datadog) if datadog.schema_version == 1) {
+            had_error = true;
+            outcomes.push(json!({
+                "source_id": hex(&entry.source_digest),
+                "status": "reconnect_required",
+                "coverage": "incomplete"
+            }));
+            continue;
+        }
         let path = corpus_path(&entry.source_digest, false)?;
         if !corpus_file_exists_safe(&path)? {
             had_error = true;
@@ -837,12 +860,10 @@ fn sync_binding_inner(
                 std::mem::take(&mut *application_key),
             )
             .map_err(|error| format!("{error:?}"))?;
-            let current_org = source
-                .current_org_id()
+            let current_identity = source
+                .current_access_identity()
                 .map_err(|error| format!("{error:?}"))?;
-            if current_org != datadog.org_id {
-                return Err("AuthenticationChanged".to_owned());
-            }
+            check_datadog_identity(datadog, &current_identity)?;
             bounded_sync(&mut source, store, high_water).map_err(|error| format!("{error:?}"))
         }
     }
@@ -1099,8 +1120,35 @@ fn datadog_tier(value: &str) -> Option<DatadogStorageTierV1> {
     })
 }
 
+fn valid_datadog_id(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+            }
+        })
+}
+
+fn check_datadog_identity(
+    binding: &DatadogDescriptor,
+    current: &DatadogAccessIdentityV1,
+) -> Result<(), String> {
+    if binding.schema_version != 2 {
+        return Err("LegacyBindingRequiresReconnect".to_owned());
+    }
+    if binding.org_id != current.org_id
+        || binding.user_id.as_deref() != Some(current.user_id.as_str())
+        || binding.role_ids.as_ref() != Some(&current.role_ids)
+    {
+        return Err("AccessIdentityChanged".to_owned());
+    }
+    Ok(())
+}
+
 fn validate_datadog_binding(binding: &DatadogDescriptor) -> Result<(), CliFailure> {
-    if binding.schema_version != 1
+    if !matches!(binding.schema_version, 1 | 2)
         || binding.provider != "datadog"
         || datadog_site(&binding.site).is_none()
         || datadog_tier(&binding.tier).is_none()
@@ -1109,14 +1157,15 @@ fn validate_datadog_binding(binding: &DatadogDescriptor) -> Result<(), CliFailur
             .connection_id
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        || binding.org_id.len() != 36
-        || !binding.org_id.bytes().enumerate().all(|(index, byte)| {
-            if matches!(index, 8 | 13 | 18 | 23) {
-                byte == b'-'
-            } else {
-                byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
-            }
-        })
+        || !valid_datadog_id(&binding.org_id)
+        || (binding.schema_version == 2
+            && (!binding.user_id.as_deref().is_some_and(valid_datadog_id)
+                || !binding.role_ids.as_ref().is_some_and(|roles| {
+                    !roles.is_empty()
+                        && roles.len() <= 128
+                        && roles.iter().all(|role| valid_datadog_id(role))
+                        && roles.windows(2).all(|pair| pair[0] < pair[1])
+                })))
     {
         return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_INVALID_BINDING"));
     }
@@ -1308,8 +1357,8 @@ fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailur
         application_key.to_string(),
     )
     .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_IDENTITY_FAILED"))?;
-    let org_id = identity_source
-        .current_org_id()
+    let identity = identity_source
+        .current_access_identity()
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_IDENTITY_FAILED"))?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1364,12 +1413,14 @@ fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailur
             continue;
         }
         let binding = DatadogDescriptor {
-            schema_version: 1,
+            schema_version: 2,
             provider: "datadog".to_owned(),
             site: options.site.clone(),
             tier: tier.to_owned(),
             connection_id: connection_id.clone(),
-            org_id: org_id.clone(),
+            org_id: identity.org_id.clone(),
+            user_id: Some(identity.user_id.clone()),
+            role_ids: Some(identity.role_ids.clone()),
         };
         let result = register_datadog_tier(
             &corpus_authority,
@@ -1403,8 +1454,8 @@ fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailur
         &json!({
             "provider": "datadog",
             "site": options.site,
-        "connection_id": connection_id,
-        "org_id": org_id,
+            "connection_id": connection_id,
+            "org_id": identity.org_id,
             "tiers": outcomes,
             "coverage": "partial_until_backfill_and_provider_consistency_verified",
         }),
@@ -1478,12 +1529,16 @@ fn rotate_datadog(options: DatadogRotateOptions, recovering: bool) -> Result<Exi
         api_key.to_string(),
         application_key.to_string(),
     )
-    .and_then(|source| source.current_org_id())
+    .and_then(|source| source.current_access_identity())
     .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_IDENTITY_FAILED"))?;
-    if identity != expected_org {
+    if identity.org_id != expected_org {
         return Err(CliFailure::runtime(
             "EVIDENTRAIL_DATADOG_ROTATION_ORG_CHANGED",
         ));
+    }
+    for (_, binding) in &bound {
+        check_datadog_identity(binding, &identity)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_SCOPE_CHANGED"))?;
     }
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1963,6 +2018,9 @@ fn list_sources() -> Result<ExitCode, CliFailure> {
         let status = if matches!(&binding, SourceBinding::Datadog(datadog) if interrupted_rotations.contains(&datadog.connection_id))
         {
             json!({"state": "rotation_interrupted", "coverage": "incomplete"})
+        } else if matches!(&binding, SourceBinding::Datadog(datadog) if datadog.schema_version == 1)
+        {
+            json!({"state": "reconnect_required", "coverage": "incomplete"})
         } else if corpus_file_exists_safe(&path)? {
             let key = authority
                 .load(&tenant, &entry.source_digest)
@@ -2372,12 +2430,39 @@ mod tests {
             tier: "online-archives".to_owned(),
             connection_id: "a".repeat(32),
             org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+            user_id: None,
+            role_ids: None,
         };
         let descriptor = serde_json::to_vec(&binding).unwrap();
         assert!(matches!(
             parse_binding(&descriptor),
             Ok(SourceBinding::Datadog(_))
         ));
+        let identity = DatadogAccessIdentityV1 {
+            org_id: binding.org_id.clone(),
+            user_id: "b1234567-1234-1234-1234-123456789abc".to_owned(),
+            role_ids: vec!["c1234567-1234-1234-1234-123456789abc".to_owned()],
+        };
+        assert_eq!(
+            check_datadog_identity(&binding, &identity),
+            Err("LegacyBindingRequiresReconnect".to_owned())
+        );
+        let pinned = DatadogDescriptor {
+            schema_version: 2,
+            user_id: Some(identity.user_id.clone()),
+            role_ids: Some(identity.role_ids.clone()),
+            ..binding.clone()
+        };
+        assert!(validate_datadog_binding(&pinned).is_ok());
+        assert_eq!(check_datadog_identity(&pinned, &identity), Ok(()));
+        let narrowed = DatadogAccessIdentityV1 {
+            role_ids: vec!["d1234567-1234-1234-1234-123456789abc".to_owned()],
+            ..identity
+        };
+        assert_eq!(
+            check_datadog_identity(&pinned, &narrowed),
+            Err("AccessIdentityChanged".to_owned())
+        );
         assert!(!String::from_utf8_lossy(&descriptor).contains("private-api"));
         let secret = encode_datadog_secret("private-api", "private-app").unwrap();
         let (api_key, app_key) = decode_datadog_secret(&secret).unwrap();
@@ -2471,6 +2556,8 @@ mod tests {
                     tier: tier.to_owned(),
                     connection_id,
                     org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+                    user_id: None,
+                    role_ids: None,
                 })
                 .unwrap(),
             },
@@ -2552,6 +2639,8 @@ mod tests {
             tier: "indexes".to_owned(),
             connection_id: "a".repeat(32),
             org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+            user_id: None,
+            role_ids: None,
         };
         let descriptor = serde_json::to_vec(&binding).unwrap();
         let source = MacOsCorpusKeychainV1::source_digest_for_descriptor(&descriptor).unwrap();
@@ -2656,6 +2745,8 @@ mod tests {
                 tier: tier.to_owned(),
                 connection_id: connection_id.to_owned(),
                 org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+                user_id: None,
+                role_ids: None,
             })
         };
         let bindings = vec![
@@ -2712,6 +2803,8 @@ mod tests {
                 tier: tier.to_owned(),
                 connection_id: "a".repeat(32),
                 org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+                user_id: None,
+                role_ids: None,
             };
             let descriptor = serde_json::to_vec(&binding).unwrap();
             let source_digest =

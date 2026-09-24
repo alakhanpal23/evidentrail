@@ -29,7 +29,8 @@ EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
 
 CloudWatch registration verifies the AWS caller and log-group read access.
 Datadog registration reads `DD_API_KEY` and `DD_APP_KEY` from the environment,
-binds the connection to the authenticated organization, probes indexes,
+binds the connection to the authenticated organization, user, and assigned role
+IDs, probes indexes,
 online archives, and Flex separately, and reports tiers it
 could not connect. Credentials are stored in separate source-bound macOS login
 Keychain items; descriptors contain no keys. Both registrations create a
@@ -130,9 +131,17 @@ backfill. If recovery fails, the staged files remain as a fail-closed gate.
 This recovery path has local filesystem tests but has not been exercised with
 live Datadog credentials.
 Datadog role or restriction-query changes made without rotating keys are not
-yet detected against previously indexed records. Do not rely on this build to
-enforce newly narrowed Datadog permissions over its cached corpus; scope-change
-invalidation is a release gate in the product plan.
+fully detected against previously indexed records. A changed user or role
+assignment now excludes the source, but edits to a role's permissions,
+restriction queries, index access, or Data Access Control policy can leave its
+IDs unchanged. Do not rely on this build to enforce those narrower permissions
+over its cached corpus; complete scope-change invalidation is a release gate in
+the product plan. Datadog connections registered before the identity binding
+change report `reconnect_required` and are excluded from sync, queries, and
+expansion. Disconnect and connect them again with read-only credentials;
+reconnecting starts a fresh corpus, and logs outside current Datadog retention
+may no longer be recoverable. Key rotation is accepted only while the pinned
+user and role IDs remain the same; reconnect after an identity change.
 
 The first log-only prototype is available as `compact`. It accepts an explicit
 log stream with no time-window parameter and returns model-selected original

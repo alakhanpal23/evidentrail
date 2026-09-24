@@ -73,8 +73,18 @@ recovery tests remain release work.
 
 Datadog restriction queries can change which logs a role may read without a
 credential change. A successful empty search or organization check does not
-prove that previously cached logs remain accessible. Before production use,
-obtain and verify a current access-scope fingerprint covering role assignments,
+prove that previously cached logs remain accessible. New Datadog descriptors
+pin the authenticated user and sorted role IDs. Sync,
+query, and expansion exclude legacy descriptors and descriptors whose user or
+role assignments change. This is only a partial identity guard, not an access
+scope fingerprint: role permission edits, restriction-query edits, index
+permissions, and Data Access Control policies may change without changing
+those IDs. The identity fields come from Datadog's
+[current-user API](https://docs.datadoghq.com/api/latest/users/get-current-user/).
+A legacy or changed-identity connection must be disconnected and
+reconnected; retention-expired logs may then be unrecoverable. Live provider
+validation of the identity response and change behavior is still required.
+Before production use, obtain and verify a current access-scope fingerprint covering role assignments,
 role permission grants, restriction-query definitions, index permissions, and
 any enabled Data Access Control policies.
 Invalidate affected records and derived state on any change. Fail closed when
