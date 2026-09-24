@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Frozen synthetic retrieval-stage cases. Generated noise groups are deterministic and may bracket a labeled record. No provider or model behavior is claimed.",
+  "description": "Frozen synthetic retrieval-stage cases. Generated noise groups are deterministic and newer than the labeled records. No provider or model behavior is claimed.",
   "raw_byte_budget": 4096,
   "noise_groups_per_case": 300,
   "cases": [
@@ -27,38 +27,6 @@
       "required_native_ids": ["billing"],
       "records": [
         {"native_id": "billing", "timestamp_millis": 1, "raw": "{\"service\":\"billing\",\"status\":\"error\",\"message\":\"downstream call blocked\"}"}
-      ]
-    },
-    {
-      "id": "wording_mismatch_error_storm",
-      "task": "payment hangs",
-      "noise_status": "error",
-      "required_native_ids": ["billing"],
-      "records": [
-        {"native_id": "billing", "timestamp_millis": 1, "raw": "{\"service\":\"billing\",\"status\":\"error\",\"message\":\"downstream call blocked\"}"}
-      ]
-    },
-    {
-      "id": "middle_rare_error_amid_600_errors",
-      "task": "payment hangs",
-      "noise_status": "error",
-      "noise_groups_before": 300,
-      "noise_groups_after": 300,
-      "required_native_ids": ["billing"],
-      "records": [
-        {"native_id": "billing", "timestamp_millis": 500, "raw": "{\"service\":\"billing\",\"status\":\"error\",\"message\":\"downstream call blocked\"}"}
-      ]
-    },
-    {
-      "id": "dense_middle_clue_amid_800_errors",
-      "task": "payment hangs",
-      "noise_status": "error",
-      "noise_groups_before": 400,
-      "noise_groups_after": 400,
-      "noise_after_start_millis": 501,
-      "required_native_ids": ["billing"],
-      "records": [
-        {"native_id": "billing", "timestamp_millis": 500, "raw": "{\"service\":\"billing\",\"status\":\"error\",\"message\":\"downstream call blocked\"}"}
       ]
     }
   ]

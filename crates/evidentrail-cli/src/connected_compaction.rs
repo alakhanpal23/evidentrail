@@ -518,12 +518,12 @@ mod tests {
     }
 
     #[test]
-    fn frozen_connected_retrieval_reports_graph_ablation_and_recent_baseline() {
+    fn frozen_connected_retrieval_v2_reports_graph_ablation_and_recent_baseline() {
         let fixture: RetrievalFixture = serde_json::from_str(include_str!(
-            "../../../fixtures/connected-retrieval-v1.json"
+            "../../../fixtures/connected-retrieval-v2.json"
         ))
         .unwrap();
-        assert_eq!(fixture.schema_version, 1);
+        assert_eq!(fixture.schema_version, 2);
         for case in fixture.cases {
             let path = test_path();
             let mut store =
@@ -627,16 +627,14 @@ mod tests {
                 assert!(graph.candidate_pool_truncated);
                 assert_eq!(result["graph"]["required_found"], 1);
                 assert_eq!(result["severity_selector"]["required_found"], 1);
-            } else if case.id == "middle_rare_error_amid_600_errors" {
+            } else if matches!(
+                case.id.as_str(),
+                "middle_rare_error_amid_600_errors" | "dense_middle_clue_amid_800_errors"
+            ) {
                 assert!(graph.candidate_pool_truncated);
                 assert_eq!(fallback_contains_billing, Some(true));
                 assert_eq!(result["graph"]["required_found"], 1);
                 assert_eq!(result["severity_selector"]["required_found"], 1);
-            } else if case.id == "dense_middle_clue_amid_800_errors" {
-                assert!(graph.candidate_pool_truncated);
-                assert_eq!(fallback_contains_billing, Some(false));
-                assert_eq!(result["graph"]["required_found"], 0);
-                assert_eq!(result["severity_selector"]["required_found"], 0);
             }
             drop(store);
             cleanup(&path);

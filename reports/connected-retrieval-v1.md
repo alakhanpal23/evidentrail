@@ -1,16 +1,16 @@
 # Connected retrieval fixture v1
 
-Run `cargo test -p evidentrail-cli frozen_connected_retrieval_reports_graph_ablation_and_recent_baseline -- --nocapture` to reproduce the results from [`fixtures/connected-retrieval-v1.json`](../fixtures/connected-retrieval-v1.json). Each case inserts its labeled records and deterministic noise groups into a source-bound encrypted corpus. Four cases use 300 newer groups; two bracket the required clue with 600 and 800 error groups. All policies have the same 4,096-byte raw-output cap. The recent baseline returns up to 12 newest group representatives; the connected policies use the same indexed candidate and output path as the product. The test runs both a selector that retains the first advertised IDs and a simple deterministic severity selector in place of a model. The first-ID selector is not a true candidate-recall upper bound because it is still limited to 12 output lines.
+Archived first evaluation from commit `d72694d`. Check out that commit to
+reproduce this report with its original selector; the current retrieval
+evaluation is [v2](connected-retrieval-v2.md).
+Fixture SHA-256: `a19348b07213cbe366cc5b2ae9e823d00d7f496a9251965bce59b3f7ec4b5780`.
 
-| Case | First-ID selector with graph | Deterministic severity selection | Lexical only | Recent baseline |
-| --- | ---: | ---: | ---: | ---: |
-| Old rare failure | 1/1 | 1/1, 0 irrelevant | 1/1 | 0/1 |
-| Graph-linked clue | 2/2 | 2/2, 0 irrelevant | 1/2 | 0/2 |
-| Wording mismatch | 1/1 | 1/1, 0 irrelevant | 1/1 | 0/1 |
-| Wording mismatch amid 300 newer errors | 1/1 | 1/1, 11 irrelevant | 1/1 | 0/1 |
-| Middle clue amid 600 surrounding errors | 1/1 | 1/1, 11 irrelevant | 1/1 | 0/1 |
-| Dense middle clue amid 800 surrounding errors | 0/1 | 0/1, 12 irrelevant | 0/1 | 0/1 |
+Run `cargo test -p evidentrail-cli frozen_connected_retrieval_reports_graph_ablation_and_recent_baseline -- --nocapture` to reproduce the results from [`fixtures/connected-retrieval-v1.json`](../fixtures/connected-retrieval-v1.json). Each case inserts its labeled records and 300 newer, distinct noise groups into a source-bound encrypted corpus. All policies have the same 4,096-byte raw-output cap. The recent baseline returns up to 12 newest group representatives; the connected policies use the same indexed candidate and output path as the product, with an all-candidate selector in place of a model.
 
-The older-error case initially missed the billing line when the fallback took only the newest 256 severe groups. Old/new sampling recovered that case, but a clue in the middle of 600 errors was still absent from the candidate pool. The fallback now interleaves indexed samples from the ends and eight interior time anchors; the 600-error clue enters this frozen case's selected output. The 800-error case places a clue between those samples and still misses it. All error-storm cases report the candidate pool as truncated. The recent baseline emitted 12 irrelevant lines per case.
+| Case | Graph candidates: required lines | Lexical only: required lines | Recent baseline: required lines | Finding |
+| --- | ---: | ---: | ---: | --- |
+| Old rare failure | 1/1 | 1/1 | 0/1 | Indexed terms preserve the old error despite newer noise. |
+| Graph-linked clue | 2/2 | 1/2 | 0/2 | One explicit service edge contributes the otherwise missed ledger record. |
+| Wording mismatch | 1/1 | 1/1 | 0/1 | A bounded high-severity fallback covers this zero-term-match case. |
 
-These are **synthetic results**, not evidence that the hosted or local model chooses the right IDs, that an arbitrary clue survives a larger or skewed error pool, or that downstream coding succeeds. The dense-case miss shows that temporal sampling cannot guarantee candidate recall under a fixed cap; task-aware candidate expansion or model-directed paging is still needed. The deterministic selector made no external model call and therefore incurred no model API cost. The test prints one local selection-time observation per case; those microsecond values are not a latency distribution or service-level claim. Required next evaluations include frozen real-world labeled corpora, actual local and hosted model selectors at matched budgets, graph ablation across more service topologies, repeated latency and cost measurements, downstream fixes, and security failure cases.
+The connected policies emitted 0 irrelevant lines in these three small cases. The recent baseline emitted 12 irrelevant lines per case. These figures are **retrieval-stage synthetic results**, not evidence that the hosted or local model chooses the right IDs, that the fallback works with many unrelated severe groups, or that downstream coding succeeds. The matcher still has a hard candidate cap; a truncated pool must remain visible in query metadata. Required next evaluations include frozen real-world labeled corpora, model and deterministic selectors at matched output budgets, graph ablation across more service topologies, latency and cost, downstream fixes, and security failure cases.

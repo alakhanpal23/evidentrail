@@ -297,7 +297,7 @@ model/policy version; a changed source invalidates the cache.
 
 ## Delivery sequence and acceptance gates
 
-A first [frozen connected retrieval fixture](../reports/connected-retrieval-v1.md)
+A first [frozen connected retrieval fixture](../reports/connected-retrieval-v2.md)
 now runs through the encrypted corpus and compares graph-enabled candidates,
 graph ablation, and recent-log selection under the same raw-byte cap. It
 exposed a zero-term-match omission; the connected path now uses a bounded

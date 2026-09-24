@@ -1,0 +1,65 @@
+{
+  "schema_version": 2,
+  "description": "Frozen synthetic retrieval-stage cases. Generated noise groups are deterministic and may bracket a labeled record. No provider or model behavior is claimed.",
+  "raw_byte_budget": 4096,
+  "noise_groups_per_case": 300,
+  "cases": [
+    {
+      "id": "old_rare_failure",
+      "task": "checkout reservation failed",
+      "required_native_ids": ["rare"],
+      "records": [
+        {"native_id": "rare", "timestamp_millis": 1, "raw": "{\"service\":\"checkout\",\"status\":\"error\",\"message\":\"reservation failed after retry\"}"}
+      ]
+    },
+    {
+      "id": "graph_linked_clue",
+      "task": "checkout gateway timeout",
+      "required_native_ids": ["edge", "ledger"],
+      "records": [
+        {"native_id": "edge", "timestamp_millis": 1, "raw": "{\"service\":\"checkout\",\"status\":\"error\",\"peer.service\":\"ledger\",\"message\":\"gateway timeout\"}"},
+        {"native_id": "ledger", "timestamp_millis": 2, "raw": "{\"service\":\"ledger\",\"status\":\"error\",\"message\":\"commit blocked by lock contention\"}"}
+      ]
+    },
+    {
+      "id": "wording_mismatch",
+      "task": "payment hangs",
+      "required_native_ids": ["billing"],
+      "records": [
+        {"native_id": "billing", "timestamp_millis": 1, "raw": "{\"service\":\"billing\",\"status\":\"error\",\"message\":\"downstream call blocked\"}"}
+      ]
+    },
+    {
+      "id": "wording_mismatch_error_storm",
+      "task": "payment hangs",
+      "noise_status": "error",
+      "required_native_ids": ["billing"],
+      "records": [
+        {"native_id": "billing", "timestamp_millis": 1, "raw": "{\"service\":\"billing\",\"status\":\"error\",\"message\":\"downstream call blocked\"}"}
+      ]
+    },
+    {
+      "id": "middle_rare_error_amid_600_errors",
+      "task": "payment hangs",
+      "noise_status": "error",
+      "noise_groups_before": 300,
+      "noise_groups_after": 300,
+      "required_native_ids": ["billing"],
+      "records": [
+        {"native_id": "billing", "timestamp_millis": 500, "raw": "{\"service\":\"billing\",\"status\":\"error\",\"message\":\"downstream call blocked\"}"}
+      ]
+    },
+    {
+      "id": "dense_middle_clue_amid_800_errors",
+      "task": "payment hangs",
+      "noise_status": "error",
+      "noise_groups_before": 400,
+      "noise_groups_after": 400,
+      "noise_after_start_millis": 501,
+      "required_native_ids": ["billing"],
+      "records": [
+        {"native_id": "billing", "timestamp_millis": 500, "raw": "{\"service\":\"billing\",\"status\":\"error\",\"message\":\"downstream call blocked\"}"}
+      ]
+    }
+  ]
+}

@@ -243,6 +243,22 @@ impl EncryptedHistoryStore {
                  CREATE INDEX IF NOT EXISTS log_groups_severe_time
                      ON log_groups(last_timestamp_millis DESC, group_id DESC)
                      WHERE role IN ('critical', 'error', 'warning');
+                 CREATE TABLE IF NOT EXISTS severe_service_groups (
+                     service TEXT PRIMARY KEY,
+                     group_count INTEGER NOT NULL CHECK (group_count > 0),
+                     oldest_group_id INTEGER NOT NULL REFERENCES log_groups(group_id),
+                     oldest_timestamp_millis INTEGER NOT NULL,
+                     newest_group_id INTEGER NOT NULL REFERENCES log_groups(group_id),
+                     newest_timestamp_millis INTEGER NOT NULL
+                 );
+                 CREATE INDEX IF NOT EXISTS severe_service_groups_count
+                     ON severe_service_groups(group_count, service);
+                 CREATE TABLE IF NOT EXISTS severe_service_metadata (
+                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                     index_version INTEGER NOT NULL,
+                     backfill_complete INTEGER NOT NULL CHECK (backfill_complete IN (0, 1)),
+                     last_group_id INTEGER NOT NULL DEFAULT 0 CHECK (last_group_id >= 0)
+                 );
                  DROP INDEX IF EXISTS log_groups_priority;
                  CREATE TABLE IF NOT EXISTS group_members (
                      native_id BLOB PRIMARY KEY REFERENCES history_records(native_id),
@@ -364,6 +380,23 @@ impl EncryptedHistoryStore {
         if term_version != TERM_INDEX_VERSION {
             return Err(CorpusError::IndexVersionMismatch);
         }
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO severe_service_metadata
+                 (singleton, index_version, backfill_complete) VALUES (1, 1, 0)",
+                [],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let service_index_version: i64 = connection
+            .query_row(
+                "SELECT index_version FROM severe_service_metadata WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        if service_index_version != 1 {
+            return Err(CorpusError::IndexVersionMismatch);
+        }
         if version == 1 {
             // Reset derived state atomically. A crash during the subsequent
             // bounded backfill leaves version 3 with missing memberships,
@@ -373,6 +406,7 @@ impl EncryptedHistoryStore {
                     "BEGIN IMMEDIATE;
                  DELETE FROM group_members;
                  DELETE FROM group_terms;
+                 DELETE FROM severe_service_groups;
                  DELETE FROM log_groups;
                  DELETE FROM edge_evidence;
                  DELETE FROM service_edges;
@@ -380,6 +414,8 @@ impl EncryptedHistoryStore {
                  UPDATE graph_metadata SET extractor_version = 2,
                      graph_version = 0, backfill_complete = 0 WHERE singleton = 1;
                  UPDATE term_metadata SET backfill_complete = 0 WHERE singleton = 1;
+                 UPDATE severe_service_metadata SET backfill_complete = 0 WHERE singleton = 1;
+                 UPDATE severe_service_metadata SET last_group_id = 0 WHERE singleton = 1;
                  COMMIT;",
                 )
                 .map_err(|_| CorpusError::Storage)?;
@@ -391,9 +427,12 @@ impl EncryptedHistoryStore {
                     "BEGIN IMMEDIATE;
                  DELETE FROM group_members;
                  DELETE FROM group_terms;
+                 DELETE FROM severe_service_groups;
                  DELETE FROM log_groups;
                  UPDATE index_metadata SET parser_version = 3 WHERE singleton = 1;
                  UPDATE term_metadata SET backfill_complete = 0 WHERE singleton = 1;
+                 UPDATE severe_service_metadata SET backfill_complete = 0 WHERE singleton = 1;
+                 UPDATE severe_service_metadata SET last_group_id = 0 WHERE singleton = 1;
                  COMMIT;",
                 )
                 .map_err(|_| CorpusError::Storage)?;
@@ -411,10 +450,69 @@ impl EncryptedHistoryStore {
                 .map_err(|_| CorpusError::Storage)?;
         }
         let mut store = Self { connection };
+        store.backfill_severe_services_if_needed()?;
         store.index_unindexed_records()?;
         store.backfill_graph_if_needed()?;
         store.backfill_terms_if_needed()?;
         Ok(store)
+    }
+
+    fn backfill_severe_services_if_needed(&mut self) -> Result<(), CorpusError> {
+        let (ready, mut cursor): (i64, i64) = self
+            .connection
+            .query_row(
+                "SELECT backfill_complete, last_group_id
+                 FROM severe_service_metadata WHERE singleton = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        if ready == 1 {
+            return Ok(());
+        }
+        if cursor == 0 {
+            self.connection
+                .execute("DELETE FROM severe_service_groups", [])
+                .map_err(|_| CorpusError::Storage)?;
+        }
+        loop {
+            let cards = self.read_group_cards(cursor, 256)?;
+            if cards.is_empty() {
+                self.connection
+                    .execute(
+                        "UPDATE severe_service_metadata SET backfill_complete = 1
+                         WHERE singleton = 1",
+                        [],
+                    )
+                    .map_err(|_| CorpusError::Storage)?;
+                return Ok(());
+            }
+            let next_cursor = cards.last().ok_or(CorpusError::Storage)?.group_id;
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|_| CorpusError::Storage)?;
+            for card in cards {
+                if matches!(card.role.as_str(), "critical" | "error" | "warning") {
+                    upsert_severe_service(
+                        &transaction,
+                        &card.service,
+                        card.group_id,
+                        card.first_timestamp_millis,
+                        card.last_timestamp_millis,
+                        true,
+                    )?;
+                }
+            }
+            transaction
+                .execute(
+                    "UPDATE severe_service_metadata SET last_group_id = ?1 WHERE singleton = 1",
+                    [next_cursor],
+                )
+                .map_err(|_| CorpusError::Storage)?;
+            transaction.commit().map_err(|_| CorpusError::Storage)?;
+            cursor = next_cursor;
+        }
     }
 
     fn backfill_terms_if_needed(&mut self) -> Result<(), CorpusError> {
@@ -1068,8 +1166,19 @@ impl EncryptedHistoryStore {
             let anchor = i64::try_from(anchor).map_err(|_| CorpusError::Storage)?;
             streams.push(self.read_severe_groups_from_time(anchor, per_anchor)?);
         }
-        let mut groups = Vec::with_capacity(limit);
-        let mut seen = BTreeSet::new();
+        let mut groups = self.read_severe_service_representatives((limit / 8).clamp(1, 32))?;
+        if groups.len() >= limit {
+            groups.truncate(limit);
+            return Ok(CandidateGroupPage {
+                groups,
+                total_groups,
+                candidate_pool_truncated,
+            });
+        }
+        let mut seen = groups
+            .iter()
+            .map(|card| card.group_id)
+            .collect::<BTreeSet<_>>();
         let mut streams = streams.into_iter().map(Vec::into_iter).collect::<Vec<_>>();
         loop {
             let mut advanced = false;
@@ -1105,6 +1214,70 @@ impl EncryptedHistoryStore {
             total_groups,
             candidate_pool_truncated,
         })
+    }
+
+    fn read_severe_service_representatives(
+        &self,
+        service_limit: usize,
+    ) -> Result<Vec<CorpusGroupCard>, CorpusError> {
+        let rare_count = service_limit.div_ceil(2);
+        let common_count = service_limit / 2;
+        let mut ids = Vec::with_capacity(service_limit * 2);
+        let mut seen = BTreeSet::new();
+        for (direction, count) in [("ASC", rare_count), ("DESC", common_count)] {
+            if count == 0 {
+                continue;
+            }
+            let sql = format!(
+                "SELECT oldest_group_id, newest_group_id FROM severe_service_groups
+                 ORDER BY group_count {direction}, service ASC LIMIT ?1"
+            );
+            let mut statement = self
+                .connection
+                .prepare(&sql)
+                .map_err(|_| CorpusError::Storage)?;
+            let rows = statement
+                .query_map(
+                    [i64::try_from(count).map_err(|_| CorpusError::Storage)?],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                )
+                .map_err(|_| CorpusError::Storage)?;
+            for row in rows {
+                let (oldest, newest) = row.map_err(|_| CorpusError::Storage)?;
+                for id in [oldest, newest] {
+                    if seen.insert(id) {
+                        ids.push(id);
+                    }
+                }
+            }
+        }
+        ids.into_iter()
+            .map(|id| self.read_group_by_id(id))
+            .collect()
+    }
+
+    fn read_group_by_id(&self, group_id: i64) -> Result<CorpusGroupCard, CorpusError> {
+        self.connection
+            .query_row(
+                "SELECT group_id, service, role, repeat_count,
+                        first_timestamp_millis, last_timestamp_millis,
+                        first_native_id, last_native_id
+                 FROM log_groups WHERE group_id = ?1",
+                [group_id],
+                |row| {
+                    Ok(CorpusGroupCard {
+                        group_id: row.get(0)?,
+                        service: row.get(1)?,
+                        role: row.get(2)?,
+                        repeat_count: row.get(3)?,
+                        first_timestamp_millis: row.get(4)?,
+                        last_timestamp_millis: row.get(5)?,
+                        first_native_id: row.get(6)?,
+                        last_native_id: row.get(7)?,
+                    })
+                },
+            )
+            .map_err(|_| CorpusError::Storage)
     }
 
     fn read_severe_groups_from_time(
@@ -1473,6 +1646,7 @@ fn index_new_record(
         )
         .optional()
         .map_err(|_| CorpusError::Storage)?;
+    let new_group = prior.is_none();
     let group_id = if let Some((id, count, first_time, first_id, last_time, last_id)) = prior {
         let next_count = count.checked_add(1).ok_or(CorpusError::Storage)?;
         let current_key = (record.event_timestamp_millis, record.native_id.as_slice());
@@ -1524,6 +1698,16 @@ fn index_new_record(
             .map_err(|_| CorpusError::Storage)?;
         transaction.last_insert_rowid()
     };
+    if matches!(parsed.role, "critical" | "error" | "warning") {
+        upsert_severe_service(
+            transaction,
+            &parsed.service,
+            group_id,
+            record.event_timestamp_millis,
+            record.event_timestamp_millis,
+            new_group,
+        )?;
+    }
     index_group_terms(
         transaction,
         group_id,
@@ -1535,6 +1719,48 @@ fn index_new_record(
         .execute(
             "INSERT INTO group_members(native_id, group_id) VALUES (?1, ?2)",
             params![&record.native_id, group_id],
+        )
+        .map_err(|_| CorpusError::Storage)?;
+    Ok(())
+}
+
+fn upsert_severe_service(
+    transaction: &Transaction<'_>,
+    service: &str,
+    group_id: i64,
+    first_timestamp_millis: i64,
+    last_timestamp_millis: i64,
+    new_group: bool,
+) -> Result<(), CorpusError> {
+    transaction
+        .execute(
+            "INSERT INTO severe_service_groups (
+                service, group_count, oldest_group_id, oldest_timestamp_millis,
+                newest_group_id, newest_timestamp_millis
+             ) VALUES (?1, 1, ?2, ?3, ?2, ?4)
+             ON CONFLICT(service) DO UPDATE SET
+                group_count = severe_service_groups.group_count + ?5,
+                oldest_group_id = CASE WHEN
+                    excluded.oldest_timestamp_millis < severe_service_groups.oldest_timestamp_millis
+                    OR (excluded.oldest_timestamp_millis = severe_service_groups.oldest_timestamp_millis
+                        AND excluded.oldest_group_id < severe_service_groups.oldest_group_id)
+                    THEN excluded.oldest_group_id ELSE severe_service_groups.oldest_group_id END,
+                oldest_timestamp_millis = MIN(severe_service_groups.oldest_timestamp_millis,
+                    excluded.oldest_timestamp_millis),
+                newest_group_id = CASE WHEN
+                    excluded.newest_timestamp_millis > severe_service_groups.newest_timestamp_millis
+                    OR (excluded.newest_timestamp_millis = severe_service_groups.newest_timestamp_millis
+                        AND excluded.newest_group_id > severe_service_groups.newest_group_id)
+                    THEN excluded.newest_group_id ELSE severe_service_groups.newest_group_id END,
+                newest_timestamp_millis = MAX(severe_service_groups.newest_timestamp_millis,
+                    excluded.newest_timestamp_millis)",
+            params![
+                service,
+                group_id,
+                first_timestamp_millis,
+                last_timestamp_millis,
+                i64::from(new_group),
+            ],
         )
         .map_err(|_| CorpusError::Storage)?;
     Ok(())
@@ -2197,7 +2423,19 @@ mod tests {
                 .unwrap();
             store
                 .connection
+                .execute("DELETE FROM severe_service_groups", [])
+                .unwrap();
+            store
+                .connection
                 .execute("DELETE FROM log_groups", [])
+                .unwrap();
+            store
+                .connection
+                .execute(
+                    "UPDATE severe_service_metadata SET backfill_complete = 0,
+                     last_group_id = 0",
+                    [],
+                )
                 .unwrap();
         }
         {
@@ -2332,6 +2570,126 @@ mod tests {
             vec![b"error-0".as_slice(), b"error-2"]
         );
         drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn severe_service_summary_survives_reopen_and_rebuilds_from_existing_groups() {
+        let path = test_path();
+        let key = [28; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        let billing_raw = br#"{"service":"billing","status":"error","message":"blocked"}"#;
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            store
+                .commit_page_checked(&[
+                    HistoryRecordV1 {
+                        native_id: b"billing-new".to_vec(),
+                        event_timestamp_millis: 500,
+                        bytes: billing_raw.to_vec(),
+                    },
+                    HistoryRecordV1 {
+                        native_id: b"noise".to_vec(),
+                        event_timestamp_millis: 100,
+                        bytes: br#"{"service":"noise","status":"error","message":"filler"}"#
+                            .to_vec(),
+                    },
+                    HistoryRecordV1 {
+                        native_id: b"billing-old".to_vec(),
+                        event_timestamp_millis: 50,
+                        bytes: billing_raw.to_vec(),
+                    },
+                ])
+                .unwrap();
+            let (count, oldest): (i64, i64) = store
+                .connection
+                .query_row(
+                    "SELECT group_count, oldest_timestamp_millis FROM severe_service_groups
+                     WHERE service = 'billing'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!((count, oldest), (1, 50));
+            assert!(
+                store
+                    .search_priority_groups(1)
+                    .unwrap()
+                    .candidate_pool_truncated
+            );
+            store
+                .connection
+                .execute("DELETE FROM severe_service_groups", [])
+                .unwrap();
+            store
+                .connection
+                .execute(
+                    "UPDATE severe_service_metadata SET backfill_complete = 0",
+                    [],
+                )
+                .unwrap();
+        }
+        {
+            let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            let (count, oldest): (i64, i64) = store
+                .connection
+                .query_row(
+                    "SELECT group_count, oldest_timestamp_millis FROM severe_service_groups
+                     WHERE service = 'billing'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!((count, oldest), (1, 50));
+            assert_eq!(store.record_count().unwrap(), 3);
+            assert_eq!(
+                store.get_record(b"billing-old").unwrap().unwrap().bytes,
+                billing_raw
+            );
+            let first = store.read_group_cards(0, 1).unwrap().remove(0);
+            store
+                .connection
+                .execute("DELETE FROM severe_service_groups", [])
+                .unwrap();
+            let transaction = store.connection.unchecked_transaction().unwrap();
+            upsert_severe_service(
+                &transaction,
+                &first.service,
+                first.group_id,
+                first.first_timestamp_millis,
+                first.last_timestamp_millis,
+                true,
+            )
+            .unwrap();
+            transaction
+                .execute(
+                    "UPDATE severe_service_metadata SET backfill_complete = 0,
+                     last_group_id = ?1 WHERE singleton = 1",
+                    [first.group_id],
+                )
+                .unwrap();
+            transaction.commit().unwrap();
+        }
+        {
+            let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            let services: i64 = store
+                .connection
+                .query_row("SELECT count(*) FROM severe_service_groups", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(services, 2);
+            let billing_count: i64 = store
+                .connection
+                .query_row(
+                    "SELECT group_count FROM severe_service_groups WHERE service = 'billing'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(billing_count, 1);
+        }
         cleanup(&path);
     }
 

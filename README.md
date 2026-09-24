@@ -65,9 +65,11 @@ flow yet. Datadog identity and tier coverage have not been verified in a live
 provider sandbox. Missing Datadog tiers appear as partial
 coverage in connected query metadata.
 If no task terms match the index, a bounded high-severity fallback samples
-the oldest and newest groups plus interior points across observed time, and supplies
-candidate groups and reports truncation; an empty or truncated result does not
-prove that relevant logs are absent. A [frozen synthetic retrieval fixture](reports/connected-retrieval-v1.md)
+rare and common services plus the oldest, newest, and interior points across
+observed time. Existing corpora rebuild the service summary in resumable
+256-group batches on first reopen. Candidate truncation is reported; an empty
+or truncated result does not prove that relevant logs are absent. A
+[frozen synthetic retrieval fixture](reports/connected-retrieval-v2.md)
 measures this fallback and the graph ablation, but model and live-source
 quality remain unverified.
 `sources disconnect` revokes a CloudWatch source or all tiers in one Datadog
