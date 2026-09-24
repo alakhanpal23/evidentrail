@@ -2,9 +2,10 @@
 //! Internal time partitions come from the shared synchronizer, never a task.
 
 use std::io::Read as _;
+use std::thread;
 use std::time::Duration;
 
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, Response};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderValue};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, value::RawValue};
@@ -18,6 +19,35 @@ use crate::{
 const PAGE_LIMIT: usize = 100;
 const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_IDENTITY_RESPONSE_BYTES: u64 = 1024 * 1024;
+const MAX_RATE_LIMIT_RETRIES: usize = 2;
+const MAX_RATE_LIMIT_WAIT: Duration = Duration::from_secs(2);
+
+fn send_with_rate_limit_retry(
+    mut send: impl FnMut() -> Result<Response, reqwest::Error>,
+) -> Result<Response, HistorySyncErrorV1> {
+    for attempt in 0..=MAX_RATE_LIMIT_RETRIES {
+        let response = send().map_err(|_| HistorySyncErrorV1::Network)?;
+        if response.status().as_u16() != 429 {
+            return Ok(response);
+        }
+        if attempt == MAX_RATE_LIMIT_RETRIES {
+            return Err(HistorySyncErrorV1::Throttled);
+        }
+        let wait = response
+            .headers()
+            .get("x-ratelimit-reset")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            .map(Duration::from_secs)
+            .unwrap_or(Duration::from_millis(250 * (attempt as u64 + 1)));
+        if wait > MAX_RATE_LIMIT_WAIT {
+            return Err(HistorySyncErrorV1::Throttled);
+        }
+        drop(response);
+        thread::sleep(wait);
+    }
+    Err(HistorySyncErrorV1::Throttled)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DatadogSiteV1 {
@@ -122,14 +152,14 @@ impl DatadogHistorySourceV1 {
     /// are accepted into a source corpus.
     pub fn current_org_id(&self) -> Result<String, HistorySyncErrorV1> {
         let (api_header, app_header) = self.credential_headers()?;
-        let response = self
-            .client
-            .get(format!("{}/api/v2/current_user", self.endpoint))
-            .header("DD-API-KEY", api_header)
-            .header("DD-APPLICATION-KEY", app_header)
-            .header(ACCEPT, "application/json")
-            .send()
-            .map_err(|_| HistorySyncErrorV1::Network)?;
+        let response = send_with_rate_limit_retry(|| {
+            self.client
+                .get(format!("{}/api/v2/current_user", self.endpoint))
+                .header("DD-API-KEY", api_header.clone())
+                .header("DD-APPLICATION-KEY", app_header.clone())
+                .header(ACCEPT, "application/json")
+                .send()
+        })?;
         match response.status().as_u16() {
             200 => {}
             401 => return Err(HistorySyncErrorV1::AuthenticationChanged),
@@ -225,16 +255,16 @@ impl HistoryPageSourceV1 for DatadogHistorySourceV1 {
             "page": { "limit": PAGE_LIMIT, "cursor": cursor },
             "sort": "timestamp"
         });
-        let response = self
-            .client
-            .post(format!("{}/api/v2/logs/events/search", self.endpoint))
-            .header("DD-API-KEY", api_header)
-            .header("DD-APPLICATION-KEY", app_header)
-            .header(ACCEPT, "application/json")
-            .header(CONTENT_TYPE, "application/json")
-            .json(&body)
-            .send()
-            .map_err(|_| HistorySyncErrorV1::Network)?;
+        let response = send_with_rate_limit_retry(|| {
+            self.client
+                .post(format!("{}/api/v2/logs/events/search", self.endpoint))
+                .header("DD-API-KEY", api_header.clone())
+                .header("DD-APPLICATION-KEY", app_header.clone())
+                .header(ACCEPT, "application/json")
+                .header(CONTENT_TYPE, "application/json")
+                .json(&body)
+                .send()
+        })?;
         match response.status().as_u16() {
             200 => {}
             401 => return Err(HistorySyncErrorV1::AuthenticationChanged),
@@ -431,6 +461,54 @@ mod tests {
         assert_eq!(
             source.current_org_id().unwrap(),
             "a1234567-1234-1234-1234-123456789abc"
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn short_rate_limit_reset_retries_but_long_reset_stays_throttled() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            for index in 0..2 {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = [0u8; 1024];
+                assert!(socket.read(&mut request).unwrap() > 0);
+                if index == 0 {
+                    write!(socket, "HTTP/1.1 429 Too Many Requests\r\nx-ratelimit-reset: 0\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").unwrap();
+                } else {
+                    write!(
+                        socket,
+                        "HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                    )
+                    .unwrap();
+                }
+                socket.flush().unwrap();
+            }
+        });
+        let client = Client::new();
+        let response = send_with_rate_limit_retry(|| client.get(&endpoint).send()).unwrap();
+        assert_eq!(response.status().as_u16(), 200);
+        server.join().unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = [0u8; 1024];
+            assert!(socket.read(&mut request).unwrap() > 0);
+            write!(socket, "HTTP/1.1 429 Too Many Requests\r\nx-ratelimit-reset: 60\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").unwrap();
+            socket.flush().unwrap();
+        });
+        assert_eq!(
+            send_with_rate_limit_retry(|| client.get(&endpoint).send()).err(),
+            Some(HistorySyncErrorV1::Throttled)
         );
         server.join().unwrap();
     }
