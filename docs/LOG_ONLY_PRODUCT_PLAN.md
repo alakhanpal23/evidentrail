@@ -51,6 +51,11 @@ the connected replacement and migration contract are verified. The
 [README](../README.md) describes the current user flow and its limits; this
 plan defines the target behavior and acceptance gates.
 
+Interrupted Datadog rotations are now detected from staged encrypted corpus
+files, and all tiers in that connection are excluded from query, expansion,
+and sync until disconnection. An automatic recovery path and live crash tests
+remain release work.
+
 Datadog restriction queries can change which logs a role may read without a
 credential change. A successful empty search or organization check does not
 prove that previously cached logs remain accessible. Before production use,

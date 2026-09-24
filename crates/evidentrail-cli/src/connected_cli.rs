@@ -287,6 +287,7 @@ pub(crate) fn query_connected_logs(
             metadata: None,
         });
     }
+    let interrupted_rotations = interrupted_datadog_rotations(&entries).map_err(query_error)?;
     let high_water = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| query_error(CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE")))?
@@ -303,6 +304,14 @@ pub(crate) fn query_connected_logs(
                 .insert(datadog.tier.clone());
         }
         let source_id = hex(&entry.source_digest);
+        if matches!(&binding, SourceBinding::Datadog(datadog) if interrupted_rotations.contains(&datadog.connection_id))
+        {
+            source_states.push(json!({
+                "source_id": source_id,
+                "state": "excluded_rotation_interrupted"
+            }));
+            continue;
+        }
         let path = corpus_path(&entry.source_digest, false).map_err(query_error)?;
         if !corpus_file_exists_safe(&path).map_err(query_error)? {
             source_states.push(json!({
@@ -447,13 +456,19 @@ pub(crate) fn expand_connected_logs(
     let tenant = authority
         .local_tenant_digest()
         .map_err(|error| failure(error.code()))?;
-    let entry = authority
+    let entries = authority
         .list_bound(&tenant)
-        .map_err(|error| failure(error.code()))?
+        .map_err(|error| failure(error.code()))?;
+    let interrupted_rotations = interrupted_datadog_rotations(&entries).map_err(map_failure)?;
+    let entry = entries
         .into_iter()
         .find(|entry| &entry.source_digest == source_digest)
         .ok_or_else(|| failure("EVIDENTRAIL_CONNECTED_EXPAND_SOURCE_REVOKED"))?;
     let binding = parse_binding(&entry.descriptor).map_err(map_failure)?;
+    if matches!(&binding, SourceBinding::Datadog(datadog) if interrupted_rotations.contains(&datadog.connection_id))
+    {
+        return Err(failure("EVIDENTRAIL_DATADOG_ROTATION_INTERRUPTED"));
+    }
     let path = corpus_path(source_digest, false).map_err(map_failure)?;
     if !corpus_file_exists_safe(&path).map_err(map_failure)? {
         return Err(failure("EVIDENTRAIL_CONNECTED_EXPAND_CORPUS_MISSING"));
@@ -626,16 +641,27 @@ fn sync_cycle() -> Result<bool, CliFailure> {
     let mut outcomes = Vec::new();
     let mut had_error = false;
     let mut datadog_tiers = BTreeMap::<String, BTreeSet<String>>::new();
-    for entry in authority
+    let entries = authority
         .list_bound(&tenant)
-        .map_err(|error| CliFailure::runtime(error.code()))?
-    {
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let interrupted_rotations = interrupted_datadog_rotations(&entries)?;
+    for entry in entries {
         let binding = parse_binding(&entry.descriptor)?;
         if let SourceBinding::Datadog(datadog) = &binding {
             datadog_tiers
                 .entry(datadog.connection_id.clone())
                 .or_default()
                 .insert(datadog.tier.clone());
+        }
+        if matches!(&binding, SourceBinding::Datadog(datadog) if interrupted_rotations.contains(&datadog.connection_id))
+        {
+            had_error = true;
+            outcomes.push(json!({
+                "source_id": hex(&entry.source_digest),
+                "status": "rotation_interrupted",
+                "coverage": "incomplete"
+            }));
+            continue;
         }
         let path = corpus_path(&entry.source_digest, false)?;
         if !corpus_file_exists_safe(&path)? {
@@ -1417,6 +1443,13 @@ fn rotate_datadog(options: DatadogRotateOptions) -> Result<ExitCode, CliFailure>
     let (_, first) = bound
         .first()
         .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_DATADOG_CONNECTION_NOT_FOUND"))?;
+    if bound.iter().try_fold(false, |found, (source, _)| {
+        rotation_artifact_present(&corpus_path(source, false)?).map(|present| found || present)
+    })? {
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_DATADOG_ROTATION_INTERRUPTED",
+        ));
+    }
     let site = datadog_site(&first.site)
         .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
     let expected_org = first.org_id.clone();
@@ -1559,6 +1592,62 @@ fn recreate_empty_corpus(
 struct StagedRotationFile {
     original: PathBuf,
     staged: PathBuf,
+}
+
+fn rotation_artifact_present(path: &Path) -> Result<bool, CliFailure> {
+    Ok(!rotation_artifact_paths(path)?.is_empty())
+}
+
+fn rotation_artifact_paths(path: &Path) -> Result<Vec<PathBuf>, CliFailure> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_STAGE_FAILED"))?;
+    let prefix = format!(
+        "{}.rotation-",
+        path.file_name()
+            .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_STAGE_FAILED"))?
+            .to_string_lossy()
+    );
+    let files = match fs::read_dir(parent) {
+        Ok(files) => files,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(_) => {
+            return Err(CliFailure::runtime(
+                "EVIDENTRAIL_DATADOG_ROTATION_STAGE_FAILED",
+            ));
+        }
+    };
+    let mut artifacts = Vec::new();
+    for file in files {
+        let file =
+            file.map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_STAGE_FAILED"))?;
+        if file.file_name().to_string_lossy().starts_with(&prefix) {
+            artifacts.push(file.path());
+        }
+    }
+    Ok(artifacts)
+}
+
+fn interrupted_datadog_rotations(
+    entries: &[ConnectedSourceDescriptorV1],
+) -> Result<BTreeSet<String>, CliFailure> {
+    interrupted_datadog_rotations_at(entries, |source| corpus_path(source, false))
+}
+
+fn interrupted_datadog_rotations_at(
+    entries: &[ConnectedSourceDescriptorV1],
+    mut path_for: impl FnMut(&[u8; 32]) -> Result<PathBuf, CliFailure>,
+) -> Result<BTreeSet<String>, CliFailure> {
+    let mut interrupted = BTreeSet::new();
+    for entry in entries {
+        if let SourceBinding::Datadog(binding) = parse_binding(&entry.descriptor)? {
+            let path = path_for(&entry.source_digest)?;
+            if rotation_artifact_present(&path)? {
+                interrupted.insert(binding.connection_id);
+            }
+        }
+    }
+    Ok(interrupted)
 }
 
 fn stage_rotation_corpora(paths: &[PathBuf]) -> Result<Vec<StagedRotationFile>, CliFailure> {
@@ -1834,13 +1923,17 @@ fn list_sources() -> Result<ExitCode, CliFailure> {
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
         .as_millis() as i64;
     let mut listed = Vec::new();
-    for entry in authority
+    let entries = authority
         .list_bound(&tenant)
-        .map_err(|error| CliFailure::runtime(error.code()))?
-    {
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let interrupted_rotations = interrupted_datadog_rotations(&entries)?;
+    for entry in entries {
         let binding = parse_binding(&entry.descriptor)?;
         let path = corpus_path(&entry.source_digest, false)?;
-        let status = if corpus_file_exists_safe(&path)? {
+        let status = if matches!(&binding, SourceBinding::Datadog(datadog) if interrupted_rotations.contains(&datadog.connection_id))
+        {
+            json!({"state": "rotation_interrupted", "coverage": "incomplete"})
+        } else if corpus_file_exists_safe(&path)? {
             let key = authority
                 .load(&tenant, &entry.source_digest)
                 .map_err(|error| CliFailure::runtime(error.code()))?;
@@ -1982,6 +2075,10 @@ fn revoke_registered_sources(
     }
     for path in &paths {
         remove_corpus_files(path, "EVIDENTRAIL_SOURCES_REVOKE_FAILED")?;
+        for artifact in rotation_artifact_paths(path)? {
+            fs::remove_file(artifact)
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_REVOKE_FAILED"))?;
+        }
     }
     for index in &selected {
         match corpus_authority.destroy(tenant, &entries[*index].source_digest) {
@@ -2314,6 +2411,56 @@ mod tests {
         purge_staged_rotation_corpora(&staged).unwrap();
         assert!(!path.exists());
         assert!(!wal.exists());
+        fs::remove_dir(base).unwrap();
+    }
+
+    #[test]
+    fn interrupted_rotation_excludes_every_tier_in_the_connection() {
+        let base = env::temp_dir().join(format!(
+            "evidentrail-rotation-gate-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&base).unwrap();
+        let entries = [
+            ([1; 32], "indexes", "a".repeat(32)),
+            ([2; 32], "flex", "a".repeat(32)),
+            ([3; 32], "indexes", "b".repeat(32)),
+        ]
+        .into_iter()
+        .map(
+            |(source_digest, tier, connection_id)| ConnectedSourceDescriptorV1 {
+                source_digest,
+                descriptor: serde_json::to_vec(&DatadogDescriptor {
+                    schema_version: 1,
+                    provider: "datadog".to_owned(),
+                    site: "us1".to_owned(),
+                    tier: tier.to_owned(),
+                    connection_id,
+                    org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+                })
+                .unwrap(),
+            },
+        )
+        .collect::<Vec<_>>();
+        let path_for = |source: &[u8; 32]| Ok(base.join(format!("{}.db", hex(source))));
+        fs::write(path_for(&[1; 32]).unwrap(), b"old corpus").unwrap();
+        fs::write(path_for(&[2; 32]).unwrap(), b"other old corpus").unwrap();
+        let staged = stage_rotation_corpora(&[path_for(&[1; 32]).unwrap()]).unwrap();
+        assert_eq!(
+            rotation_artifact_paths(&path_for(&[1; 32]).unwrap())
+                .unwrap()
+                .len(),
+            1
+        );
+        let interrupted = interrupted_datadog_rotations_at(&entries, path_for).unwrap();
+        assert_eq!(interrupted, BTreeSet::from(["a".repeat(32)]));
+        assert!(!interrupted.contains(&"b".repeat(32)));
+        purge_staged_rotation_corpora(&staged).unwrap();
+        fs::remove_file(path_for(&[2; 32]).unwrap()).unwrap();
         fs::remove_dir(base).unwrap();
     }
 

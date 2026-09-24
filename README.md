@@ -116,8 +116,11 @@ relying on that connection. Isolated login-Keychain replacement and corpus
 rebuild tests pass; rotation has not been exercised against a live Datadog
 sandbox.
 An interrupted rotation can leave encrypted staged corpus files in the source
-directory; the active corpus path remains absent, so those files are not
-queried. Recover or remove them before relying on that connection again.
+directory. The CLI detects those files and excludes every tier of that Datadog
+connection from queries, expansion, and sync, even if a tier still has an
+active corpus. `sources list` reports `rotation_interrupted`; disconnecting
+the connection removes its staged files. Recovery without disconnecting is
+not implemented yet, and the connection must be rebuilt before relying on it.
 Datadog role or restriction-query changes made without rotating keys are not
 yet detected against previously indexed records. Do not rely on this build to
 enforce newly narrowed Datadog permissions over its cached corpus; scope-change
