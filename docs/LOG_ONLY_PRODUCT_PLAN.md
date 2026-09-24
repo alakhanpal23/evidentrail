@@ -18,8 +18,9 @@ are reported separately from the log body.
 The corpus maintains a versioned template index, severe-service directory,
 and explicit-peer service graph. Lexical search, priority fallback, and graph
 neighbors provide bounded group candidates. When lexical search or fallback
-truncates, model-selected directory pages can retrieve additional severe
-service groups across eligible sources. This remains a bounded search with no
+truncates, model-selected directory pages show bounded original-log examples
+and can retrieve additional severe service groups across eligible sources.
+This remains a bounded search with no
 guarantee of finding every relevant record. The frozen encrypted-corpus
 fixture measures exact evidence recall, irrelevant lines, a recent-log
 baseline, and graph ablation with deterministic selectors. It does not measure

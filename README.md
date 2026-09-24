@@ -72,13 +72,15 @@ or truncated result does not prove that relevant logs are absent. A
 [frozen synthetic retrieval fixture](reports/connected-retrieval-v2.md)
 measures this fallback and the graph ablation, but model and live-source
 quality remain unverified.
-When that fallback or lexical search is truncated, a connected query can inspect up to four
-32-service directory pages shared across its sources; each page includes a
-bounded slice from every eligible source. The model may choose only
-advertised service IDs; code resolves those choices to at most 64 additional
-group cards per query before the final group selection. This can add model
-calls, and the response metadata reports inspected pages, added candidates,
-and directory truncation. It still cannot guarantee discovery of every
+When that fallback or lexical search is truncated, a connected query can
+inspect up to four 32-service directory pages shared across its sources; each
+page includes a bounded slice from every eligible source. Each service card
+includes at most two short original-log examples; examples matching the
+sensitive-data patterns are masked before model input. The model may choose
+only advertised service IDs; code resolves those choices to at most 64
+additional group cards per query before the final group selection. This can
+add model calls, and the response metadata reports inspected pages, added
+candidates, and directory truncation. It still cannot guarantee discovery of every
 relevant log under a fixed search budget.
 `sources disconnect` revokes a CloudWatch source or all tiers in one Datadog
 connection, removes its encrypted local corpus and Keychain entries, and

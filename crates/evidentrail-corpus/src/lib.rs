@@ -140,6 +140,8 @@ pub struct CandidateGroupPage {
 pub struct SevereServiceCard {
     pub service: String,
     pub group_count: u64,
+    pub oldest_native_id: Vec<u8>,
+    pub newest_native_id: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1243,8 +1245,13 @@ impl EncryptedHistoryStore {
         }
         let comparison = if after_service.is_some() { ">" } else { ">=" };
         let sql = format!(
-            "SELECT service, group_count FROM severe_service_groups
-             WHERE service {comparison} ?1 ORDER BY service LIMIT ?2"
+            "SELECT summary.service, summary.group_count,
+                    oldest.first_native_id, newest.last_native_id
+             FROM severe_service_groups summary
+             JOIN log_groups oldest ON oldest.group_id = summary.oldest_group_id
+             JOIN log_groups newest ON newest.group_id = summary.newest_group_id
+             WHERE summary.service {comparison} ?1
+             ORDER BY summary.service LIMIT ?2"
         );
         let mut statement = self
             .connection
@@ -1257,6 +1264,8 @@ impl EncryptedHistoryStore {
                     Ok(SevereServiceCard {
                         service: row.get(0)?,
                         group_count: row.get(1)?,
+                        oldest_native_id: row.get(2)?,
+                        newest_native_id: row.get(3)?,
                     })
                 },
             )

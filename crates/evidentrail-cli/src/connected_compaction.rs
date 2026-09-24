@@ -385,6 +385,21 @@ fn select_service_candidates(
                     truncated = true;
                     continue;
                 }
+                let mut examples = Vec::new();
+                for native_id in [&card.oldest_native_id, &card.newest_native_id] {
+                    if native_id == &card.newest_native_id
+                        && !examples.is_empty()
+                        && card.oldest_native_id == card.newest_native_id
+                    {
+                        break;
+                    }
+                    let sample = source
+                        .store
+                        .read_record_sample(native_id, 256)
+                        .map_err(|_| CompactionError::Corpus)?
+                        .ok_or(CompactionError::Corpus)?;
+                    examples.push(safe_sample_line(&sample, 120));
+                }
                 let id = format!("S{source_index}V{}P{}", pages + 1, groups.len());
                 advertised.push((id.clone(), source_index, card.service.clone()));
                 groups.push(json!({
@@ -393,6 +408,7 @@ fn select_service_candidates(
                     "service": card.service,
                     "role": "service",
                     "count": card.group_count,
+                    "examples": examples,
                 }));
             }
         }
@@ -509,17 +525,20 @@ fn select_page(
 }
 
 fn sample_card(native_id: &[u8], sample: &RecordSample) -> Value {
-    let decoded = String::from_utf8_lossy(&sample.prefix);
-    let line = if contains_sensitive_data(&decoded) {
-        "[sensitive log line omitted from model input]".to_owned()
-    } else {
-        decoded.chars().take(160).collect()
-    };
     json!({
         "id": URL_SAFE_NO_PAD.encode(native_id),
-        "line": line,
+        "line": safe_sample_line(sample, 160),
         "original_byte_len": sample.original_byte_len,
     })
+}
+
+fn safe_sample_line(sample: &RecordSample, max_chars: usize) -> String {
+    let decoded = String::from_utf8_lossy(&sample.prefix);
+    if contains_sensitive_data(&decoded) {
+        "[sensitive log line omitted from model input]".to_owned()
+    } else {
+        decoded.chars().take(max_chars).collect()
+    }
 }
 
 #[cfg(test)]
@@ -890,6 +909,29 @@ mod tests {
         impl LogGroupSelector for SelectSecondSource {
             fn select(&mut self, request: &Value) -> Result<Vec<String>, CompactionError> {
                 let target_source = URL_SAFE_NO_PAD.encode([4; 32]);
+                if request["selection_kind"] == "service_directory" {
+                    if let Some(group) =
+                        request["groups"].as_array().unwrap().iter().find(|group| {
+                            group["service"] == "svc00" && group["source"] == target_source
+                        })
+                    {
+                        assert!(group["examples"].to_string().contains("omitted"));
+                        assert!(!group["examples"].to_string().contains("topsecret"));
+                    }
+                    if let Some(group) =
+                        request["groups"].as_array().unwrap().iter().find(|group| {
+                            group["service"] == "svc34" && group["source"] == target_source
+                        })
+                    {
+                        assert!(
+                            group["examples"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .any(|example| example.as_str().unwrap().contains("hidden clue"))
+                        );
+                    }
+                }
                 Ok(request["groups"]
                     .as_array()
                     .ok_or(CompactionError::InvalidInput)?
@@ -932,6 +974,18 @@ mod tests {
             .find(|record| record.native_id == b"svc34-0")
             .unwrap()
             .bytes = br#"{"service":"svc34","status":"error","peer.service":"zzzz","message":"filler graph seed"}"#.to_vec();
+        second_records
+            .iter_mut()
+            .find(|record| record.native_id == b"svc34-5")
+            .unwrap()
+            .bytes =
+            br#"{"service":"svc34","status":"error","message":"filler hidden clue"}"#.to_vec();
+        second_records
+            .iter_mut()
+            .find(|record| record.native_id == b"svc00-5")
+            .unwrap()
+            .bytes =
+            br#"{"service":"svc00","status":"error","message":"password=topsecret"}"#.to_vec();
         second_records.push(HistoryRecordV1 {
             native_id: b"zzzz-context".to_vec(),
             event_timestamp_millis: 100,
