@@ -72,6 +72,25 @@ separate BGL run showed only a small aggregate off-label reduction, so this
 instruction was reverted. These are single local runs and root-service
 membership remains a proxy, not a causal relevance judgment.
 
+On 2026-09-24, the same pinned script and 32 KiB budget were run with local
+`gpt-oss:20b` through Ollama at a 32K context. It returned exact source lines
+and included the labeled service in **2/3** cases. The first-ID arm included it
+in **3/3** on this run. The larger model therefore improved this proxy over the
+two smaller local models but still did not match the simple baseline, and the
+email query took over three minutes. These are single-run debug-build timings.
+
+| Case | GPT-OSS 20B root lines / selected lines | Model query | First-ID root lines / selected lines |
+| --- | ---: | ---: | ---: |
+| Cart service | 6/9 | 26.5 s | 6/9 |
+| Email service | 0/12 | 212.6 s | 2/13 |
+| Ad service | 1/3 | 4.8 s | 1/3 |
+
+This does not qualify `gpt-oss:20b` as the default selector. In particular,
+the labeled email service was advertised to the final model page but omitted
+from the selected pack. The result strengthens the case for evaluating
+line-level usefulness and real agent outcomes before choosing a model route;
+root-service membership by itself is too weak to justify a production change.
+
 Reproduce with `python3 -m pip install pyarrow==21.0.0` and
 `python3 scripts/eval-rcaeval-connected.py`. To add actual model selection,
 configure `EVIDENTRAIL_COMPACT_LOCAL_MODEL` for a running Ollama model or

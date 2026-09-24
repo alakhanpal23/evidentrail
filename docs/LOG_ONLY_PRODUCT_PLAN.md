@@ -61,6 +61,11 @@ service-membership proxy. Actual local Qwen3 14B and Qwen2.5-Coder 7B
 selection each found that service in only one of the three cases, with the
 hardest query taking 92 and 46 seconds respectively. Neither route is
 qualified by this probe; downstream coding tasks remain unevaluated.
+An additional local GPT-OSS 20B run on the same three cases found the labeled
+service in two cases, but still missed the sparse email-service case that the
+first-ID baseline found. That query took 213 seconds. Model size alone has not
+qualified a selector, and this service-membership proxy cannot establish that
+the returned lines would help an agent fix the fault.
 An opt-in live-model harness now runs the actual selector over the same pinned
 12-category BGL proxy and verifies every emitted line against the encrypted
 corpus. A local Qwen2.5-Coder 7B run hit 12/12 categories with 107 off-label
