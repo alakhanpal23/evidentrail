@@ -57,12 +57,16 @@ despite an untruncated index pool. The connected result now counts
 `prefinal_pruned_groups`, and intermediate selection preserves a bounded
 representative from sparsely represented services. A first-ID selector now
 returns a root-service line in all three cases, but this is only a
-service-membership proxy; a model and downstream coding task have not been
-evaluated on these cases.
+service-membership proxy. Actual local Qwen3 14B and Qwen2.5-Coder 7B
+selection each found that service in only one of the three cases, with the
+hardest query taking 92 and 46 seconds respectively. Neither route is
+qualified by this probe; downstream coding tasks remain unevaluated.
 An opt-in live-model harness now runs the actual selector over the same pinned
 12-category BGL proxy and verifies every emitted line against the encrypted
-corpus. It has not been run with a real model; accuracy and cost claims remain
-open.
+corpus. A local Qwen2.5-Coder 7B run hit 12/12 categories with 107 off-label
+lines among 149 returned, but took 494 seconds in total; four queries reported
+retrieval truncation. This proxy does not qualify production routing;
+accuracy and cost claims remain open.
 
 Local connector and authorization contract tests pass. Live CloudWatch and
 Datadog sandbox validation, complete provider-coverage proofs under retention

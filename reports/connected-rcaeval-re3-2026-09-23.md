@@ -34,17 +34,40 @@ explain the failure.
 Every returned line is compared byte-for-byte with its encrypted source
 record. The three cases are repeated injections from one benchmark system,
 and labeled root-service membership is not a verified relevance judgment for
-each line. No local or hosted model, coding agent, provider connection, or
-downstream fix was measured. Single debug-build ingestion observations were
-about 7–9 seconds per case; query observations were 1–14 ms without a model.
-Those are not latency distributions or production promises. The 16-service
+each line. No coding agent, provider connection, or downstream fix was
+measured. Single debug-build ingestion observations were about 7–9 seconds per
+case; deterministic query observations were 1–20 ms. Those are not latency
+distributions or production promises. The 16-service
 reservation is bounded and cannot guarantee rare evidence from every service;
 the pruning count makes that limitation inspectable.
+
+## Local model arms
+
+The same opt-in script ran the product's actual ID-only selector with two
+installed local Ollama models at a 32K context. Both models returned only
+source-exact records, but each included the labeled service in **1/3** cases,
+versus **3/3** for the first-ID baseline. The model received no label or root
+service name. The measurements are single runs on this Mac; the larger prompt
+in the email case makes latency conspicuous.
+
+| Case | Qwen3 14B root lines / selected lines | Qwen3 query | Qwen2.5-Coder 7B root lines / selected lines | Qwen2.5 query |
+| --- | ---: | ---: | ---: | ---: |
+| Cart service | 6/9 | 3.8 s | 2/4 | 4.0 s |
+| Email service | 0/12 | 91.8 s | 0/12 | 45.8 s |
+| Ad service | 0/2 | 1.5 s | 0/2 | 0.6 s |
+
+This is a negative qualification result for using either model as the
+unconditional connected selector. It does not establish that the first-ID
+lines are causally useful or that a hosted model would perform similarly.
+The email case had 140 candidate groups and 114 prefinal groups pruned in
+every arm; the sparse service reached the final model page, but neither model
+selected it. A larger held-out set with line-level relevance labels and
+downstream coding tasks is needed before choosing a model route.
 
 Reproduce with `python3 -m pip install pyarrow==21.0.0` and
 `python3 scripts/eval-rcaeval-connected.py`. To add actual model selection,
 configure `EVIDENTRAIL_COMPACT_LOCAL_MODEL` for a running Ollama model or
-`OPENAI_API_KEY`, then pass `--model`. That opt-in model arm is implemented but
-has not run here. It reports root-service presence, exact-source checks,
-latency, and pruning at the same output budget; it still cannot establish
-causal evidence or coding-agent task success.
+`OPENAI_API_KEY`, then pass `--model`. The local arms above used that same
+command. It reports root-service presence, exact-source checks, latency, and
+pruning at the same output budget; it still cannot establish causal evidence
+or coding-agent task success. No hosted model arm has run.

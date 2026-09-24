@@ -90,14 +90,18 @@ An opt-in [LogHub BGL evaluation](reports/connected-loghub-bgl-2026-09-23.md)
 uses pinned real system logs to check exact source lines, repeat grouping, and
 bounded expansion. It remains a single-task proxy, not a downstream fix study.
 An opt-in [live-model BGL harness](reports/connected-loghub-bgl-model-eval.md)
-runs the actual selector on 12 category tasks at the same output budget; no
-local or hosted model results have been measured yet.
+runs the actual selector on 12 category tasks at the same output budget. One
+local Qwen2.5-Coder 7B run hit all 12 target categories and emitted 107/149
+off-label lines, but took 494 seconds in total; it is not a qualified default.
 An opt-in [connected RCAEval RE3 probe](reports/connected-rcaeval-re3-2026-09-23.md)
 ingests all logs from three code-fault cases. It exposed intermediate ranking
 that removed a rare service before the final selector; bounded service
 representatives now keep it visible, and query metadata counts groups pruned
 before final selection. Its root-service line counts are a proxy, not a
-coding-agent outcome.
+coding-agent outcome. Two local model runs on those cases each found the
+labeled service in only 1/3 cases and took 46–92 seconds on the hardest query;
+the first-ID baseline found it in 3/3. Neither local route is qualified for
+unconditional connected selection by this probe.
 When that fallback or lexical search is truncated, a connected query can
 inspect up to four 32-service directory pages shared across its sources. When
 more than 32 sources are eligible, pages rotate across them and report
