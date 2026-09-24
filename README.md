@@ -73,7 +73,8 @@ or truncated result does not prove that relevant logs are absent. A
 measures this fallback and the graph ablation, but model and live-source
 quality remain unverified.
 When that fallback is truncated, a connected query can inspect up to four
-32-service directory pages across its sources. The model may choose only
+32-service directory pages shared across its sources; each page includes a
+bounded slice from every eligible source. The model may choose only
 advertised service IDs; code resolves those choices to at most 64 additional
 group cards per query before the final group selection. This can add model
 calls, and the response metadata reports inspected pages, added candidates,
