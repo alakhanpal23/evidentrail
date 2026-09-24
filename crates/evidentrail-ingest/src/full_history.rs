@@ -167,15 +167,19 @@ pub fn synchronize_history_v1(
             {
                 return Err(HistorySyncErrorV1::InvalidPage);
             }
+            if page
+                .next_token
+                .as_ref()
+                .is_some_and(|token| token.is_empty() || !seen_tokens.insert(token.clone()))
+            {
+                return Err(HistorySyncErrorV1::InvalidPage);
+            }
             store.commit_page(&page.records)?;
             receipt.committed_pages += 1;
             receipt.submitted_records += page.records.len();
-            match page.next_token {
-                None => break,
-                Some(token) if token.is_empty() || !seen_tokens.insert(token.clone()) => {
-                    return Err(HistorySyncErrorV1::InvalidPage);
-                }
-                Some(token) => next_token = Some(token),
+            next_token = page.next_token;
+            if next_token.is_none() {
+                break;
             }
         }
         store.complete_partition(HistoryCheckpointV1 {
@@ -273,15 +277,19 @@ pub fn reconcile_history_range_v1(
             {
                 return Err(HistorySyncErrorV1::InvalidPage);
             }
+            if page
+                .next_token
+                .as_ref()
+                .is_some_and(|token| token.is_empty() || !seen_tokens.insert(token.clone()))
+            {
+                return Err(HistorySyncErrorV1::InvalidPage);
+            }
             store.commit_page(&page.records)?;
             receipt.committed_pages += 1;
             receipt.submitted_records += page.records.len();
-            match page.next_token {
-                None => break,
-                Some(token) if token.is_empty() || !seen_tokens.insert(token.clone()) => {
-                    return Err(HistorySyncErrorV1::InvalidPage);
-                }
-                Some(token) => next_token = Some(token),
+            next_token = page.next_token;
+            if next_token.is_none() {
+                break;
             }
         }
         cursor = end;
@@ -427,13 +435,17 @@ mod tests {
             Err(HistorySyncErrorV1::InvalidPage)
         );
         assert_eq!(store.checkpoint, None);
+        let second_record = HistoryRecordV1 {
+            native_id: b"event-2".to_vec(),
+            ..record()
+        };
         let mut source = Source(VecDeque::from([
             HistoryPageV1 {
-                records: vec![],
+                records: vec![record()],
                 next_token: Some(b"next".to_vec()),
             },
             HistoryPageV1 {
-                records: vec![],
+                records: vec![second_record],
                 next_token: Some(b"next".to_vec()),
             },
         ]));
@@ -442,6 +454,52 @@ mod tests {
             Err(HistorySyncErrorV1::InvalidPage)
         );
         assert_eq!(store.checkpoint, None);
+        assert_eq!(store.records.len(), 1);
+        assert!(store.records.contains_key(b"event-1".as_slice()));
+        assert!(!store.records.contains_key(b"event-2".as_slice()));
+
+        let mut source = Source(VecDeque::from([HistoryPageV1 {
+            records: vec![HistoryRecordV1 {
+                native_id: b"empty-token-record".to_vec(),
+                ..record()
+            }],
+            next_token: Some(Vec::new()),
+        }]));
+        assert_eq!(
+            synchronize_history_v1(&mut source, &mut store, 10, limits(3)),
+            Err(HistorySyncErrorV1::InvalidPage)
+        );
+        assert!(!store.records.contains_key(b"empty-token-record".as_slice()));
+    }
+
+    #[test]
+    fn historical_replay_rejects_invalid_page_without_caching_its_records() {
+        let mut store = Store {
+            checkpoint: Some(HistoryCheckpointV1 {
+                completed_through_millis: 10,
+            }),
+            ..Store::default()
+        };
+        let mut source = Source(VecDeque::from([
+            HistoryPageV1 {
+                records: vec![record()],
+                next_token: Some(b"next".to_vec()),
+            },
+            HistoryPageV1 {
+                records: vec![HistoryRecordV1 {
+                    native_id: b"rejected".to_vec(),
+                    ..record()
+                }],
+                next_token: Some(b"next".to_vec()),
+            },
+        ]));
+        assert_eq!(
+            reconcile_history_range_v1(&mut source, &mut store, 0, 10, limits(3)),
+            Err(HistorySyncErrorV1::InvalidPage)
+        );
+        assert_eq!(store.records.len(), 1);
+        assert!(!store.records.contains_key(b"rejected".as_slice()));
+        assert_eq!(store.checkpoint.unwrap().completed_through_millis, 10);
     }
 
     #[test]
