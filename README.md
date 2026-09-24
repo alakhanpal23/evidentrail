@@ -118,6 +118,10 @@ model ranking. A local patch-proposal model abstained on all 12 paired
 arm/case prompts, leaving verified patch success at 0/3 for every arm; it had
 no repository code or configuration schema, so downstream coding-agent success
 remains unproven.
+A paired synthetic-schema rerun also produced 0/3 verified patches for every
+arm: the local model abstained on all 12 prompts despite being given valid
+assignment syntax and value ranges. Actual repository code and an agentic
+edit loop remain untested.
 When that fallback or lexical search is truncated, a connected query can
 inspect up to four 32-service directory pages shared across its sources. When
 more than 32 sources are eligible, pages rotate across them and report

@@ -73,9 +73,11 @@ from the repository's incident lab into encrypted corpora. A local Qwen2.5-Coder
 in 3/3 cases, but each selected all 4–6 candidate groups. Severity-only and
 recent-group baselines missed every precursor. This remains a small synthetic
 retrieval result. A separate local patch-proposal model abstained on all 12
-arm/case combinations despite receiving the selected logs; it had no
-repository code or configuration schema. A real paired coding-agent fix study
-and model-routing qualification remain open.
+arm/case combinations despite receiving the selected logs. A paired rerun
+with synthetic configuration schemas also yielded 0/3 verified fixes for
+every arm; patch syntax alone did not change the result. Neither run supplied
+actual repository code or an agentic edit loop. A real paired coding-agent
+fix study and model-routing qualification remain open.
 
 Local connector and authorization contract tests pass. Live CloudWatch and
 Datadog sandbox validation, complete provider-coverage proofs under retention

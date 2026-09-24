@@ -36,9 +36,22 @@ validation, an independent human relevance study, or evidence of
 generalization. A paired coding-agent run with the actual fixture code and
 patch verifier remains necessary.
 
+A paired rerun supplied a synthetic configuration schema for each case: the
+valid assignment key, value range or migration target syntax, and one-line
+patch format. It did not supply the correct setting or migration number. The
+same local model still abstained on all 12 arm/case pairs; verified patch
+success remained **0/3 for every arm**. This narrows the missing-context
+explanation: giving patch syntax alone did not make this prompt and model solve
+the faults. It does not establish whether actual repository code, an agentic
+edit loop, or a different model would succeed. The selected-log comparison
+remains inconclusive because the model and first-ID arms selected every
+candidate group in all three cases.
+
 Run `python3 scripts/eval-connected-executable.py` from the repository root.
 With a running Ollama model named by `EVIDENTRAIL_COMPACT_LOCAL_MODEL`, or a
 hosted `OPENAI_API_KEY`, add `--model` to exercise the product's actual selector.
 With a running local Ollama model, add `--downstream` to run the separate
 patch-proposal and executable-verifier check; temporary selected-log artifacts
 are removed when the script exits.
+Add `--schema-context` to give the patch model the fixture's synthetic edit
+schema while retaining the same selected-log packs and verifier.

@@ -22,8 +22,23 @@ QUESTIONS = {
     "upstream-timeout": "Why did request req-7f3b9c21 time out against inventory after the gateway configuration change?",
 }
 
+SCHEMA_CONTEXT = {
+    "db-pool-zero": (
+        "api/config.schema: pool_size is an integer from 1 to 1024. "
+        "A one-line patch has the form pool_size=<integer>."
+    ),
+    "migration-drift": (
+        "worker/migrations.schema: the worker applies migrations in order. "
+        "A one-line patch has the form apply_migration=<target schema version>."
+    ),
+    "upstream-timeout": (
+        "gateway/config.schema: upstream_timeout_ms is an integer from 100 to 60000. "
+        "A one-line patch has the form upstream_timeout_ms=<integer>."
+    ),
+}
 
-def propose_patch(model, question, logs):
+
+def propose_patch(model, question, logs, schema_context):
     schema = {
         "type": "object",
         "additionalProperties": False,
@@ -42,7 +57,11 @@ def propose_patch(model, question, logs):
             "support it. Otherwise abstain and use an empty patch. Do not invent "
             "other evidence. Return only the required JSON object."
         ),
-        "input": [{"role": "user", "content": [{"type": "input_text", "text": f"Question: {question}\nLogs:\n{logs}"}]}],
+        "input": [{"role": "user", "content": [{"type": "input_text", "text": (
+            f"Question: {question}\n"
+            + (f"Synthetic configuration schema:\n{schema_context}\n" if schema_context else "")
+            + f"Logs:\n{logs}"
+        )}]}],
         "store": False,
         "tools": [],
         "reasoning": {"effort": "none"},
@@ -75,13 +94,18 @@ def propose_patch(model, question, logs):
     return answer["abstain"], patch
 
 
-def run_downstream(model, helper, directory):
+def run_downstream(model, helper, directory, with_schema_context):
     hits = {}
     for scenario, question in QUESTIONS.items():
         for method in ("first_id", "severity", "recent", "model"):
             logs = (directory / f"{scenario}-{method}.log").read_text()
             started = time.monotonic()
-            abstain, patch = propose_patch(model, question, logs)
+            abstain, patch = propose_patch(
+                model,
+                question,
+                logs,
+                SCHEMA_CONTEXT[scenario] if with_schema_context else None,
+            )
             elapsed_ms = int((time.monotonic() - started) * 1000)
             verified = False
             if not abstain and patch:
@@ -99,6 +123,7 @@ def run_downstream(model, helper, directory):
                 "abstained": abstain,
                 "patch_verified": verified,
                 "elapsed_ms": elapsed_ms,
+                "schema_context": with_schema_context,
             }, sort_keys=True), flush=True)
     print("EXEC_CONNECTED_DOWNSTREAM_SUMMARY", json.dumps(hits, sort_keys=True), flush=True)
 
@@ -107,7 +132,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", action="store_true", help="also call the actual local or hosted selector")
     parser.add_argument("--downstream", action="store_true", help="ask the local model for a patch from each arm and run the executable verifier")
+    parser.add_argument("--schema-context", action="store_true", help="give the patch model a synthetic configuration schema; requires --downstream")
     args = parser.parse_args()
+    if args.schema_context and not args.downstream:
+        parser.error("--schema-context requires --downstream")
     if args.downstream:
         args.model = True
         if not os.environ.get("EVIDENTRAIL_COMPACT_LOCAL_MODEL"):
@@ -138,7 +166,12 @@ def main():
             check=True,
         )
         if args.downstream:
-            run_downstream(os.environ["EVIDENTRAIL_COMPACT_LOCAL_MODEL"], helper, directory)
+            run_downstream(
+                os.environ["EVIDENTRAIL_COMPACT_LOCAL_MODEL"],
+                helper,
+                directory,
+                args.schema_context,
+            )
 
 
 if __name__ == "__main__":
