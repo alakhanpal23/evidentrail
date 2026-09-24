@@ -31,12 +31,14 @@ CloudWatch registration verifies the AWS caller and log-group read access.
 Datadog registration reads `DD_API_KEY` and `DD_APP_KEY` from the environment,
 binds the connection to the authenticated organization, user, and assigned role
 IDs, and requires the read-only `logs_read_config` permission to fingerprint
-that user's effective log restriction queries. The fingerprint is stored in the
-encrypted corpus. A changed restriction query excludes that corpus from sync,
-queries, and expansion; reconnect to backfill under the new scope. Existing
-corpora with cached records but no fingerprint also require reconnecting.
-Registration probes indexes,
-online archives, and Flex separately, and reports tiers it
+that user's effective log restriction queries. It also reads the user's
+effective global permissions through Datadog's user-permissions API, which
+requires `user_access_read`. The combined fingerprint is stored in
+the encrypted corpus. A changed restriction query or global permission excludes
+that corpus from sync, queries, and expansion; reconnect to backfill under the
+new scope. Existing corpora with cached records but no current-version
+fingerprint also require reconnecting. Registration probes indexes, online archives, and Flex
+separately, and reports tiers it
 could not connect. Credentials are stored in separate source-bound macOS login
 Keychain items; descriptors contain no keys. Both registrations create a
 source-bound corpus key and encrypted local corpus, then report
@@ -145,8 +147,8 @@ discards every active and staged corpus for that connection and starts a fresh
 backfill. If recovery fails, the staged files remain as a fail-closed gate.
 This recovery path has local filesystem tests but has not been exercised with
 live Datadog credentials.
-Datadog role permissions, index access, or Data Access Control policy can still
-change without altering the user, role IDs, or restriction-query fingerprint.
+Datadog index access or Data Access Control policy can still change without
+altering the user, role IDs, or current access-scope fingerprint.
 Do not rely on this build to enforce those narrower permissions over its cached
 corpus; complete scope-change invalidation is a release gate in the product
 plan. Datadog connections registered before the identity binding

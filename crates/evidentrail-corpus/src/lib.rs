@@ -223,7 +223,7 @@ impl EncryptedHistoryStore {
                      source_digest BLOB NOT NULL,
                      completed_through_millis INTEGER
                  );
-                 CREATE TABLE IF NOT EXISTS provider_access_scope (
+                 CREATE TABLE IF NOT EXISTS provider_access_scope_v2 (
                      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                      digest BLOB NOT NULL CHECK (length(digest) = 32)
                  );
@@ -981,7 +981,7 @@ impl EncryptedHistoryStore {
         let prior: Option<Vec<u8>> = self
             .connection
             .query_row(
-                "SELECT digest FROM provider_access_scope WHERE singleton = 1",
+                "SELECT digest FROM provider_access_scope_v2 WHERE singleton = 1",
                 [],
                 |row| row.get(0),
             )
@@ -999,7 +999,7 @@ impl EncryptedHistoryStore {
         }
         self.connection
             .execute(
-                "INSERT INTO provider_access_scope(singleton, digest) VALUES (1, ?1)",
+                "INSERT INTO provider_access_scope_v2(singleton, digest) VALUES (1, ?1)",
                 [digest.as_slice()],
             )
             .map_err(|_| CorpusError::Storage)?;
@@ -1009,7 +1009,7 @@ impl EncryptedHistoryStore {
     pub fn provider_access_scope_bound(&self) -> Result<bool, CorpusError> {
         self.connection
             .query_row(
-                "SELECT 1 FROM provider_access_scope WHERE singleton = 1",
+                "SELECT 1 FROM provider_access_scope_v2 WHERE singleton = 1",
                 [],
                 |_| Ok(()),
             )
@@ -2308,8 +2308,31 @@ mod tests {
             let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
             assert!(!store.provider_access_scope_bound().unwrap());
             store
+                .connection
+                .execute_batch(
+                    "CREATE TABLE provider_access_scope (
+                         singleton INTEGER PRIMARY KEY, digest BLOB NOT NULL
+                     );",
+                )
+                .unwrap();
+            store
+                .connection
+                .execute(
+                    "INSERT INTO provider_access_scope(singleton, digest) VALUES (1, ?1)",
+                    [[9; 32].as_slice()],
+                )
+                .unwrap();
+            store
                 .commit_page_checked(std::slice::from_ref(&record))
                 .unwrap();
+            assert_eq!(
+                store.bind_provider_access_scope(&[3; 32]),
+                Err(CorpusError::ScopeMismatch)
+            );
+        }
+        {
+            let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert!(!store.provider_access_scope_bound().unwrap());
             assert_eq!(
                 store.bind_provider_access_scope(&[3; 32]),
                 Err(CorpusError::ScopeMismatch)

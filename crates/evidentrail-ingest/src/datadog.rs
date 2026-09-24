@@ -231,6 +231,129 @@ impl DatadogHistorySourceV1 {
         }
         parse_restriction_query_digest(&bytes)
     }
+
+    /// Bind cached logs to the effective restriction queries and the user's
+    /// effective global permissions. Asset-specific index permissions
+    /// and Data Access Control policies still require separate checks.
+    pub fn current_access_scope_digest(
+        &self,
+        identity: &DatadogAccessIdentityV1,
+    ) -> Result<[u8; 32], HistorySyncErrorV1> {
+        if identity.role_ids.is_empty()
+            || identity.role_ids.len() > 128
+            || identity.role_ids.iter().any(|id| !valid_uuid(id))
+            || identity.role_ids.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(HistorySyncErrorV1::InvalidConfiguration);
+        }
+        let restrictions = self.current_restriction_query_digest(&identity.user_id)?;
+        let permissions = self.current_user_permissions_digest(&identity.user_id)?;
+        let mut hasher = Sha256::new();
+        hasher.update(b"evidentrail/datadog-access-scope/v2\0");
+        hasher.update(restrictions);
+        hasher.update(permissions);
+        for role_id in &identity.role_ids {
+            hasher.update(role_id.as_bytes());
+        }
+        Ok(hasher.finalize().into())
+    }
+
+    fn current_user_permissions_digest(
+        &self,
+        user_id: &str,
+    ) -> Result<[u8; 32], HistorySyncErrorV1> {
+        if !valid_uuid(user_id) {
+            return Err(HistorySyncErrorV1::InvalidConfiguration);
+        }
+        let (api_header, app_header) = self.credential_headers()?;
+        let response = send_with_rate_limit_retry(|| {
+            self.client
+                .get(format!(
+                    "{}/api/v2/users/{user_id}/permissions",
+                    self.endpoint
+                ))
+                .header("DD-API-KEY", api_header.clone())
+                .header("DD-APPLICATION-KEY", app_header.clone())
+                .header(ACCEPT, "application/json")
+                .send()
+        })?;
+        match response.status().as_u16() {
+            200 => {}
+            401 => return Err(HistorySyncErrorV1::AuthenticationChanged),
+            403 => return Err(HistorySyncErrorV1::PermissionDenied),
+            429 => return Err(HistorySyncErrorV1::Throttled),
+            _ => return Err(HistorySyncErrorV1::Provider),
+        }
+        let mut bytes = Zeroizing::new(Vec::new());
+        response
+            .take(MAX_IDENTITY_RESPONSE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| HistorySyncErrorV1::Network)?;
+        if bytes.len() as u64 > MAX_IDENTITY_RESPONSE_BYTES {
+            return Err(HistorySyncErrorV1::InvalidPage);
+        }
+        parse_user_permissions_digest(&bytes)
+    }
+}
+
+#[derive(Deserialize)]
+struct UserPermissionsResponse {
+    data: Vec<UserPermissionData>,
+}
+
+#[derive(Deserialize)]
+struct UserPermissionData {
+    #[serde(rename = "type")]
+    resource_type: String,
+    id: String,
+    attributes: UserPermissionAttributes,
+}
+
+#[derive(Deserialize)]
+struct UserPermissionAttributes {
+    name: Option<String>,
+    restricted: bool,
+}
+
+fn parse_user_permissions_digest(bytes: &[u8]) -> Result<[u8; 32], HistorySyncErrorV1> {
+    let response: UserPermissionsResponse =
+        serde_json::from_slice(bytes).map_err(|_| HistorySyncErrorV1::InvalidPage)?;
+    if response.data.len() > 10_000 {
+        return Err(HistorySyncErrorV1::InvalidPage);
+    }
+    let mut permissions = Vec::with_capacity(response.data.len());
+    for item in response.data {
+        if item.resource_type != "permissions"
+            || item.id.is_empty()
+            || item.id.len() > 128
+            || item
+                .attributes
+                .name
+                .as_ref()
+                .is_some_and(|name| name.len() > 256)
+        {
+            return Err(HistorySyncErrorV1::InvalidPage);
+        }
+        permissions.push((
+            item.id,
+            item.attributes.name.unwrap_or_default(),
+            item.attributes.restricted,
+        ));
+    }
+    permissions.sort();
+    if permissions.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+        return Err(HistorySyncErrorV1::InvalidPage);
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(b"evidentrail/datadog-user-permissions/v1\0");
+    for (id, name, restricted) in permissions {
+        for value in [&id, &name] {
+            hasher.update((value.len() as u64).to_be_bytes());
+            hasher.update(value.as_bytes());
+        }
+        hasher.update([u8::from(restricted)]);
+    }
+    Ok(hasher.finalize().into())
 }
 
 #[derive(Deserialize)]
@@ -587,6 +710,139 @@ mod tests {
             parse_restriction_query_digest(br#"{"data":[{"type":"wrong","id":"a1234567-1234-1234-1234-123456789abc","attributes":{"restriction_query":"*"}}]}"#),
             Err(HistorySyncErrorV1::InvalidPage)
         );
+    }
+
+    #[test]
+    fn user_permission_fingerprint_detects_global_grant_changes() {
+        let first = br#"{"data":[{"type":"permissions","id":"p1","attributes":{"name":"logs_read_data","restricted":false}},{"type":"permissions","id":"p2","attributes":{"name":"logs_read_index_data","restricted":true}}]}"#;
+        let reordered = br#"{"data":[{"type":"permissions","id":"p2","attributes":{"name":"logs_read_index_data","restricted":true}},{"type":"permissions","id":"p1","attributes":{"name":"logs_read_data","restricted":false}}]}"#;
+        let narrowed = br#"{"data":[{"type":"permissions","id":"p2","attributes":{"name":"logs_read_index_data","restricted":true}}]}"#;
+        assert_eq!(
+            parse_user_permissions_digest(first),
+            parse_user_permissions_digest(reordered)
+        );
+        assert_ne!(
+            parse_user_permissions_digest(first),
+            parse_user_permissions_digest(narrowed)
+        );
+        assert!(
+            parse_user_permissions_digest(
+                br#"{"data":[{"type":"permissions","id":"p1","attributes":{"restricted":false}}]}"#
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            parse_user_permissions_digest(br#"{"data":[{"type":"permissions","id":"p1","attributes":{"name":"logs_read_data"}}]}"#),
+            Err(HistorySyncErrorV1::InvalidPage)
+        );
+    }
+
+    #[test]
+    fn access_scope_requests_restrictions_and_effective_user_permissions() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let identity = DatadogAccessIdentityV1 {
+            org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+            user_id: "b1234567-1234-1234-1234-123456789abc".to_owned(),
+            role_ids: vec!["c1234567-1234-1234-1234-123456789abc".to_owned()],
+        };
+        let user_id = identity.user_id.clone();
+        let server = thread::spawn(move || {
+            for (path, body) in [
+                (
+                    format!("/api/v2/logs/config/restriction_queries/user/{user_id}"),
+                    r#"{"data":[]}"#,
+                ),
+                (
+                    format!("/api/v2/users/{user_id}/permissions"),
+                    r#"{"data":[{"type":"permissions","id":"p1","attributes":{"name":"logs_read_data","restricted":false}}]}"#,
+                ),
+            ] {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                loop {
+                    let mut chunk = [0u8; 1024];
+                    let count = socket.read(&mut chunk).unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&chunk[..count]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let headers = String::from_utf8_lossy(&request).to_ascii_lowercase();
+                assert!(headers.starts_with(&format!("get {path} http/1.1")));
+                write!(
+                    socket,
+                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+                socket.flush().unwrap();
+            }
+        });
+        let source = DatadogHistorySourceV1::from_endpoint(
+            endpoint,
+            DatadogStorageTierV1::Indexes,
+            "api-test".to_owned(),
+            "app-test".to_owned(),
+        )
+        .unwrap();
+        assert!(source.current_access_scope_digest(&identity).is_ok());
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn access_scope_fails_closed_when_user_permissions_cannot_be_read() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let identity = DatadogAccessIdentityV1 {
+            org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+            user_id: "b1234567-1234-1234-1234-123456789abc".to_owned(),
+            role_ids: vec!["c1234567-1234-1234-1234-123456789abc".to_owned()],
+        };
+        let server = thread::spawn(move || {
+            for authorized in [true, false] {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                loop {
+                    let mut chunk = [0u8; 1024];
+                    let count = socket.read(&mut chunk).unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&chunk[..count]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                if authorized {
+                    write!(socket, "HTTP/1.1 200 OK\r\ncontent-length: 11\r\nconnection: close\r\n\r\n{{\"data\":[]}}").unwrap();
+                } else {
+                    write!(
+                        socket,
+                        "HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                    )
+                    .unwrap();
+                }
+                socket.flush().unwrap();
+            }
+        });
+        let source = DatadogHistorySourceV1::from_endpoint(
+            endpoint,
+            DatadogStorageTierV1::Indexes,
+            "api-test".to_owned(),
+            "app-test".to_owned(),
+        )
+        .unwrap();
+        assert_eq!(
+            source.current_access_scope_digest(&identity),
+            Err(HistorySyncErrorV1::PermissionDenied)
+        );
+        server.join().unwrap();
     }
 
     #[test]

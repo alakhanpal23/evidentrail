@@ -865,11 +865,11 @@ fn sync_binding_inner(
                 .current_access_identity()
                 .map_err(|error| format!("{error:?}"))?;
             check_datadog_identity(datadog, &current_identity)?;
-            let restriction_digest = source
-                .current_restriction_query_digest(&current_identity.user_id)
+            let access_scope_digest = source
+                .current_access_scope_digest(&current_identity)
                 .map_err(|error| format!("{error:?}"))?;
             store
-                .bind_provider_access_scope(&restriction_digest)
+                .bind_provider_access_scope(&access_scope_digest)
                 .map_err(|_| "AccessScopeChangedOrUnbound".to_owned())?;
             bounded_sync(&mut source, store, high_water).map_err(|error| format!("{error:?}"))
         }
@@ -1368,7 +1368,7 @@ fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailur
         .current_access_identity()
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_IDENTITY_FAILED"))?;
     identity_source
-        .current_restriction_query_digest(&identity.user_id)
+        .current_access_scope_digest(&identity)
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ACCESS_SCOPE_FAILED"))?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1552,7 +1552,7 @@ fn rotate_datadog(options: DatadogRotateOptions, recovering: bool) -> Result<Exi
         api_key.to_string(),
         application_key.to_string(),
     )
-    .and_then(|source| source.current_restriction_query_digest(&identity.user_id))
+    .and_then(|source| source.current_access_scope_digest(&identity))
     .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_SCOPE_FAILED"))?;
     for (_, binding) in &bound {
         check_datadog_identity(binding, &identity)
