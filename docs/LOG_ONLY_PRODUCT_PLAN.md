@@ -74,9 +74,15 @@ labeled service in 7/7 but the exact labeled line and its parsed template in
 line. The parser now recognizes complete Spring Boot and HTTP access preambles,
 with a version-5 rebuild of derived group indexes. Group count fell from
 379,858 to 353,222 in an exploratory matched-corpus comparison, while
-line/template recall remained 0/7. This is a negative selector result under
-a generic task, not evidence that no useful line was returned. No model route
-or downstream repair was evaluated on these seven cases.
+line/template recall remained 0/7 before the retrieval change. A stage audit
+found all seven labeled groups in the encrypted corpus but none among lexical
+candidates. Bounded repeated-severity candidates raised first-ID exact-line
+recall to 3/7 and parsed-template recall to 7/7 at the same output budget;
+selector calls rose from 17 to 28 and all seven candidate pools reported
+truncation. A lexical-strength gate preserved the prior BGL category results
+for message-specific tasks. These are deterministic selector proxies, not
+proof that repetition implies causal relevance. No model route or downstream
+repair was evaluated on the seven RCAEval cases.
 An opt-in live-model harness now runs the actual selector over the same pinned
 12-category BGL proxy and verifies every emitted line against the encrypted
 corpus. A local Qwen2.5-Coder 7B run hit 12/12 categories with 107 off-label

@@ -770,6 +770,65 @@ mod tests {
     }
 
     #[test]
+    fn broad_query_adds_repeated_errors_without_diluting_exact_message_query() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
+        let records = [
+            (
+                b"specific".as_slice(),
+                b"[checkout] ERROR: inventory reservation failed".as_slice(),
+            ),
+            (
+                b"repeat-1".as_slice(),
+                b"[payments] ERROR: timeout processing payment".as_slice(),
+            ),
+            (
+                b"repeat-2".as_slice(),
+                b"[payments] ERROR: timeout processing payment".as_slice(),
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (native_id, bytes))| HistoryRecordV1 {
+            native_id: native_id.to_vec(),
+            event_timestamp_millis: index as i64,
+            bytes: bytes.to_vec(),
+        })
+        .collect::<Vec<_>>();
+        store.commit_page_checked(&records).unwrap();
+        let source = [AuthorizedCorpus {
+            source_digest: [2; 32],
+            store: &store,
+        }];
+        let exact = select_connected_logs(
+            &source,
+            "inventory reservation failed",
+            4096,
+            &mut SelectAllCandidates,
+        )
+        .unwrap();
+        assert_eq!(
+            store
+                .task_match_strength("inventory reservation failed")
+                .unwrap(),
+            (3, 3)
+        );
+        assert_eq!(exact.candidate_count, 1);
+        assert_eq!(pack_lines(&exact)[0].0, b"specific");
+        let broad = select_connected_logs(
+            &source,
+            "Investigate service errors and failed requests",
+            4096,
+            &mut SelectAllCandidates,
+        )
+        .unwrap();
+        assert_eq!(broad.candidate_count, 2);
+        assert!(pack_lines(&broad).iter().any(|(id, _)| id == b"repeat-1"));
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
     #[ignore = "opt-in connected selection on pinned executable fault streams"]
     fn executable_incident_connected_selection_eval() {
         let helper = std::env::var("EVIDENTRAIL_EXECUTABLE_INCIDENT_HELPER")
