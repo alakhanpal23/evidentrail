@@ -72,7 +72,7 @@ or truncated result does not prove that relevant logs are absent. A
 [frozen synthetic retrieval fixture](reports/connected-retrieval-v2.md)
 measures this fallback and the graph ablation, but model and live-source
 quality remain unverified.
-When that fallback is truncated, a connected query can inspect up to four
+When that fallback or lexical search is truncated, a connected query can inspect up to four
 32-service directory pages shared across its sources; each page includes a
 bounded slice from every eligible source. The model may choose only
 advertised service IDs; code resolves those choices to at most 64 additional

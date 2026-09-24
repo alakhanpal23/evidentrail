@@ -138,7 +138,7 @@ fn select_connected_logs_with_graph(
             .ok_or(CompactionError::Corpus)?;
         candidate_pool_truncated |= lexical.candidate_pool_truncated;
         let mut cards = lexical.groups;
-        let mut needs_directory = false;
+        let mut needs_directory = lexical.candidate_pool_truncated;
         if cards.is_empty() {
             let fallback = source
                 .store
@@ -147,7 +147,7 @@ fn select_connected_logs_with_graph(
             candidate_pool_truncated |= fallback.candidate_pool_truncated;
             fallback_candidate_count += fallback.groups.len();
             cards = fallback.groups;
-            needs_directory = fallback.candidate_pool_truncated;
+            needs_directory |= fallback.candidate_pool_truncated;
         }
         source_cards.push(cards);
         directory_eligible.push(needs_directory);
@@ -922,6 +922,11 @@ mod tests {
         }
         first.commit_page_checked(&records).unwrap();
         let mut second_records = records.clone();
+        for record in &mut second_records {
+            if record.native_id.starts_with(b"svc34-") {
+                record.event_timestamp_millis = 1;
+            }
+        }
         second_records
             .iter_mut()
             .find(|record| record.native_id == b"svc34-0")
@@ -959,6 +964,17 @@ mod tests {
                     .bytes
                     == entry.first_raw
         }));
+        let lexical_result =
+            select_connected_logs(&sources, "filler", 4096, &mut SelectSecondSource).unwrap();
+        assert!(lexical_result.service_directory_pages > 0);
+        assert!(lexical_result.service_candidates_added > 0);
+        assert!(
+            lexical_result
+                .selected
+                .iter()
+                .any(|entry| entry.source_digest == [4; 32]
+                    && entry.first_native_id.starts_with(b"svc34-"))
+        );
         drop(first);
         drop(second);
         cleanup(&first_path);
