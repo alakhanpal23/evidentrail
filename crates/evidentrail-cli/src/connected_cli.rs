@@ -279,9 +279,9 @@ pub(crate) fn query_connected_logs(
     let entries = authority
         .list_bound(&tenant)
         .map_err(|error| query_error(CliFailure::runtime(error.code())))?;
-    if entries.is_empty() || entries.len() > 32 {
+    if entries.is_empty() {
         return Err(ConnectedQueryError {
-            code: "EVIDENTRAIL_LOGS_SOURCE_COUNT_UNSUPPORTED",
+            code: "EVIDENTRAIL_LOGS_NO_CONNECTED_SOURCE",
             metadata: None,
         });
     }

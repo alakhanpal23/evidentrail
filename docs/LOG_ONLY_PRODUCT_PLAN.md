@@ -24,6 +24,9 @@ and explicit-peer service graph. Lexical search, priority fallback, and graph
 neighbors provide bounded group candidates. When lexical search or fallback
 truncates, model-selected directory pages show bounded original-log examples
 and can retrieve additional severe service groups across eligible sources.
+Connected queries now accept more than 32 registered sources; directory pages
+remain bounded to 32 service cards and report truncation when their page budget
+cannot inspect every service.
 This remains a bounded search with no
 guarantee of finding every relevant record. The frozen encrypted-corpus
 fixture measures exact evidence recall, irrelevant lines, a recent-log

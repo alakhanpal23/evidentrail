@@ -10,7 +10,6 @@ use serde_json::{Value, json};
 use crate::incident_analysis::contains_sensitive_data;
 use crate::log_compaction::{CompactionError, LogGroupSelector};
 
-const MAX_SOURCES: usize = 32;
 const LEXICAL_BUDGET: usize = 256;
 const GRAPH_BUDGET: usize = 64;
 const GROUPS_PER_PAGE: usize = 64;
@@ -85,7 +84,6 @@ fn select_connected_logs_with_graph(
     graph_enabled: bool,
 ) -> Result<ConnectedLogPack, CompactionError> {
     if sources.is_empty()
-        || sources.len() > MAX_SOURCES
         || task.trim().is_empty()
         || task.len() > 4096
         || max_output_bytes == 0
@@ -358,10 +356,18 @@ fn select_service_candidates(
     let mut added = 0;
     let mut pages = 0;
     let mut truncated = false;
+    let mut next_source = 0;
     while pages < MAX_SERVICE_DIRECTORY_PAGES && done.iter().any(|value| !value) {
         let mut advertised = Vec::new();
         let mut groups = Vec::new();
-        for (source_index, source) in sources.iter().enumerate() {
+        let mut inspected_services = 0;
+        for offset in 0..sources.len() {
+            let source_index = (next_source + offset) % sources.len();
+            if inspected_services >= SERVICE_DIRECTORY_PAGE {
+                next_source = source_index;
+                break;
+            }
+            let source = &sources[source_index];
             if done[source_index] {
                 continue;
             }
@@ -381,6 +387,7 @@ fn select_service_candidates(
             cursors[source_index] = directory.services.last().map(|card| card.service.clone());
             done[source_index] = !directory.has_more;
             for card in directory.services {
+                inspected_services += 1;
                 if card.service.len() > 256 || contains_sensitive_data(&card.service) {
                     truncated = true;
                     continue;
@@ -596,6 +603,75 @@ mod tests {
                 .take(request["max_selected_groups"].as_u64().unwrap() as usize)
                 .map(|group| group["id"].as_str().unwrap().to_owned())
                 .collect())
+        }
+    }
+
+    #[test]
+    fn service_directory_pages_across_more_than_thirty_two_sources() {
+        struct SelectLastService;
+        impl LogGroupSelector for SelectLastService {
+            fn select(&mut self, request: &Value) -> Result<Vec<String>, CompactionError> {
+                let groups = request["groups"]
+                    .as_array()
+                    .ok_or(CompactionError::InvalidInput)?;
+                assert!(groups.len() <= SERVICE_DIRECTORY_PAGE);
+                Ok(groups
+                    .iter()
+                    .filter(|group| group["service"] == "svc32")
+                    .map(|group| group["id"].as_str().unwrap().to_owned())
+                    .collect())
+            }
+        }
+        let mut paths = Vec::new();
+        let mut stores = Vec::new();
+        for index in 0..33u8 {
+            let path = test_path();
+            let source = [index + 1; 32];
+            let mut store =
+                EncryptedHistoryStore::open(&path, &[7; 32], &[1; 32], &source).unwrap();
+            store
+                .commit_page_checked(&[HistoryRecordV1 {
+                    native_id: b"event".to_vec(),
+                    event_timestamp_millis: 1,
+                    bytes: format!(
+                        "{{\"service\":\"svc{index:02}\",\"status\":\"error\",\"message\":\"failure\"}}"
+                    )
+                    .into_bytes(),
+                }])
+                .unwrap();
+            paths.push(path);
+            stores.push(store);
+        }
+        let sources = stores
+            .iter()
+            .enumerate()
+            .map(|(index, store)| AuthorizedCorpus {
+                source_digest: [index as u8 + 1; 32],
+                store,
+            })
+            .collect::<Vec<_>>();
+        let mut cards = vec![Vec::new(); sources.len()];
+        let selected = select_service_candidates(
+            &sources,
+            "find failure",
+            &mut SelectLastService,
+            &vec![true; sources.len()],
+            &mut cards,
+        )
+        .unwrap();
+        assert_eq!(selected.pages, 2);
+        assert!(!selected.truncated);
+        assert_eq!(selected.added, 1);
+        assert!(selected.selected_services[32].contains("svc32"));
+        assert_eq!(cards[32].len(), 1);
+        let full =
+            select_connected_logs(&sources, "failure", 4096, &mut SelectAllCandidates).unwrap();
+        assert_eq!(full.source_record_counts.len(), 33);
+        assert!(!full.selected.is_empty());
+        drop(sources);
+        drop(stores);
+        for path in paths {
+            cleanup(&path);
         }
     }
 
