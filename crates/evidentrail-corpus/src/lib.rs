@@ -137,6 +137,18 @@ pub struct CandidateGroupPage {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SevereServiceCard {
+    pub service: String,
+    pub group_count: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SevereServicePage {
+    pub services: Vec<SevereServiceCard>,
+    pub has_more: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServiceEdgeCard {
     pub source_service: String,
     pub target_service: String,
@@ -242,6 +254,9 @@ impl EncryptedHistoryStore {
                  );
                  CREATE INDEX IF NOT EXISTS log_groups_severe_time
                      ON log_groups(last_timestamp_millis DESC, group_id DESC)
+                     WHERE role IN ('critical', 'error', 'warning');
+                 CREATE INDEX IF NOT EXISTS log_groups_severe_service_time
+                     ON log_groups(service, last_timestamp_millis DESC, group_id DESC)
                      WHERE role IN ('critical', 'error', 'warning');
                  CREATE TABLE IF NOT EXISTS severe_service_groups (
                      service TEXT PRIMARY KEY,
@@ -1216,6 +1231,136 @@ impl EncryptedHistoryStore {
         })
     }
 
+    /// List service names observed in severe original logs. The cursor is an
+    /// exact service name from a prior page; this does not read raw log bytes.
+    pub fn read_severe_service_directory(
+        &self,
+        after_service: Option<&str>,
+        limit: usize,
+    ) -> Result<SevereServicePage, CorpusError> {
+        if limit == 0 || limit > 64 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let comparison = if after_service.is_some() { ">" } else { ">=" };
+        let sql = format!(
+            "SELECT service, group_count FROM severe_service_groups
+             WHERE service {comparison} ?1 ORDER BY service LIMIT ?2"
+        );
+        let mut statement = self
+            .connection
+            .prepare(&sql)
+            .map_err(|_| CorpusError::Storage)?;
+        let rows = statement
+            .query_map(
+                params![after_service.unwrap_or(""), (limit + 1) as i64],
+                |row| {
+                    Ok(SevereServiceCard {
+                        service: row.get(0)?,
+                        group_count: row.get(1)?,
+                    })
+                },
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let mut services = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)?;
+        let has_more = services.len() > limit;
+        services.truncate(limit);
+        Ok(SevereServicePage { services, has_more })
+    }
+
+    /// Resolve a model-selected, exact service name to bounded severe group
+    /// cards. The full service group count is reported even when truncated.
+    pub fn search_severe_service_groups(
+        &self,
+        service: &str,
+        limit: usize,
+    ) -> Result<CandidateGroupPage, CorpusError> {
+        if service.is_empty() || service.len() > 256 || limit == 0 || limit > 64 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let total_groups: Option<u64> = self
+            .connection
+            .query_row(
+                "SELECT group_count FROM severe_service_groups WHERE service = ?1",
+                [service],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| CorpusError::Storage)?;
+        let Some(total_groups) = total_groups else {
+            return Ok(CandidateGroupPage {
+                groups: Vec::new(),
+                total_groups: 0,
+                candidate_pool_truncated: false,
+            });
+        };
+        let per_end = limit.div_ceil(2);
+        let oldest = self.read_severe_groups_for_service(service, per_end, false)?;
+        let newest = self.read_severe_groups_for_service(service, per_end, true)?;
+        let mut groups = Vec::with_capacity(limit);
+        let mut seen = BTreeSet::new();
+        let mut oldest = oldest.into_iter();
+        let mut newest = newest.into_iter();
+        loop {
+            let mut advanced = false;
+            for next in [oldest.next(), newest.next()].into_iter().flatten() {
+                advanced = true;
+                if seen.insert(next.group_id) {
+                    groups.push(next);
+                    if groups.len() == limit {
+                        break;
+                    }
+                }
+            }
+            if !advanced || groups.len() == limit {
+                break;
+            }
+        }
+        Ok(CandidateGroupPage {
+            groups,
+            total_groups,
+            candidate_pool_truncated: total_groups > limit as u64,
+        })
+    }
+
+    fn read_severe_groups_for_service(
+        &self,
+        service: &str,
+        limit: usize,
+        newest_first: bool,
+    ) -> Result<Vec<CorpusGroupCard>, CorpusError> {
+        let direction = if newest_first { "DESC" } else { "ASC" };
+        let sql = format!(
+            "SELECT group_id, service, role, repeat_count,
+                    first_timestamp_millis, last_timestamp_millis,
+                    first_native_id, last_native_id
+             FROM log_groups WHERE service = ?1
+               AND role IN ('critical', 'error', 'warning')
+             ORDER BY last_timestamp_millis {direction}, group_id {direction} LIMIT ?2"
+        );
+        let mut statement = self
+            .connection
+            .prepare(&sql)
+            .map_err(|_| CorpusError::Storage)?;
+        let rows = statement
+            .query_map(params![service, limit as i64], |row| {
+                Ok(CorpusGroupCard {
+                    group_id: row.get(0)?,
+                    service: row.get(1)?,
+                    role: row.get(2)?,
+                    repeat_count: row.get(3)?,
+                    first_timestamp_millis: row.get(4)?,
+                    last_timestamp_millis: row.get(5)?,
+                    first_native_id: row.get(6)?,
+                    last_native_id: row.get(7)?,
+                })
+            })
+            .map_err(|_| CorpusError::Storage)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)
+    }
+
     fn read_severe_service_representatives(
         &self,
         service_limit: usize,
@@ -1230,7 +1375,7 @@ impl EncryptedHistoryStore {
             }
             let sql = format!(
                 "SELECT oldest_group_id, newest_group_id FROM severe_service_groups
-                 ORDER BY group_count {direction}, service ASC LIMIT ?1"
+                 ORDER BY group_count {direction}, service {direction} LIMIT ?1"
             );
             let mut statement = self
                 .connection
@@ -2643,6 +2788,17 @@ mod tests {
                 .unwrap();
             assert_eq!((count, oldest), (1, 50));
             assert_eq!(store.record_count().unwrap(), 3);
+            let first_page = store.read_severe_service_directory(None, 1).unwrap();
+            assert_eq!(first_page.services[0].service, "billing");
+            assert!(first_page.has_more);
+            let second_page = store
+                .read_severe_service_directory(Some("billing"), 1)
+                .unwrap();
+            assert_eq!(second_page.services[0].service, "noise");
+            assert!(!second_page.has_more);
+            let billing_groups = store.search_severe_service_groups("billing", 4).unwrap();
+            assert_eq!(billing_groups.total_groups, 1);
+            assert_eq!(billing_groups.groups[0].repeat_count, 2);
             assert_eq!(
                 store.get_record(b"billing-old").unwrap().unwrap().bytes,
                 billing_raw

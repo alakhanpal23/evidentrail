@@ -297,17 +297,16 @@ model/policy version; a changed source invalidates the cache.
 
 ## Delivery sequence and acceptance gates
 
-A first [frozen connected retrieval fixture](../reports/connected-retrieval-v2.md)
-now runs through the encrypted corpus and compares graph-enabled candidates,
-graph ablation, and recent-log selection under the same raw-byte cap. It
-exposed a zero-term-match omission; the connected path now uses a bounded
-high-severity fallback and reports its candidate count and truncation. A fourth
-case exposed an old-clue miss under 300 newer errors; the fallback now samples
-both ends of severe-log history, but its output still contains 11 irrelevant
-lines in that case. The fixture is synthetic and tests an all-candidate upper
-bound plus a simple deterministic severity selector. It does not satisfy
-the model, live-provider, downstream-task, scale, latency, cost, or security
-evaluation gates below.
+The [frozen connected retrieval v2 fixture](../reports/connected-retrieval-v2.md)
+runs through the encrypted corpus and compares graph-enabled selection, graph
+ablation, and recent-log selection under the same raw-byte cap. Its six
+synthetic cases exposed missed old and middle clues. The connected fallback
+now combines rare/common service representatives with temporal samples and
+reports truncation; the noisy cases still emit 11 irrelevant lines. A separate
+multi-service test exercises model-selected paging through an encrypted service
+directory when lexical search has no match. The fixture uses deterministic
+selectors, not a live model, and does not satisfy the live-provider,
+downstream-task, scale, latency, cost, or security gates below.
 
 | Milestone | Concrete deliverable | Gate |
 | --- | --- | --- |
