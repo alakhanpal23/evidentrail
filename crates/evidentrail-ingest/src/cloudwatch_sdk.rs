@@ -14,6 +14,7 @@ use crate::{
 pub struct AwsCloudWatchTransportV1 {
     binding: CloudWatchPlanV1,
     expected_caller_account: String,
+    caller_arn: String,
     runtime: Runtime,
     logs: aws_sdk_cloudwatchlogs::Client,
     sts: aws_sdk_sts::Client,
@@ -25,6 +26,7 @@ impl AwsCloudWatchTransportV1 {
     pub fn connect(
         binding: CloudWatchPlanV1,
         expected_caller_account: &str,
+        expected_caller_arn: Option<&str>,
         profile: Option<&str>,
     ) -> Result<Self, CloudWatchTransportErrorV1> {
         if !valid_scope(&binding, expected_caller_account) || profile.is_some_and(str::is_empty) {
@@ -46,20 +48,42 @@ impl AwsCloudWatchTransportV1 {
         let transport = Self {
             binding,
             expected_caller_account: expected_caller_account.to_owned(),
+            caller_arn: String::new(),
             logs: aws_sdk_cloudwatchlogs::Client::new(&config),
             sts: aws_sdk_sts::Client::new(&config),
             runtime,
         };
-        transport.verify_caller()?;
+        let caller_arn = transport.current_caller_arn()?;
+        if expected_caller_arn.is_some_and(|expected| expected != caller_arn) {
+            return Err(CloudWatchTransportErrorV1::AuthenticationChanged);
+        }
+        let mut transport = transport;
+        transport.caller_arn = caller_arn;
         Ok(transport)
     }
 
-    fn verify_caller(&self) -> Result<(), CloudWatchTransportErrorV1> {
+    #[must_use]
+    pub fn caller_arn(&self) -> &str {
+        &self.caller_arn
+    }
+
+    fn current_caller_arn(&self) -> Result<String, CloudWatchTransportErrorV1> {
         let output = self
             .runtime
             .block_on(self.sts.get_caller_identity().send())
             .map_err(classify_sts_error)?;
         if output.account() != Some(self.expected_caller_account.as_str()) {
+            return Err(CloudWatchTransportErrorV1::AuthenticationChanged);
+        }
+        let arn = output
+            .arn()
+            .filter(|arn| !arn.is_empty())
+            .ok_or(CloudWatchTransportErrorV1::ProviderFailure)?;
+        Ok(arn.to_owned())
+    }
+
+    fn verify_caller(&self) -> Result<(), CloudWatchTransportErrorV1> {
+        if self.current_caller_arn()? != self.caller_arn {
             return Err(CloudWatchTransportErrorV1::AuthenticationChanged);
         }
         Ok(())
@@ -319,7 +343,7 @@ mod tests {
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let server = thread::spawn(move || {
             let mut bodies = Vec::new();
-            for index in 0..4 {
+            for index in 0..5 {
                 let (mut socket, _) = listener.accept().unwrap();
                 socket
                     .set_read_timeout(Some(std::time::Duration::from_secs(5)))
@@ -352,7 +376,12 @@ mod tests {
                 bodies.push(
                     String::from_utf8_lossy(&request[header_end..header_end + length]).to_string(),
                 );
-                let (content_type, body) = if index % 2 == 0 {
+                let (content_type, body) = if index == 4 {
+                    (
+                        "text/xml",
+                        "<GetCallerIdentityResponse xmlns=\"https://sts.amazonaws.com/doc/2011-06-15/\"><GetCallerIdentityResult><Account>123456789012</Account><Arn>arn:aws:iam::123456789012:user/different</Arn><UserId>different</UserId></GetCallerIdentityResult></GetCallerIdentityResponse>",
+                    )
+                } else if index % 2 == 0 {
                     (
                         "text/xml",
                         "<GetCallerIdentityResponse xmlns=\"https://sts.amazonaws.com/doc/2011-06-15/\"><GetCallerIdentityResult><Account>123456789012</Account><Arn>arn:aws:iam::123456789012:user/test</Arn><UserId>test</UserId></GetCallerIdentityResult></GetCallerIdentityResponse>",
@@ -397,6 +426,7 @@ mod tests {
         let transport = AwsCloudWatchTransportV1 {
             binding: binding.clone(),
             expected_caller_account: "123456789012".to_owned(),
+            caller_arn: "arn:aws:iam::123456789012:user/test".to_owned(),
             runtime: Builder::new_multi_thread()
                 .worker_threads(1)
                 .enable_all()
@@ -419,10 +449,15 @@ mod tests {
         assert_eq!(second.records.len(), 1);
         assert_eq!(second.records[0].bytes, b"original line");
         assert!(second.next_token.is_none());
+        assert_eq!(
+            source.fetch_page(partition, None),
+            Err(crate::HistorySyncErrorV1::AuthenticationChanged)
+        );
         let bodies = server.join().unwrap();
         assert!(bodies[0].contains("GetCallerIdentity"));
         assert!(bodies[1].contains("logGroupName") && bodies[1].contains("startTime"));
         assert!(!bodies[1].contains("filterPattern") && !bodies[1].contains("logStreamNames"));
         assert!(bodies[3].contains("continue"));
+        assert!(bodies[4].contains("GetCallerIdentity"));
     }
 }

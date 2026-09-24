@@ -27,7 +27,13 @@ EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
   --max-raw-bytes 32768
 ```
 
-CloudWatch registration verifies the AWS caller and log-group read access.
+CloudWatch registration verifies the AWS caller and log-group read access,
+then binds the encrypted corpus to the caller ARN reported by STS. Sync and
+queries exclude the source if that ARN changes, including a change of assumed
+role session; reconnect under the new principal to start a fresh corpus.
+Older connections without a pinned ARN also require reconnecting. This check
+does not detect IAM policy changes for the same principal, so CloudWatch
+authorization-change validation remains a release gate.
 For cross-account observability, pass the source account's log-group ARN;
 the ARN may use the documented trailing `:*` form. Log-stream ARNs are
 rejected because a connection covers the whole log group.

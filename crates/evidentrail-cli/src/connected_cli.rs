@@ -40,6 +40,8 @@ struct CloudWatchDescriptor {
     region: String,
     log_group: String,
     profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    caller_arn: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -840,10 +842,15 @@ fn sync_binding_inner(
 ) -> Result<BoundedSyncProgress, String> {
     match binding {
         SourceBinding::CloudWatch(cloudwatch) => {
+            let caller_arn = cloudwatch
+                .caller_arn
+                .as_deref()
+                .ok_or_else(|| "EVIDENTRAIL_SOURCES_CLOUDWATCH_RECONNECT_REQUIRED".to_owned())?;
             let source_plan = plan(cloudwatch).map_err(|error| error.code.to_owned())?;
             let transport = AwsCloudWatchTransportV1::connect(
                 source_plan.clone(),
                 &cloudwatch.account,
+                Some(caller_arn),
                 cloudwatch.profile.as_deref(),
             )
             .map_err(|error| error.code().to_owned())?;
@@ -1075,6 +1082,7 @@ fn parse_cloudwatch_args(
         log_group: log_group
             .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_SOURCES_LOG_GROUP_REQUIRED"))?,
         profile,
+        caller_arn: None,
     };
     validate_binding(&binding)?;
     Ok(binding)
@@ -1935,14 +1943,16 @@ fn plan(binding: &CloudWatchDescriptor) -> Result<CloudWatchPlanV1, CliFailure> 
     .map_err(|_| CliFailure::usage("EVIDENTRAIL_SOURCES_INVALID_BINDING"))
 }
 
-fn connect_cloudwatch(binding: CloudWatchDescriptor) -> Result<ExitCode, CliFailure> {
+fn connect_cloudwatch(mut binding: CloudWatchDescriptor) -> Result<ExitCode, CliFailure> {
     let source_plan = plan(&binding)?;
     let transport = AwsCloudWatchTransportV1::connect(
         source_plan.clone(),
         &binding.account,
+        None,
         binding.profile.as_deref(),
     )
     .map_err(|error| CliFailure::runtime(error.code()))?;
+    binding.caller_arn = Some(transport.caller_arn().to_owned());
     let mut source = CloudWatchHistorySourceV1::new(source_plan, transport)
         .map_err(|_| CliFailure::usage("EVIDENTRAIL_SOURCES_INVALID_BINDING"))?;
     let now = SystemTime::now()
@@ -2794,6 +2804,7 @@ mod tests {
                 region: "us-west-2".to_owned(),
                 log_group: "/aws/test".to_owned(),
                 profile: None,
+                caller_arn: None,
             }),
             datadog("indexes", "a"),
             datadog("flex", "a"),
@@ -2860,6 +2871,7 @@ mod tests {
             region: "us-west-2".to_owned(),
             log_group: "/aws/other".to_owned(),
             profile: None,
+            caller_arn: None,
         };
         let descriptor = serde_json::to_vec(&cloudwatch).unwrap();
         let other = MacOsCorpusKeychainV1::source_digest_for_descriptor(&descriptor).unwrap();
@@ -3233,6 +3245,7 @@ mod tests {
             region: "us-west-2".to_owned(),
             log_group: "/aws/test".to_owned(),
             profile: None,
+            caller_arn: None,
         };
         let descriptor = serde_json::to_vec(&binding).unwrap();
         let digest = MacOsCorpusKeychainV1::source_digest_for_descriptor(&descriptor).unwrap();

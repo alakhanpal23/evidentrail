@@ -101,6 +101,14 @@ the connected replacement and migration contract are verified. The
 [README](../README.md) describes the current user flow and its limits; this
 plan defines the target behavior and acceptance gates.
 
+CloudWatch registration now pins the STS caller ARN in the source descriptor.
+Every transport reconnect and provider page checks the same ARN, and legacy
+descriptors without a pinned ARN fail closed until reconnected. This catches a
+principal or assumed-role session switch within the same AWS account. It does
+not establish that IAM permissions attached to an unchanged principal remain
+unchanged; a live narrowed-policy sandbox test and a reliable cache invalidation
+strategy for that case remain release gates.
+
 Interrupted Datadog rotations are now detected from staged encrypted corpus
 files, and all tiers in that connection are excluded from query, expansion,
 and sync. An explicit `recover-datadog` command validates replacement
