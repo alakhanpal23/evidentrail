@@ -30,7 +30,12 @@ EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
 CloudWatch registration verifies the AWS caller and log-group read access.
 Datadog registration reads `DD_API_KEY` and `DD_APP_KEY` from the environment,
 binds the connection to the authenticated organization, user, and assigned role
-IDs, probes indexes,
+IDs, and requires the read-only `logs_read_config` permission to fingerprint
+that user's effective log restriction queries. The fingerprint is stored in the
+encrypted corpus. A changed restriction query excludes that corpus from sync,
+queries, and expansion; reconnect to backfill under the new scope. Existing
+corpora with cached records but no fingerprint also require reconnecting.
+Registration probes indexes,
 online archives, and Flex separately, and reports tiers it
 could not connect. Credentials are stored in separate source-bound macOS login
 Keychain items; descriptors contain no keys. Both registrations create a
@@ -140,13 +145,11 @@ discards every active and staged corpus for that connection and starts a fresh
 backfill. If recovery fails, the staged files remain as a fail-closed gate.
 This recovery path has local filesystem tests but has not been exercised with
 live Datadog credentials.
-Datadog role or restriction-query changes made without rotating keys are not
-fully detected against previously indexed records. A changed user or role
-assignment now excludes the source, but edits to a role's permissions,
-restriction queries, index access, or Data Access Control policy can leave its
-IDs unchanged. Do not rely on this build to enforce those narrower permissions
-over its cached corpus; complete scope-change invalidation is a release gate in
-the product plan. Datadog connections registered before the identity binding
+Datadog role permissions, index access, or Data Access Control policy can still
+change without altering the user, role IDs, or restriction-query fingerprint.
+Do not rely on this build to enforce those narrower permissions over its cached
+corpus; complete scope-change invalidation is a release gate in the product
+plan. Datadog connections registered before the identity binding
 change report `reconnect_required` and are excluded from sync, queries, and
 expansion. Disconnect and connect them again with read-only credentials;
 reconnecting starts a fresh corpus, and logs outside current Datadog retention

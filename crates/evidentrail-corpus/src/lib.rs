@@ -223,6 +223,10 @@ impl EncryptedHistoryStore {
                      source_digest BLOB NOT NULL,
                      completed_through_millis INTEGER
                  );
+                 CREATE TABLE IF NOT EXISTS provider_access_scope (
+                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                     digest BLOB NOT NULL CHECK (length(digest) = 32)
+                 );
                  CREATE TABLE IF NOT EXISTS last_sync_observation (
                      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                      completed_at_millis INTEGER NOT NULL CHECK (completed_at_millis >= 0),
@@ -968,6 +972,50 @@ impl EncryptedHistoryStore {
         let tenant = tenant.try_into().map_err(|_| CorpusError::ScopeMismatch)?;
         let source = source.try_into().map_err(|_| CorpusError::ScopeMismatch)?;
         Ok((tenant, source))
+    }
+
+    /// Bind an encrypted corpus to the provider's current access rules. An
+    /// older corpus with records but no binding cannot be made safe by merely
+    /// observing today's rules; it must be rebuilt under those rules.
+    pub fn bind_provider_access_scope(&self, digest: &[u8; 32]) -> Result<(), CorpusError> {
+        let prior: Option<Vec<u8>> = self
+            .connection
+            .query_row(
+                "SELECT digest FROM provider_access_scope WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| CorpusError::Storage)?;
+        if let Some(prior) = prior {
+            return if prior.as_slice() == digest {
+                Ok(())
+            } else {
+                Err(CorpusError::ScopeMismatch)
+            };
+        }
+        if self.record_count()? != 0 {
+            return Err(CorpusError::ScopeMismatch);
+        }
+        self.connection
+            .execute(
+                "INSERT INTO provider_access_scope(singleton, digest) VALUES (1, ?1)",
+                [digest.as_slice()],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        Ok(())
+    }
+
+    pub fn provider_access_scope_bound(&self) -> Result<bool, CorpusError> {
+        self.connection
+            .query_row(
+                "SELECT 1 FROM provider_access_scope WHERE singleton = 1",
+                [],
+                |_| Ok(()),
+            )
+            .optional()
+            .map(|row| row.is_some())
+            .map_err(|_| CorpusError::Storage)
     }
 
     pub fn commit_page_checked(&mut self, records: &[HistoryRecordV1]) -> Result<(), CorpusError> {
@@ -2243,6 +2291,46 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    #[test]
+    fn provider_scope_change_and_unbound_cached_records_fail_closed() {
+        let path = test_path();
+        let key = [7; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        let record = HistoryRecordV1 {
+            native_id: b"event-1".to_vec(),
+            event_timestamp_millis: 5,
+            bytes: b"restricted log".to_vec(),
+        };
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert!(!store.provider_access_scope_bound().unwrap());
+            store
+                .commit_page_checked(std::slice::from_ref(&record))
+                .unwrap();
+            assert_eq!(
+                store.bind_provider_access_scope(&[3; 32]),
+                Err(CorpusError::ScopeMismatch)
+            );
+        }
+        cleanup(&path);
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            store.bind_provider_access_scope(&[3; 32]).unwrap();
+            assert!(store.provider_access_scope_bound().unwrap());
+            store.commit_page_checked(&[record]).unwrap();
+        }
+        {
+            let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert_eq!(store.bind_provider_access_scope(&[3; 32]), Ok(()));
+            assert_eq!(
+                store.bind_provider_access_scope(&[4; 32]),
+                Err(CorpusError::ScopeMismatch)
+            );
+        }
+        cleanup(&path);
     }
 
     #[test]

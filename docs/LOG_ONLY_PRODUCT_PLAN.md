@@ -89,10 +89,13 @@ credential change. A successful empty search or organization check does not
 prove that previously cached logs remain accessible. New Datadog descriptors
 pin the authenticated user and sorted role IDs. Sync,
 query, and expansion exclude legacy descriptors and descriptors whose user or
-role assignments change. This is only a partial identity guard, not an access
-scope fingerprint: role permission edits, restriction-query edits, index
-permissions, and Data Access Control policies may change without changing
-those IDs. The identity fields come from Datadog's
+role assignments change. The connector now also fetches the user's effective
+restriction-query definitions through the read-only `logs_read_config` API and
+binds their fingerprint to the encrypted corpus. A changed fingerprint excludes
+the corpus; cached records without a fingerprint cannot be adopted and require
+reconnecting. This is still a partial access guard: role permission edits,
+index permissions, and Data Access Control policies may change without changing
+the fingerprint. The identity fields come from Datadog's
 [current-user API](https://docs.datadoghq.com/api/latest/users/get-current-user/).
 A legacy or changed-identity connection must be disconnected and
 reconnected; retention-expired logs may then be unrecoverable. Live provider
@@ -108,8 +111,8 @@ queries and expansion cannot return prior out-of-scope records. The
 documents the access behavior; its configuration read endpoint requires the
 read-only `logs_read_config` permission. Datadog also documents
 [Data Access Control](https://docs.datadoghq.com/account_management/rbac/data_access/)
-as another way API query visibility can change. This gate is not implemented
-yet.
+as another way API query visibility can change. The complete scope gate is not
+implemented yet.
 The read-only [dataset list](https://docs.datadoghq.com/api/latest/datasets/get-all-datasets/)
 can reveal configured boundaries, but the documented Strict/Standard mode and
 unrestricted-group behavior must also be covered; hashing only the dataset list

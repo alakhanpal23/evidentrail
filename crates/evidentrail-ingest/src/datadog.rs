@@ -10,6 +10,7 @@ use reqwest::blocking::{Client, Response};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderValue};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, value::RawValue};
+use sha2::{Digest, Sha256};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use zeroize::Zeroizing;
 
@@ -190,6 +191,98 @@ impl DatadogHistorySourceV1 {
         self.current_access_identity()
             .map(|identity| identity.org_id)
     }
+
+    /// Fingerprint the effective restriction queries for this user. A cached
+    /// corpus must not be served after these rules change. This endpoint
+    /// requires Datadog's read-only `logs_read_config` permission.
+    pub fn current_restriction_query_digest(
+        &self,
+        user_id: &str,
+    ) -> Result<[u8; 32], HistorySyncErrorV1> {
+        if !valid_uuid(user_id) {
+            return Err(HistorySyncErrorV1::InvalidConfiguration);
+        }
+        let (api_header, app_header) = self.credential_headers()?;
+        let response = send_with_rate_limit_retry(|| {
+            self.client
+                .get(format!(
+                    "{}/api/v2/logs/config/restriction_queries/user/{user_id}",
+                    self.endpoint
+                ))
+                .header("DD-API-KEY", api_header.clone())
+                .header("DD-APPLICATION-KEY", app_header.clone())
+                .header(ACCEPT, "application/json")
+                .send()
+        })?;
+        match response.status().as_u16() {
+            200 => {}
+            401 => return Err(HistorySyncErrorV1::AuthenticationChanged),
+            403 => return Err(HistorySyncErrorV1::PermissionDenied),
+            429 => return Err(HistorySyncErrorV1::Throttled),
+            _ => return Err(HistorySyncErrorV1::Provider),
+        }
+        let mut bytes = Zeroizing::new(Vec::new());
+        response
+            .take(MAX_IDENTITY_RESPONSE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| HistorySyncErrorV1::Network)?;
+        if bytes.len() as u64 > MAX_IDENTITY_RESPONSE_BYTES {
+            return Err(HistorySyncErrorV1::InvalidPage);
+        }
+        parse_restriction_query_digest(&bytes)
+    }
+}
+
+#[derive(Deserialize)]
+struct RestrictionQueryResponse {
+    data: Vec<RestrictionQueryData>,
+}
+
+#[derive(Deserialize)]
+struct RestrictionQueryData {
+    #[serde(rename = "type")]
+    resource_type: String,
+    id: String,
+    attributes: RestrictionQueryAttributes,
+}
+
+#[derive(Deserialize)]
+struct RestrictionQueryAttributes {
+    restriction_query: String,
+}
+
+fn parse_restriction_query_digest(bytes: &[u8]) -> Result<[u8; 32], HistorySyncErrorV1> {
+    let response: RestrictionQueryResponse =
+        serde_json::from_slice(bytes).map_err(|_| HistorySyncErrorV1::InvalidPage)?;
+    if response.data.len() > 10_000 {
+        return Err(HistorySyncErrorV1::InvalidPage);
+    }
+    let mut rules = Vec::with_capacity(response.data.len());
+    for item in response.data {
+        if item.resource_type != "logs_restriction_queries"
+            || !valid_uuid(&item.id)
+            || item.attributes.restriction_query.len() > 8192
+        {
+            return Err(HistorySyncErrorV1::InvalidPage);
+        }
+        rules.push((
+            item.id.to_ascii_lowercase(),
+            item.attributes.restriction_query,
+        ));
+    }
+    rules.sort();
+    if rules.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+        return Err(HistorySyncErrorV1::InvalidPage);
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(b"evidentrail/datadog-restriction-queries/v1\0");
+    for (id, query) in rules {
+        hasher.update((id.len() as u64).to_be_bytes());
+        hasher.update(id.as_bytes());
+        hasher.update((query.len() as u64).to_be_bytes());
+        hasher.update(query.as_bytes());
+    }
+    Ok(hasher.finalize().into())
 }
 
 #[derive(Deserialize)]
@@ -475,6 +568,88 @@ mod tests {
         ] {
             assert_eq!(parse_current_access_identity(invalid), Err(HistorySyncErrorV1::InvalidPage));
         }
+    }
+
+    #[test]
+    fn restriction_query_fingerprint_detects_rule_changes() {
+        let first = br#"{"data":[{"type":"logs_restriction_queries","id":"a1234567-1234-1234-1234-123456789abc","attributes":{"restriction_query":"team:payments"}},{"type":"logs_restriction_queries","id":"b1234567-1234-1234-1234-123456789abc","attributes":{"restriction_query":"env:prod"}}]}"#;
+        let reordered = br#"{"data":[{"type":"logs_restriction_queries","id":"b1234567-1234-1234-1234-123456789abc","attributes":{"restriction_query":"env:prod"}},{"type":"logs_restriction_queries","id":"a1234567-1234-1234-1234-123456789abc","attributes":{"restriction_query":"team:payments"}}]}"#;
+        let narrowed = br#"{"data":[{"type":"logs_restriction_queries","id":"a1234567-1234-1234-1234-123456789abc","attributes":{"restriction_query":"team:payments AND env:prod"}},{"type":"logs_restriction_queries","id":"b1234567-1234-1234-1234-123456789abc","attributes":{"restriction_query":"env:prod"}}]}"#;
+        assert_eq!(
+            parse_restriction_query_digest(first),
+            parse_restriction_query_digest(reordered)
+        );
+        assert_ne!(
+            parse_restriction_query_digest(first),
+            parse_restriction_query_digest(narrowed)
+        );
+        assert_eq!(
+            parse_restriction_query_digest(br#"{"data":[{"type":"wrong","id":"a1234567-1234-1234-1234-123456789abc","attributes":{"restriction_query":"*"}}]}"#),
+            Err(HistorySyncErrorV1::InvalidPage)
+        );
+    }
+
+    #[test]
+    fn restriction_query_request_requires_read_config_access() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let user = "b1234567-1234-1234-1234-123456789abc";
+        let body = r#"{"data":[]}"#;
+        let server = thread::spawn(move || {
+            for authorized in [true, false] {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                loop {
+                    let mut chunk = [0u8; 1024];
+                    let count = socket.read(&mut chunk).unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&chunk[..count]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let headers = String::from_utf8_lossy(&request).to_ascii_lowercase();
+                assert!(headers.starts_with(&format!(
+                    "get /api/v2/logs/config/restriction_queries/user/{user} http/1.1"
+                )));
+                assert!(headers.contains("dd-api-key: api-test"));
+                assert!(headers.contains("dd-application-key: app-test"));
+                if authorized {
+                    write!(
+                        socket,
+                        "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .unwrap();
+                } else {
+                    write!(
+                        socket,
+                        "HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                    )
+                    .unwrap();
+                }
+                socket.flush().unwrap();
+            }
+        });
+        let source = DatadogHistorySourceV1::from_endpoint(
+            endpoint,
+            DatadogStorageTierV1::Indexes,
+            "api-test".to_owned(),
+            "app-test".to_owned(),
+        )
+        .unwrap();
+        assert_eq!(
+            source.current_restriction_query_digest(user),
+            parse_restriction_query_digest(body.as_bytes())
+        );
+        assert_eq!(
+            source.current_restriction_query_digest(user),
+            Err(HistorySyncErrorV1::PermissionDenied)
+        );
+        server.join().unwrap();
     }
 
     #[test]

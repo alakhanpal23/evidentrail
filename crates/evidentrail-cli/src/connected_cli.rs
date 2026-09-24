@@ -865,6 +865,12 @@ fn sync_binding_inner(
                 .current_access_identity()
                 .map_err(|error| format!("{error:?}"))?;
             check_datadog_identity(datadog, &current_identity)?;
+            let restriction_digest = source
+                .current_restriction_query_digest(&current_identity.user_id)
+                .map_err(|error| format!("{error:?}"))?;
+            store
+                .bind_provider_access_scope(&restriction_digest)
+                .map_err(|_| "AccessScopeChangedOrUnbound".to_owned())?;
             bounded_sync(&mut source, store, high_water).map_err(|error| format!("{error:?}"))
         }
     }
@@ -1361,6 +1367,9 @@ fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailur
     let identity = identity_source
         .current_access_identity()
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_IDENTITY_FAILED"))?;
+    identity_source
+        .current_restriction_query_digest(&identity.user_id)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ACCESS_SCOPE_FAILED"))?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
@@ -1537,6 +1546,14 @@ fn rotate_datadog(options: DatadogRotateOptions, recovering: bool) -> Result<Exi
             "EVIDENTRAIL_DATADOG_ROTATION_ORG_CHANGED",
         ));
     }
+    DatadogHistorySourceV1::connect(
+        site,
+        DatadogStorageTierV1::Indexes,
+        api_key.to_string(),
+        application_key.to_string(),
+    )
+    .and_then(|source| source.current_restriction_query_digest(&identity.user_id))
+    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_SCOPE_FAILED"))?;
     for (_, binding) in &bound {
         check_datadog_identity(binding, &identity)
             .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_SCOPE_CHANGED"))?;
@@ -2028,6 +2045,14 @@ fn list_sources() -> Result<ExitCode, CliFailure> {
                 .map_err(|error| CliFailure::runtime(error.code()))?;
             let store = EncryptedHistoryStore::open(&path, &key, &tenant, &entry.source_digest)
                 .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
+            let record_count = store
+                .record_count()
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
+            let unbound_datadog = matches!(&binding, SourceBinding::Datadog(_))
+                && record_count > 0
+                && !store
+                    .provider_access_scope_bound()
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
             let checkpoint = store
                 .read_checkpoint()
                 .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
@@ -2053,8 +2078,8 @@ fn list_sources() -> Result<ExitCode, CliFailure> {
             });
             let last_attempt_failed = attempt.is_some_and(|value| !value.succeeded);
             json!({
-                "state": if last_attempt_failed { "last_sync_failed" } else if observation.is_some() { "sync_observed" } else { "registered_incomplete" },
-                "record_count": store.record_count().map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?,
+                "state": if unbound_datadog { "reconnect_required" } else if last_attempt_failed { "last_sync_failed" } else if observation.is_some() { "sync_observed" } else { "registered_incomplete" },
+                "record_count": record_count,
                 "scanned_through_millis": checkpoint.map(|value| value.completed_through_millis),
                 "last_sync_completed_at_millis": observation.map(|value| value.completed_at_millis),
                 "last_sync_high_water_millis": observation.map(|value| value.high_water_millis),
@@ -2067,7 +2092,7 @@ fn list_sources() -> Result<ExitCode, CliFailure> {
                 "last_attempt_high_water_millis": attempt.map(|value| value.high_water_millis),
                 "last_attempt_age_millis": attempt.map(|value| now_millis.saturating_sub(value.completed_at_millis)),
                 "last_attempt_succeeded": attempt.map(|value| value.succeeded),
-                "coverage": if last_attempt_failed {
+                "coverage": if unbound_datadog || last_attempt_failed {
                     "incomplete"
                 } else if historical_recent && observation.is_some_and(|value| value.scanned_to_high_water && value.reconciled_lookback) {
                     "unverified_provider_consistency_at_last_sync"
