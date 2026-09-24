@@ -48,6 +48,11 @@ measure a model's choices, independent user tasks, answer usefulness, or
 downstream fixes. The earlier severity baseline considered only `error` and
 missed BGL's `FATAL` lines, which the parser classifies as `critical`; the
 corrected baseline includes both roles.
+The group-card excerpt cap increased from 160 to 256 characters after the
+probe showed that the shorter excerpt hid the decisive suffixes of two BGL
+alerts. Tests verify those suffixes are now visible to a selector. The 12-way
+deterministic results above do not measure whether a model uses that extra
+context, and the larger excerpt may increase model cost.
 
 Run `bash scripts/eval-loghub-bgl.sh` from the repository root. The script
 fetches the pinned upstream sample into a temporary directory; the test

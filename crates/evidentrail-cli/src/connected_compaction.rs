@@ -534,7 +534,7 @@ fn select_page(
 fn sample_card(native_id: &[u8], sample: &RecordSample) -> Value {
     json!({
         "id": URL_SAFE_NO_PAD.encode(native_id),
-        "line": safe_sample_line(sample, 160),
+        "line": safe_sample_line(sample, 256),
         "original_byte_len": sample.original_byte_len,
     })
 }
@@ -604,6 +604,23 @@ mod tests {
                 .map(|group| group["id"].as_str().unwrap().to_owned())
                 .collect())
         }
+    }
+
+    #[test]
+    fn group_card_keeps_diagnostic_text_after_long_prefix() {
+        let raw = format!("{} Input/output error", "x".repeat(175));
+        let sample = RecordSample {
+            prefix: raw.as_bytes().to_vec(),
+            original_byte_len: raw.len() as u64,
+        };
+        let card = sample_card(b"event-1", &sample);
+        assert!(
+            card["line"]
+                .as_str()
+                .unwrap()
+                .contains("Input/output error")
+        );
+        assert_eq!(card["original_byte_len"], raw.len() as u64);
     }
 
     #[test]
@@ -1408,6 +1425,14 @@ mod tests {
         assert!(alert_group.repeat_count >= 2);
         assert_eq!(selected_hits, 1);
         assert_eq!(recent_hits, 0);
+        for (id, clue) in [
+            (b"line-362".as_slice(), "No child processes"),
+            (b"line-1972".as_slice(), "Input/output error"),
+        ] {
+            let sample = store.read_record_sample(id, 512).unwrap().unwrap();
+            let card = sample_card(id, &sample);
+            assert!(card["line"].as_str().unwrap().contains(clue));
+        }
         let category_tasks = [
             ("APPCHILD", "no child processes creating node map"),
             ("APPOUT", "login chdir input output error"),
