@@ -137,6 +137,11 @@ def score(cases, rows):
                         for result in comparisons.values())
                 and p95["challenger"] <= 1.25 * max(1, p95["current"])
                 and calls["challenger"] <= 1.25 * max(1, calls["current"]))
+    current_evidence = (sufficiently_independent
+                        and counts["current"] > counts["no_logs"]
+                        and all(result["baseline_only"] == 0
+                                and result["one_sided_exact_p"] <= 0.01
+                                for result in current_comparisons.values()))
     return {
         "schema_version": 1,
         "held_out_cases": len(held),
@@ -147,6 +152,7 @@ def score(cases, rows):
         "current_vs_baselines": current_comparisons,
         "p95_elapsed_ms": p95,
         "model_calls": calls,
+        "current_eligible_for_human_review": current_evidence,
         "challenger_eligible_for_human_review": eligible,
         "reason": "held_out_gate_passed" if eligible else (
             "insufficient_independent_cases" if not sufficiently_independent
