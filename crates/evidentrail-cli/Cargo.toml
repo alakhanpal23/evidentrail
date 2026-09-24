@@ -46,3 +46,7 @@ path = "src/main.rs"
 [[bin]]
 name = "evidentrail-production-shadow"
 path = "src/bin/evidentrail-production-shadow.rs"
+
+[[bin]]
+name = "evidentrail-repair-study-select"
+path = "src/bin/evidentrail-repair-study-select.rs"

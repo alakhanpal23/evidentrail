@@ -8,6 +8,7 @@ incomplete or development-only studies instead of treating them as wins.
 """
 
 import argparse
+import importlib.util
 import json
 import math
 from pathlib import Path
@@ -88,6 +89,19 @@ def percentile_95(values):
     return ordered[math.ceil(0.95 * len(ordered)) - 1]
 
 
+def verify_receipts(manifest_path, rows):
+    spec = importlib.util.spec_from_file_location(
+        "verify_connected_repair_trials",
+        Path(__file__).with_name("verify-connected-repair-trials.py"),
+    )
+    verifier = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(verifier)
+    expected = {(row["case_id"], row["arm"]): row
+                for row in verifier.verify(manifest_path)}
+    if rows != expected:
+        raise ValueError("result rows do not match independent verifier execution")
+
+
 def score(cases, rows):
     held = [case_id for case_id, case in cases.items() if case["split"] == "held_out"]
     projects = {cases[case_id]["project"] for case_id in held}
@@ -139,6 +153,7 @@ def main():
     parser.add_argument("--results", required=True, type=Path)
     args = parser.parse_args()
     cases, rows = read_study(args.manifest, args.results)
+    verify_receipts(args.manifest, rows)
     report = score(cases, rows)
     frozen = json.loads(args.manifest.read_text())
     report.update({field: frozen[field] for field in
