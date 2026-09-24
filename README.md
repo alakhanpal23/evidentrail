@@ -16,6 +16,7 @@ target/release/evidentrail sources connect-cloudwatch \
   --log-group /aws/example --profile my-readonly-profile
 target/release/evidentrail sources connect-datadog --site us1
 target/release/evidentrail sources rotate-datadog --connection-id ID_FROM_CONNECT
+target/release/evidentrail sources recover-datadog --connection-id ID_FROM_CONNECT
 target/release/evidentrail sources list
 target/release/evidentrail sources sync
 target/release/evidentrail sources service install
@@ -119,8 +120,12 @@ An interrupted rotation can leave encrypted staged corpus files in the source
 directory. The CLI detects those files and excludes every tier of that Datadog
 connection from queries, expansion, and sync, even if a tier still has an
 active corpus. `sources list` reports `rotation_interrupted`; disconnecting
-the connection removes its staged files. Recovery without disconnecting is
-not implemented yet, and the connection must be rebuilt before relying on it.
+the connection removes its staged files. `sources recover-datadog` validates
+replacement credentials for the same organization and connected tiers, then
+discards every active and staged corpus for that connection and starts a fresh
+backfill. If recovery fails, the staged files remain as a fail-closed gate.
+This recovery path has local filesystem tests but has not been exercised with
+live Datadog credentials.
 Datadog role or restriction-query changes made without rotating keys are not
 yet detected against previously indexed records. Do not rely on this build to
 enforce newly narrowed Datadog permissions over its cached corpus; scope-change

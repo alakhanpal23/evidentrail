@@ -53,8 +53,9 @@ plan defines the target behavior and acceptance gates.
 
 Interrupted Datadog rotations are now detected from staged encrypted corpus
 files, and all tiers in that connection are excluded from query, expansion,
-and sync until disconnection. An automatic recovery path and live crash tests
-remain release work.
+and sync. An explicit `recover-datadog` command validates replacement
+credentials, drops cached records, and starts fresh backfill. Live crash and
+recovery tests remain release work.
 
 Datadog restriction queries can change which logs a role may read without a
 credential change. A successful empty search or organization check does not

@@ -92,7 +92,9 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
     } else if command == "connect-datadog" {
         connect_datadog(parse_datadog_args(args)?)
     } else if command == "rotate-datadog" {
-        rotate_datadog(parse_datadog_rotation_args(args)?)
+        rotate_datadog(parse_datadog_rotation_args(args)?, false)
+    } else if command == "recover-datadog" {
+        rotate_datadog(parse_datadog_rotation_args(args)?, true)
     } else if command == "list" {
         if args.next().is_some() {
             return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
@@ -1413,7 +1415,7 @@ fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailur
     Ok(ExitCode::SUCCESS)
 }
 
-fn rotate_datadog(options: DatadogRotateOptions) -> Result<ExitCode, CliFailure> {
+fn rotate_datadog(options: DatadogRotateOptions, recovering: bool) -> Result<ExitCode, CliFailure> {
     let api_key = Zeroizing::new(
         env::var(&options.api_key_env)
             .map_err(|_| CliFailure::usage("EVIDENTRAIL_DATADOG_API_KEY_UNAVAILABLE"))?,
@@ -1443,11 +1445,17 @@ fn rotate_datadog(options: DatadogRotateOptions) -> Result<ExitCode, CliFailure>
     let (_, first) = bound
         .first()
         .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_DATADOG_CONNECTION_NOT_FOUND"))?;
-    if bound.iter().try_fold(false, |found, (source, _)| {
+    let interrupted = bound.iter().try_fold(false, |found, (source, _)| {
         rotation_artifact_present(&corpus_path(source, false)?).map(|present| found || present)
-    })? {
+    })?;
+    if interrupted && !recovering {
         return Err(CliFailure::runtime(
             "EVIDENTRAIL_DATADOG_ROTATION_INTERRUPTED",
+        ));
+    }
+    if recovering && !interrupted {
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_DATADOG_RECOVERY_NOT_NEEDED",
         ));
     }
     let site = datadog_site(&first.site)
@@ -1523,6 +1531,12 @@ fn rotate_datadog(options: DatadogRotateOptions) -> Result<ExitCode, CliFailure>
             .replace(&tenant, source, value)
             .map_err(|_| ())
     });
+    if recovering && replacement.is_err() {
+        // The prior interrupted rotation may already have left different
+        // credentials on different tiers. Keep all staged files as a gate;
+        // restoring these active paths would risk serving an old scope.
+        return Err(CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_PARTIAL"));
+    }
     if replacement == Err("EVIDENTRAIL_DATADOG_ROTATION_STORE_FAILED") {
         restore_rotation_corpora(&staged)?;
         return Err(CliFailure::runtime(
@@ -1540,16 +1554,22 @@ fn rotate_datadog(options: DatadogRotateOptions) -> Result<ExitCode, CliFailure>
             .is_err();
     }
     if rebuild_failed {
-        purge_staged_rotation_corpora(&staged)?;
+        if !recovering {
+            purge_staged_rotation_corpora(&staged)?;
+        }
         return Err(CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_PARTIAL"));
     }
-    purge_staged_rotation_corpora(&staged)?;
+    if recovering {
+        purge_rotation_artifacts(&paths)?;
+    } else {
+        purge_staged_rotation_corpora(&staged)?;
+    }
     serde_json::to_writer(
         io::stdout().lock(),
         &json!({
             "provider": "datadog",
             "connection_id": options.connection_id,
-            "status": "credentials_rotated_backfill_pending",
+            "status": if recovering { "rotation_recovered_backfill_pending" } else { "credentials_rotated_backfill_pending" },
             "source_ids": old.iter().map(|(source, _)| hex(source)).collect::<Vec<_>>(),
         }),
     )
@@ -1626,6 +1646,16 @@ fn rotation_artifact_paths(path: &Path) -> Result<Vec<PathBuf>, CliFailure> {
         }
     }
     Ok(artifacts)
+}
+
+fn purge_rotation_artifacts(paths: &[PathBuf]) -> Result<(), CliFailure> {
+    for path in paths {
+        for artifact in rotation_artifact_paths(path)? {
+            fs::remove_file(artifact)
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_PARTIAL"))?;
+        }
+    }
+    Ok(())
 }
 
 fn interrupted_datadog_rotations(
@@ -2461,6 +2491,44 @@ mod tests {
         assert!(!interrupted.contains(&"b".repeat(32)));
         purge_staged_rotation_corpora(&staged).unwrap();
         fs::remove_file(path_for(&[2; 32]).unwrap()).unwrap();
+        fs::remove_dir(base).unwrap();
+    }
+
+    #[test]
+    fn recovery_keeps_gate_until_old_artifacts_are_purged() {
+        let base = env::temp_dir().join(format!(
+            "evidentrail-rotation-recovery-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&base).unwrap();
+        let paths = [base.join("first.db"), base.join("second.db")];
+        fs::write(&paths[0], b"old first").unwrap();
+        let first_staged = stage_rotation_corpora(&paths[..1]).unwrap();
+        fs::write(&paths[1], b"old second").unwrap();
+        let second_staged = stage_rotation_corpora(&paths[1..]).unwrap();
+        fs::write(&paths[0], b"new first").unwrap();
+        fs::write(&paths[1], b"new second").unwrap();
+        assert!(
+            paths
+                .iter()
+                .all(|path| rotation_artifact_present(path).unwrap())
+        );
+        purge_rotation_artifacts(&paths).unwrap();
+        assert!(
+            paths
+                .iter()
+                .all(|path| !rotation_artifact_present(path).unwrap())
+        );
+        assert_eq!(fs::read(&paths[0]).unwrap(), b"new first");
+        assert_eq!(fs::read(&paths[1]).unwrap(), b"new second");
+        assert!(first_staged.iter().all(|file| !file.staged.exists()));
+        assert!(second_staged.iter().all(|file| !file.staged.exists()));
+        fs::remove_file(&paths[0]).unwrap();
+        fs::remove_file(&paths[1]).unwrap();
         fs::remove_dir(base).unwrap();
     }
 
