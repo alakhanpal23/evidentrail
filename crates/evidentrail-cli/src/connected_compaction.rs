@@ -1,7 +1,7 @@
 //! Global selection across already-authorized encrypted source corpora.
 //! Caller owns connection authorization, catch-up, and completeness receipts.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use evidentrail_corpus::{CorpusGroupCard, EncryptedHistoryStore, RecordSample};
@@ -15,6 +15,7 @@ const GRAPH_BUDGET: usize = 64;
 const GROUPS_PER_PAGE: usize = 64;
 const PAGE_SELECTION_LIMIT: usize = 8;
 const FINAL_SELECTION_LIMIT: usize = 12;
+const PREFINAL_SERVICE_REPRESENTATIVES: usize = 16;
 const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 const SERVICE_DIRECTORY_PAGE: usize = 32;
 const MAX_SERVICE_DIRECTORY_PAGES: usize = 4;
@@ -41,6 +42,8 @@ pub struct ConnectedLogPack {
     pub source_record_counts: Vec<([u8; 32], u64)>,
     pub total_groups: u64,
     pub candidate_count: usize,
+    /// Groups removed by intermediate selector pages before the final page.
+    pub prefinal_pruned_groups: usize,
     pub graph_candidate_count: usize,
     pub fallback_candidate_count: usize,
     pub service_candidates_added: usize,
@@ -219,18 +222,28 @@ fn select_connected_logs_with_graph(
     }
     let candidate_count = prepared.len();
     let mut candidates = (0..candidate_count).collect::<Vec<_>>();
+    let mut prefinal_pruned_groups = 0;
     while candidates.len() > GROUPS_PER_PAGE {
-        let mut reduced = Vec::new();
+        // A page-local ranking can erase a rare service before the final
+        // selector sees it. Carry one high-signal group from each of the
+        // sparsest source/service pairs through the intermediate rounds.
+        let mut reduced = service_representatives(&prepared, &candidates);
+        let mut seen = reduced.iter().copied().collect::<BTreeSet<_>>();
         for chunk in candidates.chunks(GROUPS_PER_PAGE) {
-            reduced.extend(select_page(
+            for index in select_page(
                 &prepared,
                 sources,
                 chunk,
                 task,
                 PAGE_SELECTION_LIMIT,
                 selector,
-            )?);
+            )? {
+                if seen.insert(index) {
+                    reduced.push(index);
+                }
+            }
         }
+        prefinal_pruned_groups += candidates.len() - reduced.len();
         candidates = reduced;
     }
     let selected_ids = select_page(
@@ -317,6 +330,7 @@ fn select_connected_logs_with_graph(
         source_record_counts,
         total_groups,
         candidate_count,
+        prefinal_pruned_groups,
         graph_candidate_count,
         fallback_candidate_count,
         service_candidates_added: directory.added,
@@ -326,6 +340,46 @@ fn select_connected_logs_with_graph(
         output_budget_truncated,
         selected,
     })
+}
+
+fn service_representatives(prepared: &[PreparedCard], candidates: &[usize]) -> Vec<usize> {
+    let mut services = BTreeMap::<(usize, &str), (usize, usize)>::new();
+    for &index in candidates {
+        let card = &prepared[index].card;
+        if card.service.is_empty() || card.service == "unknown" {
+            continue;
+        }
+        let entry = services
+            .entry((prepared[index].source_index, &card.service))
+            .or_insert((0, index));
+        entry.0 += 1;
+        let current = &prepared[entry.1].card;
+        let priority = |card: &CorpusGroupCard| {
+            (
+                match card.role.as_str() {
+                    "critical" => 0,
+                    "error" => 1,
+                    "warning" => 2,
+                    _ => 3,
+                },
+                card.repeat_count,
+                card.group_id,
+            )
+        };
+        if priority(card) < priority(current) {
+            entry.1 = index;
+        }
+    }
+    let mut ranked = services
+        .into_iter()
+        .map(|(service, (count, index))| (count, service, index))
+        .collect::<Vec<_>>();
+    ranked.sort_unstable();
+    ranked
+        .into_iter()
+        .take(PREFINAL_SERVICE_REPRESENTATIVES)
+        .map(|(_, _, index)| index)
+        .collect()
 }
 
 fn select_service_candidates(
@@ -841,6 +895,88 @@ mod tests {
                 )
             })
             .collect()
+    }
+
+    #[test]
+    fn multi_page_selection_reports_groups_hidden_from_final_selector() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
+        let records = (0..130)
+            .map(|index| HistoryRecordV1 {
+                native_id: format!("event-{index}").into_bytes(),
+                event_timestamp_millis: index,
+                bytes: format!(
+                    "{{\"service\":\"api\",\"level\":\"ERROR\",\"message\":\"failure {}\"}}\n",
+                    noise_word(index as usize)
+                )
+                .into_bytes(),
+            })
+            .collect::<Vec<_>>();
+        store.commit_page_checked(&records).unwrap();
+        let pack = select_connected_logs(
+            &[AuthorizedCorpus {
+                source_digest: [2; 32],
+                store: &store,
+            }],
+            "failure",
+            32768,
+            &mut SelectAllCandidates,
+        )
+        .unwrap();
+        assert!(pack.candidate_count > GROUPS_PER_PAGE);
+        let final_page_groups = (pack.candidate_count / GROUPS_PER_PAGE) * PAGE_SELECTION_LIMIT
+            + (pack.candidate_count % GROUPS_PER_PAGE).min(PAGE_SELECTION_LIMIT);
+        assert_eq!(
+            pack.prefinal_pruned_groups,
+            pack.candidate_count - final_page_groups
+        );
+        assert!(!pack.candidate_pool_truncated);
+        for (id, raw) in pack_lines(&pack) {
+            assert_eq!(store.get_record(&id).unwrap().unwrap().bytes, raw);
+        }
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn multi_page_selection_preserves_a_sparse_service_for_final_ranking() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
+        let mut records = (0..140)
+            .map(|index| HistoryRecordV1 {
+                native_id: format!("noise-{index}").into_bytes(),
+                event_timestamp_millis: index,
+                bytes: format!(
+                    "{{\"service\":\"frontend\",\"level\":\"ERROR\",\"message\":\"failure {}\"}}\n",
+                    noise_word(index as usize)
+                )
+                .into_bytes(),
+            })
+            .collect::<Vec<_>>();
+        records.push(HistoryRecordV1 {
+            native_id: b"rare-service".to_vec(),
+            event_timestamp_millis: 70,
+            bytes: b"{\"service\":\"emailservice\",\"level\":\"ERROR\",\"message\":\"failure mail dispatch\"}\n".to_vec(),
+        });
+        store.commit_page_checked(&records).unwrap();
+        let pack = select_connected_logs(
+            &[AuthorizedCorpus {
+                source_digest: [2; 32],
+                store: &store,
+            }],
+            "failure",
+            32768,
+            &mut SelectAllCandidates,
+        )
+        .unwrap();
+        assert!(pack.candidate_count > GROUPS_PER_PAGE);
+        assert!(pack.prefinal_pruned_groups > 0);
+        assert!(pack.selected.iter().any(|entry| {
+            entry.first_native_id == b"rare-service"
+                && entry.first_raw == store.get_record(b"rare-service").unwrap().unwrap().bytes
+        }));
+        drop(store);
+        cleanup(&path);
     }
 
     fn recent_lines(store: &EncryptedHistoryStore, max_bytes: usize) -> Vec<(Vec<u8>, Vec<u8>)> {
@@ -1637,7 +1773,8 @@ mod tests {
             truncated_queries += usize::from(
                 pack.candidate_pool_truncated
                     || pack.service_directory_truncated
-                    || pack.output_budget_truncated,
+                    || pack.output_budget_truncated
+                    || pack.prefinal_pruned_groups > 0,
             );
             println!(
                 "BGL_MODEL_EVAL {}",
@@ -1652,6 +1789,7 @@ mod tests {
                     "selected_groups": pack.selected.len(),
                     "candidate_groups": pack.candidate_count,
                     "candidate_pool_truncated": pack.candidate_pool_truncated,
+                    "prefinal_pruned_groups": pack.prefinal_pruned_groups,
                     "service_directory_truncated": pack.service_directory_truncated,
                     "output_budget_truncated": pack.output_budget_truncated,
                     "elapsed_ms": duration_ms,
@@ -1674,5 +1812,218 @@ mod tests {
         );
         drop(store);
         cleanup(&path);
+    }
+
+    #[test]
+    #[ignore = "requires three pinned RCAEval RE3 log corpora"]
+    fn rcaeval_connected_log_only_probe() {
+        struct ProbeSelector<'a> {
+            root_service: &'a str,
+            severity_only: bool,
+            root_advertised: bool,
+            root_in_last_group_page: bool,
+        }
+
+        impl LogGroupSelector for ProbeSelector<'_> {
+            fn select(&mut self, request: &Value) -> Result<Vec<String>, CompactionError> {
+                let groups = request["groups"]
+                    .as_array()
+                    .ok_or(CompactionError::InvalidInput)?;
+                if request["selection_kind"].as_str() != Some("service_directory") {
+                    self.root_in_last_group_page = groups
+                        .iter()
+                        .any(|group| group["service"].as_str() == Some(self.root_service));
+                    self.root_advertised |= self.root_in_last_group_page;
+                }
+                let limit = request["max_selected_groups"]
+                    .as_u64()
+                    .ok_or(CompactionError::InvalidInput)? as usize;
+                Ok(groups
+                    .iter()
+                    .filter(|group| {
+                        !self.severity_only
+                            || matches!(group["role"].as_str(), Some("critical" | "error"))
+                    })
+                    .take(limit)
+                    .map(|group| group["id"].as_str().unwrap().to_owned())
+                    .collect())
+            }
+        }
+
+        struct ModelProbeSelector<'a> {
+            model: &'a mut OpenAiIncidentReasoner,
+            root_service: &'a str,
+            root_advertised: bool,
+            root_in_last_group_page: bool,
+        }
+
+        impl LogGroupSelector for ModelProbeSelector<'_> {
+            fn select(&mut self, request: &Value) -> Result<Vec<String>, CompactionError> {
+                if request["selection_kind"].as_str() != Some("service_directory") {
+                    self.root_in_last_group_page = request["groups"]
+                        .as_array()
+                        .ok_or(CompactionError::InvalidInput)?
+                        .iter()
+                        .any(|group| group["service"].as_str() == Some(self.root_service));
+                    self.root_advertised |= self.root_in_last_group_page;
+                }
+                self.model.select(request)
+            }
+        }
+
+        let directory = std::env::var("EVIDENTRAIL_RCAEVAL_CONNECTED_DIR")
+            .expect("run scripts/eval-rcaeval-connected.py to prepare pinned data");
+        let cases = [
+            ("re3ob_cartservice_f1_1", "cartservice"),
+            ("re3ob_emailservice_f1_1", "emailservice"),
+            ("re3ob_adservice_f3_1", "adservice"),
+        ];
+        let run_model = std::env::var("EVIDENTRAIL_RUN_RCAEVAL_MODEL_EVAL").as_deref() == Ok("1");
+        let model_name = std::env::var("EVIDENTRAIL_COMPACT_LOCAL_MODEL")
+            .unwrap_or_else(|_| "gpt-6-sol".to_owned());
+        let mut model = run_model.then(|| {
+            OpenAiIncidentReasoner::from_compact_environment()
+                .expect("configure a local Ollama model or OPENAI_API_KEY")
+        });
+        for (case, root_service) in cases {
+            let raw = fs::read(Path::new(&directory).join(format!("{case}.jsonl"))).unwrap();
+            let lines = raw
+                .split_inclusive(|byte| *byte == b'\n')
+                .collect::<Vec<_>>();
+            let path = test_path();
+            let mut store =
+                EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
+            let ingest_started = Instant::now();
+            let mut root_source_lines = 0;
+            for (start, chunk) in lines.chunks(256).enumerate() {
+                let records = chunk
+                    .iter()
+                    .enumerate()
+                    .map(|(offset, line)| {
+                        let row: Value = serde_json::from_slice(line).unwrap();
+                        root_source_lines +=
+                            usize::from(row["service"].as_str() == Some(root_service));
+                        HistoryRecordV1 {
+                            native_id: format!("line-{}", start * 256 + offset).into_bytes(),
+                            event_timestamp_millis: row["timestamp"].as_i64().unwrap() * 1000,
+                            bytes: line.to_vec(),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                store.commit_page_checked(&records).unwrap();
+            }
+            let ingest_ms = ingest_started.elapsed().as_millis();
+            let recent = recent_lines(&store, 32768);
+            let recent_root_lines = recent
+                .iter()
+                .filter(|(_, raw)| {
+                    serde_json::from_slice::<Value>(raw).unwrap()["service"].as_str()
+                        == Some(root_service)
+                })
+                .count();
+            for (method, severity_only) in [("first_id", false), ("severity", true)] {
+                let mut selector = ProbeSelector {
+                    root_service,
+                    severity_only,
+                    root_advertised: false,
+                    root_in_last_group_page: false,
+                };
+                let started = Instant::now();
+                let pack = select_connected_logs(
+                    &[AuthorizedCorpus {
+                        source_digest: [2; 32],
+                        store: &store,
+                    }],
+                    "Investigate service errors and failed requests",
+                    32768,
+                    &mut selector,
+                )
+                .unwrap();
+                let selected = pack_lines(&pack);
+                let selected_root_lines = selected
+                    .iter()
+                    .filter(|(id, raw)| {
+                        assert_eq!(store.get_record(id).unwrap().unwrap().bytes, *raw);
+                        serde_json::from_slice::<Value>(raw).unwrap()["service"].as_str()
+                            == Some(root_service)
+                    })
+                    .count();
+                println!(
+                    "RCAEVAL_CONNECTED_EVAL {}",
+                    json!({
+                        "case": case,
+                        "method": method,
+                        "root_service": root_service,
+                        "source_lines": lines.len(),
+                        "root_source_lines": root_source_lines,
+                        "groups": store.group_count().unwrap(),
+                        "ingest_ms": ingest_ms,
+                        "query_ms": started.elapsed().as_millis(),
+                        "root_advertised": selector.root_advertised,
+                        "root_in_last_group_page": selector.root_in_last_group_page,
+                        "candidate_groups": pack.candidate_count,
+                        "prefinal_pruned_groups": pack.prefinal_pruned_groups,
+                        "selected_lines": selected.len(),
+                        "selected_root_lines": selected_root_lines,
+                        "recent_lines": recent.len(),
+                        "recent_root_lines": recent_root_lines,
+                        "candidate_pool_truncated": pack.candidate_pool_truncated,
+                        "service_directory_truncated": pack.service_directory_truncated,
+                        "output_budget_truncated": pack.output_budget_truncated,
+                        "raw_log_budget": 32768,
+                    })
+                );
+            }
+            if let Some(model) = &mut model {
+                let mut selector = ModelProbeSelector {
+                    model,
+                    root_service,
+                    root_advertised: false,
+                    root_in_last_group_page: false,
+                };
+                let started = Instant::now();
+                let pack = select_connected_logs(
+                    &[AuthorizedCorpus {
+                        source_digest: [2; 32],
+                        store: &store,
+                    }],
+                    "Investigate service errors and failed requests",
+                    32768,
+                    &mut selector,
+                )
+                .unwrap();
+                let selected = pack_lines(&pack);
+                let selected_root_lines = selected
+                    .iter()
+                    .filter(|(id, raw)| {
+                        assert_eq!(store.get_record(id).unwrap().unwrap().bytes, *raw);
+                        serde_json::from_slice::<Value>(raw).unwrap()["service"].as_str()
+                            == Some(root_service)
+                    })
+                    .count();
+                println!(
+                    "RCAEVAL_CONNECTED_EVAL {}",
+                    json!({
+                        "case": case,
+                        "method": "model",
+                        "model": model_name,
+                        "root_service": root_service,
+                        "root_advertised": selector.root_advertised,
+                        "root_in_last_group_page": selector.root_in_last_group_page,
+                        "candidate_groups": pack.candidate_count,
+                        "prefinal_pruned_groups": pack.prefinal_pruned_groups,
+                        "selected_lines": selected.len(),
+                        "selected_root_lines": selected_root_lines,
+                        "query_ms": started.elapsed().as_millis(),
+                        "candidate_pool_truncated": pack.candidate_pool_truncated,
+                        "service_directory_truncated": pack.service_directory_truncated,
+                        "output_budget_truncated": pack.output_budget_truncated,
+                        "raw_log_budget": 32768,
+                    })
+                );
+            }
+            drop(store);
+            cleanup(&path);
+        }
     }
 }

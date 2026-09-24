@@ -38,7 +38,7 @@ from one of its messages. At a 4,096-byte raw-log budget and a 12-group
 selection limit, both a first-advertised-ID selector and a deterministic
 critical/error selector returned at least one exact original line from all
 12 target categories. A 12-newest-group baseline covered 1 of 12. Across the
-12 queries, 147 of 189 lines returned by the first-ID selector and 136 of 178
+12 queries, 147 of 189 lines returned by the first-ID selector and 138 of 179
 returned by the critical/error selector carried a different alert label.
 Those are **off-label lines**, not proven irrelevant lines: different categories
 can describe the same incident. One query reported a truncated candidate

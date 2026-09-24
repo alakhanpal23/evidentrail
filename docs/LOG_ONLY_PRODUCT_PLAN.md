@@ -42,7 +42,7 @@ repeated alert is recovered by expansion. This is still not a multi-incident
 relevance or downstream-task benchmark.
 An expanded 12-category proxy on that same sample finds at least one labeled
 line for all 12 message-derived tasks with either deterministic selector,
-versus one with a newest-group baseline, but 147/189 and 136/178 returned
+versus one with a newest-group baseline, but 147/189 and 138/179 returned
 lines carry other labels. That is a noisy proxy, not a model-quality result or
 proof that those other lines are irrelevant.
 The group cards now expose up to 256 characters from bounded original-log
@@ -50,6 +50,15 @@ head and tail samples, with an explicit omission marker for longer records.
 The previous 160-character prefix cap hid several BGL diagnostic suffixes
 after long system-log prefixes. This increases model input size; live-model
 selection quality and cost still need measurement.
+An opt-in [connected RCAEval RE3 probe](../reports/connected-rcaeval-re3-2026-09-23.md)
+now measures three 65–70K-line code-fault corpora without a query time window.
+It found a root-service candidate dropped by intermediate page selection
+despite an untruncated index pool. The connected result now counts
+`prefinal_pruned_groups`, and intermediate selection preserves a bounded
+representative from sparsely represented services. A first-ID selector now
+returns a root-service line in all three cases, but this is only a
+service-membership proxy; a model and downstream coding task have not been
+evaluated on these cases.
 An opt-in live-model harness now runs the actual selector over the same pinned
 12-category BGL proxy and verifies every emitted line against the encrypted
 corpus. It has not been run with a real model; accuracy and cost claims remain
