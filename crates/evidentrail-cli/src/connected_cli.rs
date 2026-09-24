@@ -1088,7 +1088,12 @@ fn validate_binding(binding: &CloudWatchDescriptor) -> Result<(), CliFailure> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
         || binding.log_group.is_empty()
-        || binding.log_group.len() > 512
+        || binding.log_group.len()
+            > if binding.log_group.starts_with("arn:") {
+                2048
+            } else {
+                512
+            }
         || binding.log_group.chars().any(char::is_control)
         || binding.profile.as_ref().is_some_and(|profile| {
             profile.is_empty()
@@ -2397,6 +2402,15 @@ mod tests {
         assert!(plan(&binding).unwrap().log_streams().is_empty());
         let mut invalid = binding;
         invalid.account = "wrong".to_owned();
+        assert!(validate_binding(&invalid).is_err());
+        invalid.account = "123456789012".to_owned();
+        invalid.log_group = format!(
+            "arn:aws:logs:us-west-2:123456789012:log-group:{}:*",
+            "a".repeat(512)
+        );
+        assert!(invalid.log_group.len() > 512);
+        assert!(validate_binding(&invalid).is_ok());
+        invalid.log_group = "a".repeat(513);
         assert!(validate_binding(&invalid).is_err());
         assert!(
             parse_cloudwatch_args(["--account", "123"].into_iter().map(OsString::from)).is_err()
