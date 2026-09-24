@@ -135,6 +135,8 @@ reacquires the lock, checks that every selected source still has the same
 registration and corpus-key generation, and revalidates CloudWatch identity/read
 access or Datadog identity/access scope. A changed or unavailable source fails
 the whole query, including a disconnect/reconnect with the same descriptor.
+An isolated macOS Keychain test exercises that same-descriptor replacement
+while an old corpus snapshot is still open; the generation check rejects it.
 The lock remains held through result delivery, and long read snapshots may
 grow WAL files; live concurrent sync/revocation tests and WAL resource limits
 remain release gates. Final revalidation waits up to 60 seconds for an active

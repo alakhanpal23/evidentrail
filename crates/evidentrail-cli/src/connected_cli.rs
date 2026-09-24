@@ -513,29 +513,21 @@ fn verify_query_sources(
         .list_bound(tenant)
         .map_err(|error| CliFailure::runtime(error.code()))?;
     let interrupted_rotations = interrupted_datadog_rotations(&current)?;
-    let current = current
-        .into_iter()
-        .map(|entry| (entry.source_digest, entry.descriptor))
-        .collect::<BTreeMap<_, _>>();
-    if selected_descriptors.len() != snapshots.len()
-        || selected_descriptors.len() != selected_key_digests.len()
-    {
+    if selected_descriptors.len() != snapshots.len() {
         return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"));
     }
-    for (((source_digest, descriptor), expected_key), snapshot) in selected_descriptors
-        .iter()
-        .zip(selected_key_digests)
-        .zip(snapshots)
-    {
-        if current.get(source_digest) != Some(descriptor) {
-            return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"));
-        }
-        let current_key = authority
-            .load(tenant, source_digest)
-            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"))?;
-        if corpus_key_generation(&current_key) != *expected_key {
-            return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"));
-        }
+    verify_query_generations(
+        selected_descriptors,
+        selected_key_digests,
+        &current,
+        |source_digest| {
+            let current_key = authority
+                .load(tenant, source_digest)
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"))?;
+            Ok(corpus_key_generation(&current_key))
+        },
+    )?;
+    for ((source_digest, descriptor), snapshot) in selected_descriptors.iter().zip(snapshots) {
         match parse_binding(descriptor)? {
             SourceBinding::CloudWatch(cloudwatch) => {
                 let caller_arn = cloudwatch
@@ -606,6 +598,29 @@ fn corpus_key_generation(key: &[u8; 32]) -> [u8; 32] {
     hash.update(b"evidentrail/query-corpus-key-generation/v1\0");
     hash.update(key);
     hash.finalize().into()
+}
+
+fn verify_query_generations(
+    selected: &[([u8; 32], Vec<u8>)],
+    expected_keys: &[[u8; 32]],
+    current: &[ConnectedSourceDescriptorV1],
+    mut current_key_generation: impl FnMut(&[u8; 32]) -> Result<[u8; 32], CliFailure>,
+) -> Result<(), CliFailure> {
+    if selected.len() != expected_keys.len() {
+        return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"));
+    }
+    let current = current
+        .iter()
+        .map(|entry| (entry.source_digest, entry.descriptor.as_slice()))
+        .collect::<BTreeMap<_, _>>();
+    for ((source_digest, descriptor), expected_key) in selected.iter().zip(expected_keys) {
+        if current.get(source_digest).copied() != Some(descriptor.as_slice())
+            || current_key_generation(source_digest)? != *expected_key
+        {
+            return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"));
+        }
+    }
+    Ok(())
 }
 
 /// Recheck a registered source against its live provider credentials before
@@ -2960,6 +2975,43 @@ mod tests {
     }
 
     #[test]
+    fn query_generation_rejects_revocation_and_same_descriptor_reconnect() {
+        let source_digest = [7; 32];
+        let descriptor = b"cloudwatch-source".to_vec();
+        let old_key = corpus_key_generation(&[11; 32]);
+        let new_key = corpus_key_generation(&[12; 32]);
+        let selected = vec![(source_digest, descriptor.clone())];
+        let registered = vec![ConnectedSourceDescriptorV1 {
+            source_digest,
+            descriptor: descriptor.clone(),
+        }];
+        let check = |current: &[ConnectedSourceDescriptorV1], key| {
+            verify_query_generations(&selected, &[old_key], current, |_| Ok(key))
+        };
+        assert!(check(&registered, old_key).is_ok());
+        assert_eq!(
+            check(&[], old_key).unwrap_err().code,
+            "EVIDENTRAIL_LOGS_SOURCE_CHANGED"
+        );
+        assert_eq!(
+            check(
+                &[ConnectedSourceDescriptorV1 {
+                    source_digest,
+                    descriptor: b"changed-source".to_vec(),
+                }],
+                old_key,
+            )
+            .unwrap_err()
+            .code,
+            "EVIDENTRAIL_LOGS_SOURCE_CHANGED"
+        );
+        assert_eq!(
+            check(&registered, new_key).unwrap_err().code,
+            "EVIDENTRAIL_LOGS_SOURCE_CHANGED"
+        );
+    }
+
+    #[test]
     fn revocation_selects_one_cloudwatch_source_or_one_datadog_connection() {
         let entries = [1u8, 2, 3, 4]
             .into_iter()
@@ -3455,5 +3507,62 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    #[test]
+    #[ignore = "requires an unlocked macOS login Keychain"]
+    fn same_descriptor_reconnect_cannot_publish_old_snapshot() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let authority = MacOsCorpusKeychainV1::isolated_for_tests(&format!(
+            "query-reconnect-{}-{suffix}",
+            std::process::id()
+        ))
+        .unwrap();
+        let tenant = [3; 32];
+        let descriptor = br#"{"provider":"cloudwatch","source":"same"}"#.to_vec();
+        let source_digest =
+            MacOsCorpusKeychainV1::source_digest_for_descriptor(&descriptor).unwrap();
+        let path = env::temp_dir().join(format!(
+            "evidentrail-query-reconnect-{}-{suffix}.db",
+            std::process::id()
+        ));
+        register_corpus(&authority, &tenant, &descriptor, &path).unwrap();
+        let old_key = authority.load(&tenant, &source_digest).unwrap();
+        let mut old_store =
+            EncryptedHistoryStore::open(&path, &old_key, &tenant, &source_digest).unwrap();
+        old_store
+            .commit_page_checked(&[evidentrail_ingest::HistoryRecordV1 {
+                native_id: b"old".to_vec(),
+                event_timestamp_millis: 1,
+                bytes: b"old source line".to_vec(),
+            }])
+            .unwrap();
+        let snapshot = old_store.read_snapshot().unwrap();
+        assert_eq!(snapshot.record_count().unwrap(), 1);
+        let selected = vec![(source_digest, descriptor.clone())];
+        let selected_key = corpus_key_generation(&old_key);
+
+        remove_corpus_files(&path, "EVIDENTRAIL_TEST_CLEANUP_FAILED").unwrap();
+        authority.destroy(&tenant, &source_digest).unwrap();
+        register_corpus(&authority, &tenant, &descriptor, &path).unwrap();
+        let current = authority.list_bound(&tenant).unwrap();
+        assert_eq!(current[0].descriptor, descriptor);
+        assert_eq!(current[0].source_digest, source_digest);
+        assert_eq!(
+            verify_query_generations(&selected, &[selected_key], &current, |digest| {
+                let key = authority.load(&tenant, digest).unwrap();
+                Ok(corpus_key_generation(&key))
+            })
+            .unwrap_err()
+            .code,
+            "EVIDENTRAIL_LOGS_SOURCE_CHANGED"
+        );
+        drop(snapshot);
+        drop(old_store);
+        remove_corpus_files(&path, "EVIDENTRAIL_TEST_CLEANUP_FAILED").unwrap();
+        authority.destroy(&tenant, &source_digest).unwrap();
     }
 }
