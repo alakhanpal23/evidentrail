@@ -16,23 +16,33 @@ must never silently train on untrusted log instructions.
 
 ## Completion contract
 
-1. Connect, enumerate, revoke, backfill, reconcile, and catch up real
+1. Ship a usable CLI onboarding flow for a new user: check prerequisites and
+   read-only access without exposing secrets; discover and register CloudWatch
+   or Datadog sources; show first-backfill progress, coverage, freshness, and
+   permission status; guide a first query and expansion; and give actionable
+   recovery and disconnect commands. Verify it from a clean installation.
+2. Connect, enumerate, revoke, backfill, reconcile, and catch up real
    CloudWatch and Datadog sources. Use source-bound read-only credentials,
    durable checkpoints, deduplication, and explicit coverage/freshness states.
-   Treat inaccessible, expired, or uncertain history as partial.
-2. Give CLI and MCP the same connected query behavior. Check current source
+   Treat inaccessible, expired, or uncertain history as partial, and verify
+   live credential changes, revocation, pagination, restarts, late arrivals,
+   and Datadog Data Access Control behavior in sandbox accounts.
+3. Give CLI and MCP the same connected query behavior. Check current source
    authority before selection, return only original source bytes and bounded
    references, and support source-verified expansion. Keep acquisition and
    uncertainty metadata separate from the log body.
-3. Test frozen labeled corpora against a deterministic baseline at matched
-   output budgets. Report required-evidence recall, irrelevant-log rate,
-   downstream coding-task success, graph ablation, latency, cost, and failure
-   cases. Choose local and hosted model routing from those results.
-4. Exercise live provider sandboxes and the installed agent workflow, run
-   security tests and CI, and document setup, permissions, cost controls, and
-   known coverage limits. Do not call the product production-ready while these
-   checks are unavailable or failing.
-5. Once the connected path is verified, remove unused RCA/brief code,
+4. Freeze independent held-out incidents before selector tuning. At matched
+   log budgets, compare first-ID, severity, local-model, and guarded selectors
+   with provider-native search and a no-logs control. Report required-evidence
+   recall, independently labeled off-task logs, exact-source integrity,
+   verified coding-agent fixes, graph ablation, latency, cost, and failures.
+   Choose the default and local-only routing from downstream benefit, with
+   rollback if a change regresses.
+5. Exercise live provider sandboxes and the installed agent workflow, run
+   security, scale, and CI tests, and document setup, permissions, cost controls,
+   and known coverage limits. Do not call the product production-ready while
+   these checks are unavailable or failing.
+6. Once the connected path is verified, remove unused RCA/brief code,
    superseded commands, and stale documentation. Preserve exact provenance,
    authorization, retention, and test machinery that the new path needs.
 

@@ -377,6 +377,51 @@ model/policy version; a changed source invalidates the cache.
 
 ## Delivery sequence and acceptance gates
 
+### Completion goal: usable onboarding and verified log selection
+
+Finish the connected product only when a new user can install the CLI, connect
+a read-only CloudWatch or Datadog source, understand exactly what history was
+acquired, keep it synced, and retrieve and expand source-verifiable logs from
+the CLI or MCP without choosing a time window. The public default selector must
+be chosen from held-out evidence and improve a coding agent's verified fixes,
+not merely match a root-service or message-template proxy. The existing
+seven-case RCAEval set is development data, not a qualification set.
+
+The remaining release gates are:
+
+1. **CLI onboarding:** provide one discoverable setup flow with prerequisite
+   checks, read-only credential and access validation, source discovery and
+   registration, a first-sync progress/status command, a sample query and
+   expansion, recovery/disconnect instructions, and actionable errors. Never
+   print secrets. Verify the flow from a clean user environment with a fresh
+   CloudWatch connection and a fresh Datadog connection.
+2. **Independent usefulness evaluation:** freeze incident cases by repository,
+   service, time, and fault family before tuning. At equal raw-log budgets,
+   compare first-ID, severity, current local model, any guarded challenger,
+   provider-native search, and a no-logs control. Score required original-line
+   recall, off-task lines only where independent labels support that judgment,
+   exact-source integrity, expansion use, p50/p95 latency, model calls/cost,
+   and verified coding-agent repairs. Publish per-case failures and graph
+   ablation. Promote a selector only on held-out downstream benefit without a
+   material security, omission, latency, or cost regression; keep rollback.
+3. **Live source conformance:** in sandbox accounts, exercise complete
+   accessible-history backfill, empty and partial pages, retention edges,
+   late arrivals, crash/restart checkpoints, ongoing sync, credential rotation,
+   narrowed access and revocation, and result-scoped expansion. Prove cached
+   records and graph state cannot escape a changed authorization scope.
+   Datadog must fail closed unless all applicable log visibility controls,
+   including Data Access Control, can be verified; an unverified tier cannot
+   count as a validated production connection.
+4. **Ship and simplify:** pass onboarding, scale, integration, security, and
+   CI gates on the final code. Document measured limits and partial-coverage
+   states in the CLI and README. Remove obsolete RCA, brief, and supplied-log
+   product paths after migration checks prove that the connected CLI/MCP path
+   replaces them, while retaining provenance and benchmark machinery.
+
+Unavailable live credentials or independently labeled incidents are explicit
+validation limits, not passing results. Do not mark the product complete or
+claim production readiness while one of these gates remains unverified.
+
 The [frozen connected retrieval v2 fixture](../reports/connected-retrieval-v2.md)
 runs through the encrypted corpus and compares graph-enabled selection, graph
 ablation, and recent-log selection under the same raw-byte cap. Its six
