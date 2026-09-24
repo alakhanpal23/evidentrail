@@ -1,0 +1,35 @@
+name: dependency-audit
+
+on:
+  pull_request:
+    paths:
+      - '**/Cargo.toml'
+      - Cargo.lock
+      - .github/workflows/dependency-audit.yml
+  push:
+    paths:
+      - '**/Cargo.toml'
+      - Cargo.lock
+      - .github/workflows/dependency-audit.yml
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rustsec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # releases/v4, 2026-07-16
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, 2026-08-05
+        with:
+          toolchain: stable
+      - name: Install pinned RustSec auditor
+        run: cargo install --locked cargo-audit --version 0.22.2
+      - name: Audit locked dependencies against current advisories
+        run: cargo audit --deny warnings
