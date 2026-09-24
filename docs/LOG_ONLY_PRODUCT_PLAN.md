@@ -1,136 +1,39 @@
 # Evidentrail: connected log selection for coding agents
 
-**Status:** product plan, not a description of shipped behavior. This plan
-supersedes the two-path product direction in `PRODUCT_ROADMAP.md`.
+**Status:** product target and acceptance plan, with the current implementation
+status below. This plan supersedes the two-path direction in `PRODUCT_ROADMAP.md`.
 
-## Implementation status
+## Implementation status (2026-09-23)
 
-The current `evidentrail compact` command is a supplied-log prototype. It
-accepts up to 16 MiB/100,000 UTF-8 lines on standard input, groups those
-lines, asks a local or hosted model to select group IDs, verifies the IDs, and
-emits selected original lines with repeat counts. Its in-process API can
-expand an advertised line to bounded original neighbors; no cross-call
-expansion handle is shipped. Its graph currently consists only of explicitly
-named peer services in JSON log records. It has no task-searchable full-history retrieval path,
-connector credentials, background synchronization, cross-call graph memory,
-or verified learning loop. These
-are release requirements, not existing capabilities. The current group-card
-selection also needs held-out relevance tests before it can be trusted to
-preserve rare clues in very large histories.
+The connected macOS CLI and MCP path is implemented but is **not production
+validated**. Users can register read-only CloudWatch log groups or Datadog
+storage tiers, then run bounded checkpointed backfill and continuous sync into
+source-bound encrypted corpora. Connected queries search those corpora without
+a user-selected time window, let a local or hosted model select advertised
+IDs, and resolve the selected lines to exact original records. Result-scoped
+MCP expansion reads bounded chronological neighbors after checking the source
+connection again. Sync attempts, candidate truncation, and output truncation
+are reported separately from the log body.
 
-The ingestion crate now also has a provider-neutral full-history sync contract.
-It paginates internal time partitions from a store checkpoint to a frozen
-high-water mark, continues through empty pages, and advances the checkpoint
-only after the final page of a partition. A SQLCipher-encrypted per-source
-corpus now durably stores raw records and completed-partition checkpoints.
-Reopening after an incomplete partition replays pages idempotently, while
-conflicting native IDs, wrong keys, and tenant/source mismatches fail closed.
-The ingestion contract now supports a bounded reconciliation replay of
-already-checkpointed partitions to capture late provider arrivals without
-moving the forward checkpoint. It reports partial replay on page or partition
-limits. This is not wired to a connected scheduler and cannot establish full
-coverage of arbitrarily late records or history already expired at the source.
-The corpus now maintains exact template-group counts and first/last source
-references in the same transaction as raw ingestion, using the same parser as
-the CLI. It has an encrypted lexical group index and a bounded task-query API
-that reports candidate truncation; this is an unvalidated candidate stage,
-not yet the connected product. The CLI library now has an internal indexed
-selector that gives a local or hosted model bounded group cards, validates
-selected group IDs, and resolves selected first/last records to their original
-bytes and exact repeat counts. Its output metadata reports candidate and output
-budget truncation. It operates on one already-authorized store; the public
-connected query, multi-source catch-up, completeness receipt, and source-level
-query authorization remain missing. The corpus also maintains
-versioned, explicitly observed service edges whose counts and endpoint records
-resolve to original logs; unrelated service co-occurrence does not create an
-edge. Indexed selection now adds a bounded set of groups from services linked
-to lexical matches by those explicit edges. This is candidate expansion, not
-a causal inference or a measured accuracy improvement; held-out graph ablation
-is still required. The parser now recognizes Datadog's nested message, service, severity,
-and explicit peer fields while the corpus retains the exact API log record.
-Existing v1 corpora transactionally reset derived indexes and rebuild them
-under parser/graph v2; unknown versions fail closed. A source-bound macOS login
-Keychain authority can now create, reopen, and revoke an add-only SQLCipher key;
-its live create/load/delete check passed on a local unlocked Keychain. The
-authority can also register and list bounded, non-secret source descriptors
-without returning keys, deriving each source digest from its descriptor. A
-live macOS create/list/reopen/revoke check passed. Provider-specific descriptor
-validation and credential storage are still caller responsibilities. The
-macOS CLI now offers `sources connect-cloudwatch` and `sources list`. Registration
-checks the AWS caller account and probes unfiltered log-group read access before
-creating a source-bound Keychain entry and private SQLCipher corpus. A live
-local Keychain/corpus reopen test passed, while `sources list` returned an empty
-catalog on this host. No AWS sandbox connection has been validated. Registration
-explicitly reports backfill pending. A manual `sources sync` command now makes
-bounded forward progress with adaptive partition widths and replays a recent
-lookback when it reaches the high-water mark. An encrypted-corpus fixture proves
-forward scan plus deduplicated replay, and an endless-pagination fixture proves
-the per-source page cap preserves a partial status and checkpoint. A connected
-`logs` CLI command now attempts catch-up, excludes a source when current access
-or sync cannot be verified, and selects from all remaining same-tenant corpora
-in one model pass. Model IDs include a source index; code checks each selection
-and resolves original records within that source. CLI stdout contains JSON lines
-with exact source text or Base64 for non-UTF-8 records, while stderr carries
-coverage and truncation metadata. Unit tests cover same native IDs in different
-sources and exact rendering. The current
-scan starts at epoch because a verified provider availability boundary is not
-yet persisted; coarse partitions may spend calls on empty early history. A
-`sources sync` smoke run on this Mac waited for a Keychain authorization prompt
-after rebuilding the binary and was stopped. The connected CLI query has not
-been validated against live AWS. The memory-only macOS MCP server now exposes
-`evidentrail_connected_logs(task, max_raw_bytes)` through the same connected
-query routine as the CLI. A local MCP schema and argument rejection test is
-included. The memory-only MCP server now returns a 30-minute result handle and
-allows bounded expansion of a selected source/native ID into exact chronological
-neighbors. The expansion path rechecks the registered source and live provider
-access, then reads the encrypted corpus; tests cover result scope, expiry,
-ordering, and byte limits. A live connected MCP expansion and
-verified completeness semantics remain missing. A `sources watch` process now
-repeats bounded, checkpointed sync passes with capped retry backoff and releases
-the source lock between passes. An opt-in `sources service install/status/uninstall`
-flow writes a private macOS LaunchAgent plist for the current binary, bootstraps
-it in the GUI session, and keeps it running after login. The generated plist
-passes `plutil`; actual bootstrap, Keychain access, and provider sync from the
-LaunchAgent remain unverified. [Apple's launchd guidance](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)
-describes the per-user agent location and `KeepAlive` behavior. The old supplied-log
-`evidentrail_logs` tool remains until replacement behavior is verified.
-The corpus still receives its key from a caller; cross-platform key authority,
-query access control, broader graph-aware retrieval, and the complete connected
-user flow are missing. The login Keychain is used because this
-unsigned development binary cannot access the entitlement-gated macOS data
-protection Keychain; the login Keychain choice must be documented in the user
-security model. A CloudWatch history-source
-adapter maps internal partitions to unfiltered log-group page requests. An
-optional AWS SDK transport now loads a configured identity, verifies its STS
-caller account on each page, binds source account/region/log group, and makes
-signed `FilterLogEvents` requests. A local HTTP contract test exercises
-empty-page continuation and exact event mapping. Live AWS sandbox validation,
-live connected backfill/catch-up validation and supervised reconciliation validation are still missing. One scan
-to a high-water mark does not prove complete
-coverage under provider eventual consistency; reconciliation is required.
-The Datadog source now queries `*` across all indexes for one explicitly
-chosen storage tier, pages by `meta.page.after`, and rejects partial warnings
-or malformed events before checkpoint advancement. A connected run must cover
-each authorized tier (indexes, online archives, and Flex) and report tiers it
-cannot access. Local HTTP fixtures cover empty-page continuation and exact
-source JSON retention. The macOS CLI now probes each of the three storage tiers
-and registers readable tiers with source-bound credentials in a separate login
-Keychain service. The connector reads the authenticated organization ID at
-registration using Datadog's [current-user endpoint](https://docs.datadoghq.com/api/latest/users/get-current-user/) and verifies it before every sync; a local HTTP fixture covers
-the identity request and response. An isolated live macOS login Keychain
-create/load/revoke check passed for the source-bound credential item.
-`sources sync`, `logs`, and connected MCP
-calls can use those entries, and missing tiers are reported as partial
-coverage. A live Datadog account test, credential rotation,
-and complete tier coverage are still missing. A `sources disconnect`
-command now removes one CloudWatch source or all registered tiers of a
-Datadog connection, deleting source-bound Keychain items and encrypted corpus
-files. Connected operations use a nonblocking process lock to keep disconnect
-from racing a local sync or query; an MCP response already constructed before
-revocation can still be delivered afterward. An isolated live macOS Keychain
-test removed all Datadog tiers and their corpus files while preserving an
-unrelated source. A production-provider revocation exercise and cross-process
-stress validation remain release gates.
+The corpus maintains a versioned template index, severe-service directory,
+and explicit-peer service graph. Lexical search, priority fallback, and graph
+neighbors provide bounded group candidates. When lexical search or fallback
+truncates, model-selected directory pages can retrieve additional severe
+service groups across eligible sources. This remains a bounded search with no
+guarantee of finding every relevant record. The frozen encrypted-corpus
+fixture measures exact evidence recall, irrelevant lines, a recent-log
+baseline, and graph ablation with deterministic selectors. It does not measure
+live model choices or downstream coding-agent success.
+
+Local connector and authorization contract tests pass. Live CloudWatch and
+Datadog sandbox validation, complete provider-coverage proofs under retention
+and late arrivals, credential rotation, LaunchAgent operation with live
+credentials, model-routing qualification, and real-incident downstream
+benchmarks remain release gates. The supplied-log `compact` command and older
+RCA/brief commands still exist; delete those obsolete product paths only after
+the connected replacement and migration contract are verified. The
+[README](../README.md) describes the current user flow and its limits; this
+plan defines the target behavior and acceptance gates.
 
 ## One product contract
 
