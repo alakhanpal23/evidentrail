@@ -109,6 +109,15 @@ coding-agent outcome. Two local model runs on those cases each found the
 labeled service in only 1/3 cases and took 46–92 seconds on the hardest query;
 the first-ID baseline found it in 3/3. Neither local route is qualified for
 unconditional connected selection by this probe.
+An opt-in [executable fault-stream probe](reports/connected-executable-2026-09-24.md)
+uses three frozen synthetic faults with an early causal precursor and a later
+symptom. Both the first-ID baseline and one local model run returned both
+clues in 3/3 cases; severity-only and recent-group baselines missed every
+precursor. Candidate pools were only 4–6 groups, so this does not establish
+model ranking. A local patch-proposal model abstained on all 12 paired
+arm/case prompts, leaving verified patch success at 0/3 for every arm; it had
+no repository code or configuration schema, so downstream coding-agent success
+remains unproven.
 When that fallback or lexical search is truncated, a connected query can
 inspect up to four 32-service directory pages shared across its sources. When
 more than 32 sources are eligible, pages rotate across them and report

@@ -67,6 +67,15 @@ corpus. A local Qwen2.5-Coder 7B run hit 12/12 categories with 107 off-label
 lines among 149 returned, but took 494 seconds in total; four queries reported
 retrieval truncation. This proxy does not qualify production routing;
 accuracy and cost claims remain open.
+An opt-in connected probe now ingests three frozen executable fault streams
+from the repository's incident lab into encrypted corpora. A local Qwen2.5-Coder
+7B selector and first-ID baseline each returned the known precursor and symptom
+in 3/3 cases, but each selected all 4–6 candidate groups. Severity-only and
+recent-group baselines missed every precursor. This remains a small synthetic
+retrieval result. A separate local patch-proposal model abstained on all 12
+arm/case combinations despite receiving the selected logs; it had no
+repository code or configuration schema. A real paired coding-agent fix study
+and model-routing qualification remain open.
 
 Local connector and authorization contract tests pass. Live CloudWatch and
 Datadog sandbox validation, complete provider-coverage proofs under retention

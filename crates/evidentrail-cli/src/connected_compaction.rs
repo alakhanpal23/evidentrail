@@ -628,6 +628,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
     use std::path::PathBuf;
+    use std::process::Command;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Instant;
 
@@ -699,6 +700,180 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    #[test]
+    #[ignore = "opt-in connected selection on pinned executable fault streams"]
+    fn executable_incident_connected_selection_eval() {
+        let helper = std::env::var("EVIDENTRAIL_EXECUTABLE_INCIDENT_HELPER")
+            .expect("run scripts/eval-connected-executable.py to build the pinned helper");
+        let output_dir = std::env::var("EVIDENTRAIL_EXECUTABLE_EVAL_OUTPUT_DIR")
+            .ok()
+            .map(PathBuf::from);
+        let run_model =
+            std::env::var("EVIDENTRAIL_RUN_EXECUTABLE_MODEL_EVAL").as_deref() == Ok("1");
+        let mut model = run_model.then(|| {
+            OpenAiIncidentReasoner::from_compact_environment()
+                .expect("configure a local Ollama model or OPENAI_API_KEY")
+        });
+        let cases = [
+            (
+                "db-pool-zero",
+                23,
+                "c6375b308e0d5618e59c3fa5945f9116160374f0805a30794f289529cbfb61a4",
+                "Why did request 550e8400-e29b-41d4-a716-446655440000 exhaust the database pool after deploy?",
+                b"CONFIG api pool_size=0".as_slice(),
+                b"database pool exhausted".as_slice(),
+            ),
+            (
+                "migration-drift",
+                24,
+                "40fe5fe121a19921c6c934f1d9f3aabe7579da37afff8698c1d8842614f5f0b6",
+                "Why did request 01J6H8Y5M8A3N6D7Q9R2T4V5W6 fail with a missing orders.region column after deploy?",
+                b"DEPLOY worker schema_expected=43 schema_actual=42".as_slice(),
+                b"column orders.region does not exist".as_slice(),
+            ),
+            (
+                "upstream-timeout",
+                25,
+                "3b7de45fbde798050c126904c1ca2edf41b2b2ba36ededd48724824eceeae5e3",
+                "Why did request req-7f3b9c21 time out against inventory after the gateway configuration change?",
+                b"CONFIG gateway upstream_timeout_ms=5 retry_limit=9".as_slice(),
+                b"upstream inventory timed out after 5ms".as_slice(),
+            ),
+        ];
+        for (scenario, expected_exit, expected_sha, task, precursor, symptom) in cases {
+            let output = Command::new(&helper)
+                .args(["--evidentrail-bench-incident-v1", scenario])
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(expected_exit));
+            assert!(output.stderr.is_empty());
+            assert_eq!(
+                format!("{:x}", Sha256::digest(&output.stdout)),
+                expected_sha
+            );
+            let lines = output
+                .stdout
+                .split_inclusive(|byte| *byte == b'\n')
+                .map(Vec::from)
+                .collect::<Vec<_>>();
+            assert_eq!(lines.len(), 183);
+            let path = test_path();
+            let mut store =
+                EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
+            let records = lines
+                .iter()
+                .enumerate()
+                .map(|(index, line)| HistoryRecordV1 {
+                    native_id: format!("line-{index}").into_bytes(),
+                    event_timestamp_millis: index as i64,
+                    bytes: line.clone(),
+                })
+                .collect::<Vec<_>>();
+            store.commit_page_checked(&records).unwrap();
+            let source = || {
+                [AuthorizedCorpus {
+                    source_digest: [2; 32],
+                    store: &store,
+                }]
+            };
+            for (method, pack) in [
+                (
+                    "first_id",
+                    select_connected_logs(&source(), task, 7000, &mut SelectAllCandidates).unwrap(),
+                ),
+                (
+                    "severity",
+                    select_connected_logs(&source(), task, 7000, &mut SelectErrors).unwrap(),
+                ),
+            ] {
+                executable_incident_eval_row(scenario, method, &store, &pack, precursor, symptom);
+                if let Some(directory) = &output_dir {
+                    write_executable_eval_logs(directory, scenario, method, &pack_lines(&pack));
+                }
+            }
+            let recent = recent_lines(&store, 7000);
+            if let Some(directory) = &output_dir {
+                write_executable_eval_logs(directory, scenario, "recent", &recent);
+            }
+            let contains = |clue: &[u8]| {
+                recent
+                    .iter()
+                    .any(|(_, raw)| raw.windows(clue.len()).any(|window| window == clue))
+            };
+            println!(
+                "EXEC_CONNECTED_EVAL {}",
+                json!({
+                    "case": scenario,
+                    "method": "recent",
+                    "precursor_hit": contains(precursor),
+                    "symptom_hit": contains(symptom),
+                    "selected_lines": recent.len(),
+                })
+            );
+            if let Some(model) = model.as_mut() {
+                let started = Instant::now();
+                let pack = select_connected_logs(&source(), task, 7000, model).unwrap();
+                executable_incident_eval_row(scenario, "model", &store, &pack, precursor, symptom);
+                if let Some(directory) = &output_dir {
+                    write_executable_eval_logs(directory, scenario, "model", &pack_lines(&pack));
+                }
+                println!(
+                    "EXEC_CONNECTED_MODEL_TIME {}",
+                    json!({"case": scenario, "elapsed_ms": started.elapsed().as_millis()})
+                );
+            }
+            drop(store);
+            cleanup(&path);
+        }
+    }
+
+    fn write_executable_eval_logs(
+        directory: &std::path::Path,
+        scenario: &str,
+        method: &str,
+        lines: &[(Vec<u8>, Vec<u8>)],
+    ) {
+        let mut bytes = Vec::new();
+        for (_, raw) in lines {
+            bytes.extend_from_slice(raw);
+        }
+        std::fs::write(directory.join(format!("{scenario}-{method}.log")), bytes).unwrap();
+    }
+
+    fn executable_incident_eval_row(
+        scenario: &str,
+        method: &str,
+        store: &EncryptedHistoryStore,
+        pack: &ConnectedLogPack,
+        precursor: &[u8],
+        symptom: &[u8],
+    ) {
+        let selected = pack_lines(pack);
+        for (id, raw) in &selected {
+            assert_eq!(store.get_record(id).unwrap().unwrap().bytes, *raw);
+        }
+        let contains = |clue: &[u8]| {
+            selected
+                .iter()
+                .any(|(_, raw)| raw.windows(clue.len()).any(|window| window == clue))
+        };
+        println!(
+            "EXEC_CONNECTED_EVAL {}",
+            json!({
+                "case": scenario,
+                "method": method,
+                "precursor_hit": contains(precursor),
+                "symptom_hit": contains(symptom),
+                "selected_lines": selected.len(),
+                "selected_raw_bytes": selected.iter().map(|(_, raw)| raw.len()).sum::<usize>(),
+                "candidate_groups": pack.candidate_count,
+                "prefinal_pruned_groups": pack.prefinal_pruned_groups,
+                "candidate_pool_truncated": pack.candidate_pool_truncated,
+                "output_budget_truncated": pack.output_budget_truncated,
+            })
+        );
     }
 
     struct SelectErrors;
