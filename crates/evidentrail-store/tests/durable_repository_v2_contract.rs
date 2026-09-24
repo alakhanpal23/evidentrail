@@ -390,11 +390,13 @@ fn selected_frame_mutation_and_repository_commitment_replay_fail_closed() {
         .write(true)
         .open(segment)
         .unwrap();
-    file.seek(SeekFrom::Start(
-        locator.byte_offset() + evidentrail_snapshot_format::FRAME_HEADER_BYTES_V2 as u64,
-    ))
-    .unwrap();
-    file.write_all(&[0xff]).unwrap();
+    let payload_offset =
+        locator.byte_offset() + evidentrail_snapshot_format::FRAME_HEADER_BYTES_V2 as u64;
+    file.seek(SeekFrom::Start(payload_offset)).unwrap();
+    let mut original_payload_byte = [0u8; 1];
+    file.read_exact(&mut original_payload_byte).unwrap();
+    file.seek(SeekFrom::Start(payload_offset)).unwrap();
+    file.write_all(&[original_payload_byte[0] ^ 1]).unwrap();
     file.sync_all().unwrap();
     assert!(
         repository
