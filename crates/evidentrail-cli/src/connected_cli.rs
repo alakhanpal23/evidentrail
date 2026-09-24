@@ -91,6 +91,8 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
         connect_cloudwatch(parse_cloudwatch_args(args)?)
     } else if command == "connect-datadog" {
         connect_datadog(parse_datadog_args(args)?)
+    } else if command == "rotate-datadog" {
+        rotate_datadog(parse_datadog_rotation_args(args)?)
     } else if command == "list" {
         if args.next().is_some() {
             return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
@@ -1159,6 +1161,57 @@ struct DatadogConnectOptions {
     application_key_env: String,
 }
 
+struct DatadogRotateOptions {
+    connection_id: String,
+    api_key_env: String,
+    application_key_env: String,
+}
+
+fn parse_datadog_rotation_args(
+    mut args: impl Iterator<Item = OsString>,
+) -> Result<DatadogRotateOptions, CliFailure> {
+    let mut connection_id = None;
+    let mut api_key_env = None;
+    let mut application_key_env = None;
+    while let Some(option) = args.next() {
+        let target = if option == "--connection-id" {
+            &mut connection_id
+        } else if option == "--api-key-env" {
+            &mut api_key_env
+        } else if option == "--application-key-env" {
+            &mut application_key_env
+        } else {
+            return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
+        };
+        let value = args
+            .next()
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_SOURCES_MISSING_VALUE"))?
+            .into_string()
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_SOURCES_INVALID_VALUE"))?;
+        if target.replace(value).is_some() {
+            return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_DUPLICATE_OPTION"));
+        }
+    }
+    let options = DatadogRotateOptions {
+        connection_id: connection_id
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_DATADOG_CONNECTION_ID_REQUIRED"))?,
+        api_key_env: api_key_env.unwrap_or_else(|| "DD_API_KEY".to_owned()),
+        application_key_env: application_key_env.unwrap_or_else(|| "DD_APP_KEY".to_owned()),
+    };
+    if options.connection_id.len() != 32
+        || !options
+            .connection_id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        || !valid_env_name(&options.api_key_env)
+        || !valid_env_name(&options.application_key_env)
+        || options.api_key_env == options.application_key_env
+    {
+        return Err(CliFailure::usage("EVIDENTRAIL_DATADOG_OPTIONS_INVALID"));
+    }
+    Ok(options)
+}
+
 fn parse_datadog_args(
     mut args: impl Iterator<Item = OsString>,
 ) -> Result<DatadogConnectOptions, CliFailure> {
@@ -1332,6 +1385,184 @@ fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailur
     writeln!(io::stdout().lock())
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
     Ok(ExitCode::SUCCESS)
+}
+
+fn rotate_datadog(options: DatadogRotateOptions) -> Result<ExitCode, CliFailure> {
+    let api_key = Zeroizing::new(
+        env::var(&options.api_key_env)
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_DATADOG_API_KEY_UNAVAILABLE"))?,
+    );
+    let application_key = Zeroizing::new(
+        env::var(&options.application_key_env)
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_DATADOG_APP_KEY_UNAVAILABLE"))?,
+    );
+    let secret = encode_datadog_secret(&api_key, &application_key)?;
+    let _catalog_guard = connected_catalog_lock()?;
+    let corpus_authority = MacOsCorpusKeychainV1::production();
+    let credential_authority = MacOsConnectedCredentialKeychainV1::production();
+    let tenant = corpus_authority
+        .local_tenant_digest()
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let mut bound = Vec::new();
+    for entry in corpus_authority
+        .list_bound(&tenant)
+        .map_err(|error| CliFailure::runtime(error.code()))?
+    {
+        if let SourceBinding::Datadog(binding) = parse_binding(&entry.descriptor)? {
+            if binding.connection_id == options.connection_id {
+                bound.push((entry.source_digest, binding));
+            }
+        }
+    }
+    let (_, first) = bound
+        .first()
+        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_DATADOG_CONNECTION_NOT_FOUND"))?;
+    let site = datadog_site(&first.site)
+        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+    let expected_org = first.org_id.clone();
+    let mut tiers = BTreeSet::new();
+    for (_, binding) in &bound {
+        if binding.site != first.site
+            || binding.org_id != expected_org
+            || !tiers.insert(binding.tier.as_str())
+        {
+            return Err(CliFailure::runtime(
+                "EVIDENTRAIL_DATADOG_CONNECTION_SCOPE_MISMATCH",
+            ));
+        }
+    }
+    let identity = DatadogHistorySourceV1::connect(
+        site,
+        DatadogStorageTierV1::Indexes,
+        api_key.to_string(),
+        application_key.to_string(),
+    )
+    .and_then(|source| source.current_org_id())
+    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_IDENTITY_FAILED"))?;
+    if identity != expected_org {
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_DATADOG_ROTATION_ORG_CHANGED",
+        ));
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
+        .as_millis() as i64;
+    for (_, binding) in &bound {
+        let tier = datadog_tier(&binding.tier)
+            .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
+        let mut source = DatadogHistorySourceV1::connect(
+            site,
+            tier,
+            api_key.to_string(),
+            application_key.to_string(),
+        )
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_READ_FAILED"))?;
+        source
+            .fetch_page(
+                HistoryPartitionV1 {
+                    start_millis: now.saturating_sub(1000),
+                    end_millis: now,
+                },
+                None,
+            )
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_READ_FAILED"))?;
+    }
+    let old = bound
+        .iter()
+        .map(|(source_digest, _)| {
+            credential_authority
+                .load(&tenant, source_digest)
+                .map(|previous| (*source_digest, previous))
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_STORE_FAILED"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    // New credentials can have narrower restriction queries in the same org.
+    // Remove all old records and derived indexes before changing any key.
+    for (source, _) in &old {
+        let path = corpus_path(source, false)?;
+        corpus_file_exists_safe(&path)?;
+        remove_corpus_files(&path, "EVIDENTRAIL_DATADOG_ROTATION_PURGE_FAILED")?;
+    }
+    let replacement = replace_datadog_secrets_with_rollback(&old, &secret, |source, value| {
+        credential_authority
+            .replace(&tenant, source, value)
+            .map_err(|_| ())
+    });
+    let mut rebuild_failed = false;
+    for (source, _) in &old {
+        rebuild_failed |= corpus_path(source, true)
+            .and_then(|path| recreate_empty_corpus(&path, &corpus_authority, &tenant, source))
+            .is_err();
+    }
+    if rebuild_failed {
+        return Err(CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_PARTIAL"));
+    }
+    replacement.map_err(CliFailure::runtime)?;
+    serde_json::to_writer(
+        io::stdout().lock(),
+        &json!({
+            "provider": "datadog",
+            "connection_id": options.connection_id,
+            "status": "credentials_rotated_backfill_pending",
+            "source_ids": old.iter().map(|(source, _)| hex(source)).collect::<Vec<_>>(),
+        }),
+    )
+    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
+    writeln!(io::stdout().lock())
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+fn recreate_empty_corpus(
+    path: &Path,
+    authority: &MacOsCorpusKeychainV1,
+    tenant: &[u8; 32],
+    source: &[u8; 32],
+) -> Result<(), CliFailure> {
+    if corpus_file_exists_safe(path)? {
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_DATADOG_ROTATION_REBUILD_FAILED",
+        ));
+    }
+    let key = authority
+        .load(tenant, source)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_REBUILD_FAILED"))?;
+    let reserved = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_DATADOG_ROTATION_REBUILD_FAILED"))?;
+    drop(reserved);
+    if EncryptedHistoryStore::open(path, &key, tenant, source).is_err() {
+        let _ = remove_corpus_files(path, "EVIDENTRAIL_DATADOG_ROTATION_REBUILD_FAILED");
+        return Err(CliFailure::runtime(
+            "EVIDENTRAIL_DATADOG_ROTATION_REBUILD_FAILED",
+        ));
+    }
+    Ok(())
+}
+
+fn replace_datadog_secrets_with_rollback(
+    old: &[([u8; 32], Zeroizing<Vec<u8>>)],
+    new: &[u8],
+    mut replace: impl FnMut(&[u8; 32], &[u8]) -> Result<(), ()>,
+) -> Result<(), &'static str> {
+    for index in 0..old.len() {
+        if replace(&old[index].0, new).is_err() {
+            let mut rollback_failed = false;
+            for (source, previous) in old[..=index].iter().rev() {
+                rollback_failed |= replace(source, previous).is_err();
+            }
+            return Err(if rollback_failed {
+                "EVIDENTRAIL_DATADOG_ROTATION_PARTIAL"
+            } else {
+                "EVIDENTRAIL_DATADOG_ROTATION_STORE_FAILED"
+            });
+        }
+    }
+    Ok(())
 }
 
 fn register_datadog_tier(
@@ -1881,6 +2112,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(options.application_key_env, "DD_APP_KEY");
+        let connection_id = "a".repeat(32);
+        let rotation = parse_datadog_rotation_args(
+            [
+                "--connection-id",
+                connection_id.as_str(),
+                "--api-key-env",
+                "NEW_DD_API_KEY",
+            ]
+            .into_iter()
+            .map(OsString::from),
+        )
+        .unwrap();
+        assert_eq!(rotation.connection_id, "a".repeat(32));
+        assert_eq!(rotation.api_key_env, "NEW_DD_API_KEY");
+        assert_eq!(rotation.application_key_env, "DD_APP_KEY");
+        assert!(
+            parse_datadog_rotation_args(
+                ["--connection-id", "wrong"].into_iter().map(OsString::from)
+            )
+            .is_err()
+        );
         assert!(parse_datadog_args(["--site", "invalid"].into_iter().map(OsString::from)).is_err());
         assert!(
             parse_datadog_args(
@@ -1914,6 +2166,76 @@ mod tests {
         let mut with_secret = serde_json::to_value(&binding).unwrap();
         with_secret["api_key"] = json!("private-api");
         assert!(parse_binding(&serde_json::to_vec(&with_secret).unwrap()).is_err());
+    }
+
+    #[test]
+    fn datadog_rotation_restores_all_tiers_after_a_failed_update() {
+        let old = vec![
+            ([1; 32], Zeroizing::new(b"old-indexes".to_vec())),
+            ([2; 32], Zeroizing::new(b"old-flex".to_vec())),
+        ];
+        let mut stored = BTreeMap::from([
+            ([1; 32], b"old-indexes".to_vec()),
+            ([2; 32], b"old-flex".to_vec()),
+        ]);
+        let mut failed_once = false;
+        let result = replace_datadog_secrets_with_rollback(&old, b"new-secret", |source, value| {
+            if *source == [2; 32] && value == b"new-secret" && !failed_once {
+                failed_once = true;
+                return Err(());
+            }
+            stored.insert(*source, value.to_vec());
+            Ok(())
+        });
+        assert_eq!(result, Err("EVIDENTRAIL_DATADOG_ROTATION_STORE_FAILED"));
+        assert_eq!(stored[&[1; 32]], b"old-indexes");
+        assert_eq!(stored[&[2; 32]], b"old-flex");
+    }
+
+    #[test]
+    #[ignore = "requires an unlocked macOS login Keychain"]
+    fn rotation_rebuild_discards_prior_records_and_checkpoints() {
+        let suffix = format!(
+            "rotate-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let authority = MacOsCorpusKeychainV1::isolated_for_tests(&suffix).unwrap();
+        let tenant = [21; 32];
+        let binding = DatadogDescriptor {
+            schema_version: 1,
+            provider: "datadog".to_owned(),
+            site: "us1".to_owned(),
+            tier: "indexes".to_owned(),
+            connection_id: "a".repeat(32),
+            org_id: "a1234567-1234-1234-1234-123456789abc".to_owned(),
+        };
+        let descriptor = serde_json::to_vec(&binding).unwrap();
+        let source = MacOsCorpusKeychainV1::source_digest_for_descriptor(&descriptor).unwrap();
+        let path = env::temp_dir().join(format!("evidentrail-{suffix}.db"));
+        register_corpus(&authority, &tenant, &descriptor, &path).unwrap();
+        let key = authority.load(&tenant, &source).unwrap();
+        let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+        store
+            .commit_page_checked(&[HistoryRecordV1 {
+                native_id: b"old-record".to_vec(),
+                event_timestamp_millis: 1,
+                bytes: b"old data".to_vec(),
+            }])
+            .unwrap();
+        assert_eq!(store.record_count().unwrap(), 1);
+        drop(store);
+        remove_corpus_files(&path, "EVIDENTRAIL_TEST_CLEANUP_FAILED").unwrap();
+        recreate_empty_corpus(&path, &authority, &tenant, &source).unwrap();
+        let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+        assert_eq!(store.record_count().unwrap(), 0);
+        assert_eq!(store.read_checkpoint().unwrap(), None);
+        drop(store);
+        remove_corpus_files(&path, "EVIDENTRAIL_TEST_CLEANUP_FAILED").unwrap();
+        authority.destroy(&tenant, &source).unwrap();
     }
 
     #[test]

@@ -4,7 +4,10 @@
 use std::fmt::Write as _;
 
 use core_foundation::data::CFData;
-use security_framework::item::{ItemAddOptions, ItemAddValue, ItemClass, Location};
+use security_framework::item::{
+    ItemAddOptions, ItemAddValue, ItemClass, ItemSearchOptions, ItemUpdateOptions, ItemUpdateValue,
+    Location, update_item,
+};
 use security_framework::passwords::{
     PasswordOptions, delete_generic_password_options, generic_password,
 };
@@ -103,6 +106,37 @@ impl MacOsConnectedCredentialKeychainV1 {
         decode(&entry, tenant, source)
     }
 
+    /// Atomically replace an existing source-bound item. Refuse a missing or
+    /// corrupted item rather than silently registering a new credential.
+    pub fn replace(
+        &self,
+        tenant: &[u8; 32],
+        source: &[u8; 32],
+        secret: &[u8],
+    ) -> Result<(), CorpusKeychainErrorV1> {
+        let _prior = self.load(tenant, source)?;
+        let entry = encode(tenant, source, secret)?;
+        let account = Self::account(tenant, source);
+        let mut search = ItemSearchOptions::new();
+        search
+            .class(ItemClass::generic_password())
+            .service(&self.service)
+            .account(&account);
+        let mut update = ItemUpdateOptions::new();
+        update.set_value(ItemUpdateValue::Data(CFData::from_buffer(&entry)));
+        update_item(&search, &update).map_err(|error| {
+            if error.code() == ERR_SEC_ITEM_NOT_FOUND {
+                CorpusKeychainErrorV1::NotFound
+            } else {
+                CorpusKeychainErrorV1::Unavailable
+            }
+        })?;
+        if self.load(tenant, source)?.as_slice() != secret {
+            return Err(CorpusKeychainErrorV1::Unavailable);
+        }
+        Ok(())
+    }
+
     pub fn destroy(
         &self,
         tenant: &[u8; 32],
@@ -197,7 +231,13 @@ mod tests {
         );
         assert!(authority.load(&tenant, &[6; 32]).is_err());
         assert!(authority.create(&tenant, &source, b"replacement").is_err());
+        authority.replace(&tenant, &source, b"replacement").unwrap();
+        assert_eq!(&*authority.load(&tenant, &source).unwrap(), b"replacement");
         authority.destroy(&tenant, &source).unwrap();
         assert!(authority.load(&tenant, &source).is_err());
+        assert_eq!(
+            authority.replace(&tenant, &source, b"again"),
+            Err(CorpusKeychainErrorV1::NotFound)
+        );
     }
 }

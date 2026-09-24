@@ -15,6 +15,7 @@ target/release/evidentrail sources connect-cloudwatch \
   --account 123456789012 --region us-west-2 \
   --log-group /aws/example --profile my-readonly-profile
 target/release/evidentrail sources connect-datadog --site us1
+target/release/evidentrail sources rotate-datadog --connection-id ID_FROM_CONNECT
 target/release/evidentrail sources list
 target/release/evidentrail sources sync
 target/release/evidentrail sources service install
@@ -101,7 +102,18 @@ relevant log under a fixed search budget.
 connection, removes its encrypted local corpus and Keychain entries, and
 rejects concurrent connected operations with a busy error. In-flight MCP
 responses constructed before revocation may still be delivered. This
-development CLI has no credential rotation yet.
+`sources rotate-datadog` reads replacement keys from `DD_API_KEY` and
+`DD_APP_KEY` (or named environment variables), checks that they belong to the
+same organization and can search each already-connected tier. It then clears
+the affected encrypted corpora and derived indexes before updating the
+source-bound Keychain items, because the new keys may have narrower log access.
+The sources start a fresh backfill; records that have expired at Datadog may
+no longer be recoverable. Rotation holds the source lock. A failed
+multi-tier update attempts to restore prior credentials;
+`EVIDENTRAIL_DATADOG_ROTATION_PARTIAL` means recovery must be retried before
+relying on that connection. Isolated login-Keychain replacement and corpus
+rebuild tests pass; rotation has not been exercised against a live Datadog
+sandbox.
 
 The first log-only prototype is available as `compact`. It accepts an explicit
 log stream with no time-window parameter and returns model-selected original

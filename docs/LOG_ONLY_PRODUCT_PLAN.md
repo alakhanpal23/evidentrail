@@ -43,7 +43,7 @@ relevance or downstream-task benchmark.
 
 Local connector and authorization contract tests pass. Live CloudWatch and
 Datadog sandbox validation, complete provider-coverage proofs under retention
-and late arrivals, credential rotation, LaunchAgent operation with live
+and late arrivals, live Datadog credential-rotation validation, LaunchAgent operation with live
 credentials, model-routing qualification, and real-incident downstream
 benchmarks remain release gates. The supplied-log `compact` command and older
 RCA/brief commands still exist; delete those obsolete product paths only after
