@@ -55,3 +55,40 @@ patch-proposal and executable-verifier check; temporary selected-log artifacts
 are removed when the script exits.
 Add `--schema-context` to give the patch model the fixture's synthetic edit
 schema while retaining the same selected-log packs and verifier.
+
+## Bounded file-read/edit probe
+
+`--workspace-agent` places three synthetic configuration files and their
+schemas in a fresh temporary workspace for each arm. The local model first
+chooses one file from a fixed list, receives that file's current contents and
+schema, and returns one replacement assignment. The harness writes that line
+to the chosen file and feeds its bytes to the fixture verifier. The same
+question, workspace, verifier, and selected-log budget are used for all arms;
+the no-logs arm is a control. This is a scripted two-step model interaction,
+not an autonomous coding agent editing a real repository.
+
+| Input arm | Verifier-accepted edits / 3 |
+| --- | ---: |
+| No logs | 2/3 |
+| First advertised IDs | 3/3 |
+| Critical/error only | 3/3 |
+| Recent groups | 3/3 |
+| Local Qwen2.5-Coder 7B selection | 3/3 |
+
+The model chose the intended file in all 15 arm/case pairs. Without logs it
+abstained on the migration case, while every log arm made a verifier-accepted
+edit. The file and schema alone were enough in the other two cases. Since
+severity and recent arms also passed all three cases, this probe shows **no
+downstream advantage for Evidentrail's selection**. The verifier only accepts
+a bounded configuration assignment; it does not rerun a deployed service or
+prove that the selected log pack caused the fix. These synthetic faults are
+too easy to distinguish retrieval methods by downstream outcome.
+
+An initial version of this probe asked the model for both `abstain` and a
+replacement line. It sometimes set `abstain=true` while supplying a concrete
+edit, so its all-abstain tally was an invalid edit-capability measure. The
+reported run uses one replacement-line field; the empty string is the only
+abstention. This contract does not change the earlier separate patch-prompt
+result above, but the differing outcomes show how sensitive this proxy is to
+the reader interface. A paired real-repository coding-agent study is still
+required for a product value claim.

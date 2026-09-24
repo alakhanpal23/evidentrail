@@ -122,6 +122,12 @@ A paired synthetic-schema rerun also produced 0/3 verified patches for every
 arm: the local model abstained on all 12 prompts despite being given valid
 assignment syntax and value ranges. Actual repository code and an agentic
 edit loop remain untested.
+A bounded synthetic workspace probe lets the same local model choose and read
+a configuration file, edit it, and run the fixture verifier. It accepted edits
+in 3/3 cases for first-ID, severity, recent, and model-selected log packs, and
+2/3 with no logs. The two easy cases were solvable from files alone; every
+log arm passed the third. This is not evidence of an Evidentrail downstream
+advantage or a real coding-agent fix rate.
 When that fallback or lexical search is truncated, a connected query can
 inspect up to four 32-service directory pages shared across its sources. When
 more than 32 sources are eligible, pages rotate across them and report

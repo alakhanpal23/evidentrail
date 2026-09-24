@@ -78,6 +78,13 @@ with synthetic configuration schemas also yielded 0/3 verified fixes for
 every arm; patch syntax alone did not change the result. Neither run supplied
 actual repository code or an agentic edit loop. A real paired coding-agent
 fix study and model-routing qualification remain open.
+A separate scripted file-read/edit probe using temporary synthetic configs
+found verifier-accepted edits in 3/3 cases for every log arm and 2/3 with no
+logs. Its initial two-field abstention contract produced contradictory model
+answers; a single empty-line abstention contract corrected the measurement.
+Because every log arm passed, this still provides no evidence that connected
+selection improves downstream fixes over baselines. The fixture verifier
+checks a bounded assignment, not a real service repair.
 
 Local connector and authorization contract tests pass. Live CloudWatch and
 Datadog sandbox validation, complete provider-coverage proofs under retention
