@@ -1,0 +1,65 @@
+{
+  "annotations": [
+    {
+      "case_id": "black-4",
+      "model": "gpt-6-sol",
+      "prompt_sha256": "301174a921d828e912784d3a4b20c697c1d41d77b8e31507f9afd7f010b75492",
+      "provenance_sha256": "af4afac6be289d98f9fcd3a4da7e30b622ac8a88f4b14d9a0bf89e058b44c81a",
+      "response_sha256": "c712dc49799b2daf7f92913444f6fc0397547383058859bd4f807c61a26d5c2c",
+      "selected_count": 8,
+      "source_records_sha256": "944a0cba05f127d4cacb3d5625f8ba8e117a71c01859fb9b1654796b7b792350",
+      "trace_sha256": "319262569f89680046ba9d81e201389c532d4ba8ec44571cff9c4579aad29327"
+    },
+    {
+      "case_id": "black-5",
+      "model": "gpt-6-sol",
+      "prompt_sha256": "1651c2998f6fdc3b2484535b8dbb513124516c953507c3d173e62123d8a4ec82",
+      "provenance_sha256": "4d4153bf87d46fe65e932f1588a5cc9d244ca983a5e29cbc108ae779ffe3f2c7",
+      "response_sha256": "9fe69ed9bb8681b6d456009a560ee8c4fc870a8c7bd767bc9ad81d117f1a734c",
+      "selected_count": 8,
+      "source_records_sha256": "38b1d7a5cb298512b3963d88186156155d3225a8acb4717af78a3adfe416bbd0",
+      "trace_sha256": "2ad2312533c8d41beb3cacdfdc140949c60812520364fbe9b29865adfbcdcac1"
+    },
+    {
+      "case_id": "thefuck-1",
+      "model": "gpt-6-sol",
+      "prompt_sha256": "c219d6734b65f20da4bf41b5d28b1706d7a95af11041a2a43ba805e317bc0025",
+      "provenance_sha256": "7d2afb2886983acf59938941b206a21c7cdb15c2ab4710daf1d77a2139a90952",
+      "response_sha256": "05f1110458e301f2b1ecee4b8a33c456e5e35711dd078fb8cbbafe3222d94f7c",
+      "selected_count": 8,
+      "source_records_sha256": "e3fd587d43fd95844b7a6f7313b47615c821f432cc8e2260bb04c0f983e41b63",
+      "trace_sha256": "25c07efb4e8eb93ac4302f6324a94cf82f4f8cd88237c18bb08247c0dd94d2e5"
+    },
+    {
+      "case_id": "thefuck-25",
+      "model": "gpt-6-sol",
+      "prompt_sha256": "ad000127857a6998311581e05df2df10943c5623bfb3718d12b13625643894b7",
+      "provenance_sha256": "cc3c09e6e1ee05171e59596fadcc253b94e9a7b07f47a1754089265ad6a495d2",
+      "response_sha256": "96e3230ca164ebbfc46ccbe391903b163213b8d5670275ddcbabba6fb460e2b3",
+      "selected_count": 8,
+      "source_records_sha256": "c1be4c866237a8c9b2eb2d41170b2dd239972f88de9fdf1c26f4df51c586ba32",
+      "trace_sha256": "f439494e839aee0d4841bca996421e57d13b1458768d8a9572a4b42020f5ab22"
+    },
+    {
+      "case_id": "luigi-10",
+      "model": "gpt-6-sol",
+      "prompt_sha256": "7ed91d0e5ea4dbdb3cd6ba2fdbd140432d1eb89dfd07bdcce55ecfdd08c9b33a",
+      "provenance_sha256": "b252e03354b7e141232aae312d7adb37a333cddd9c466f3fde97afca707087ff",
+      "response_sha256": "431ea7fba9625f83bc01e64be1b5d86415cf6b3a798c23f087456ce7e03ff6f6",
+      "selected_count": 8,
+      "source_records_sha256": "db5b212a56ab4360731df5dabc15279dab13a4121cfe2940dcab4227fcf89517",
+      "trace_sha256": "894650bab4758b45093acd8e2518dc2ad51ca7d8ca4dd22b87b422a7c3dee886"
+    },
+    {
+      "case_id": "luigi-12",
+      "model": "gpt-6-sol",
+      "prompt_sha256": "7cac481b03dfbef9ed80367cea3dfe0473f70649fd02d7c8c4c7004f57a61c1d",
+      "provenance_sha256": "1e68ef3c216a6477a343dae0f29916e20579d7175d8c415685a5482e30c895bd",
+      "response_sha256": "53fd9fe25d77b14222614a5c48fa81a5eb18363a5c6f986ab09d69909901eaf2",
+      "selected_count": 8,
+      "source_records_sha256": "2d2893c4df5cf318985479725d7661f1af410be8029073513c1a3f43ac706aa5",
+      "trace_sha256": "780f52e9cff1dfb292a459bf46a1f2be7a83f77616b233fd0c842a1a2682cc17"
+    }
+  ],
+  "schema_version": 1
+}
