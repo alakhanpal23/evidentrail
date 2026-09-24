@@ -27,9 +27,9 @@ mod macos {
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use evidentrail_cli::{
         AuthorizedCorpus, CompactionError, ConnectedLogPack, LogGroupSelector,
-        select_connected_logs,
+        select_connected_logs, select_connected_logs_for_study,
     };
-    use evidentrail_corpus::EncryptedHistoryStore;
+    use evidentrail_corpus::{EncryptedHistoryStore, LearningLabel, LearningSplit};
     use evidentrail_ingest::HistoryRecordV1;
     use serde::Deserialize;
     use serde_json::{Value, json};
@@ -39,6 +39,15 @@ mod macos {
         source_id: String,
         native_id: String,
         raw_base64: String,
+    }
+
+    #[derive(Deserialize)]
+    struct InputLabel {
+        case_id: String,
+        task: String,
+        native_id: String,
+        label: String,
+        provenance_sha256: String,
     }
 
     struct FirstId;
@@ -73,6 +82,9 @@ mod macos {
         model: String,
         scratch: PathBuf,
         calls: usize,
+        input_tokens: u64,
+        output_tokens: u64,
+        cached_input_tokens: u64,
     }
 
     impl LogGroupSelector for CodexSelector {
@@ -109,7 +121,8 @@ mod macos {
                 .arg(&response)
                 .arg("-")
                 .stdin(Stdio::piped())
-                .stdout(Stdio::null())
+                .arg("--json")
+                .stdout(Stdio::piped())
                 .stderr(Stdio::null())
                 .spawn()
                 .map_err(|_| CompactionError::Provider)?;
@@ -119,12 +132,23 @@ mod macos {
                 .ok_or(CompactionError::Provider)?
                 .write_all(prompt.as_bytes())
                 .map_err(|_| CompactionError::Provider)?;
-            if !child
-                .wait()
-                .map_err(|_| CompactionError::Provider)?
-                .success()
-            {
+            let output = child
+                .wait_with_output()
+                .map_err(|_| CompactionError::Provider)?;
+            if !output.status.success() {
                 return Err(CompactionError::Provider);
+            }
+            for line in output.stdout.split(|byte| *byte == b'\n') {
+                let Ok(event) = serde_json::from_slice::<Value>(line) else {
+                    continue;
+                };
+                if event["type"] != "turn.completed" {
+                    continue;
+                }
+                let usage = &event["usage"];
+                self.input_tokens += usage["input_tokens"].as_u64().unwrap_or(0);
+                self.output_tokens += usage["output_tokens"].as_u64().unwrap_or(0);
+                self.cached_input_tokens += usage["cached_input_tokens"].as_u64().unwrap_or(0);
             }
             let answer: Value =
                 serde_json::from_slice(&fs::read(response).map_err(|_| CompactionError::Provider)?)
@@ -213,6 +237,49 @@ mod macos {
         Ok(())
     }
 
+    fn load_development_labels(
+        store: &mut EncryptedHistoryStore,
+        path: &Path,
+        heldout_case_id: &str,
+    ) -> Result<usize, String> {
+        let mut positive_cases = BTreeSet::new();
+        let mut count = 0;
+        for line in BufReader::new(fs::File::open(path).map_err(|e| e.to_string())?).lines() {
+            let label: InputLabel = serde_json::from_str(&line.map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+            if label.case_id == heldout_case_id
+                || !label.native_id.starts_with(&format!("{}/", label.case_id))
+            {
+                return Err("label overlaps held-out case or has foreign native ID".into());
+            }
+            let value = match label.label.as_str() {
+                "relevant" => {
+                    positive_cases.insert(label.case_id.clone());
+                    LearningLabel::Relevant
+                }
+                "irrelevant" => LearningLabel::Irrelevant,
+                _ => return Err("label must be relevant or irrelevant".into()),
+            };
+            store
+                .record_independent_label(
+                    &label.case_id,
+                    &label.task,
+                    label.native_id.as_bytes(),
+                    value,
+                    LearningSplit::Development,
+                    hex_digest(&label.provenance_sha256)?,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+            count += 1;
+        }
+        if positive_cases.len() < 2 {
+            return Err(
+                "learning study requires two independent positive development cases".into(),
+            );
+        }
+        Ok(count)
+    }
+
     pub fn run() -> Result<(), String> {
         let mut args = std::env::args().skip(1);
         let source_path = PathBuf::from(args.next().ok_or("missing source-records path")?);
@@ -225,6 +292,8 @@ mod macos {
             .map_err(|_| "invalid budget")?;
         let selector_name = args.next().ok_or("missing selector")?;
         let model = args.next();
+        let labels_path = args.next().map(PathBuf::from);
+        let heldout_case_id = args.next();
         if args.next().is_some() {
             return Err("too many arguments".into());
         }
@@ -251,10 +320,30 @@ mod macos {
                     .commit_page_checked(chunk)
                     .map_err(|e| format!("{e:?}"))?;
             }
+            let labeled_records = if matches!(
+                selector_name.as_str(),
+                "codex_memory_on" | "codex_memory_off"
+            ) {
+                load_development_labels(
+                    &mut store,
+                    labels_path
+                        .as_deref()
+                        .ok_or("learning selector requires a label manifest")?,
+                    heldout_case_id
+                        .as_deref()
+                        .ok_or("learning selector requires a held-out case ID")?,
+                )?
+            } else {
+                if labels_path.is_some() || heldout_case_id.is_some() {
+                    return Err("labels are only accepted for learning study selectors".into());
+                }
+                0
+            };
             let authorized = [AuthorizedCorpus {
                 source_digest,
                 store: &store,
             }];
+            let mut selector_usage = (0_u64, 0_u64, 0_u64);
             let pack = match selector_name.as_str() {
                 "first_id" => select_connected_logs(&authorized, &task, budget, &mut FirstId),
                 "severity" => select_connected_logs(&authorized, &task, budget, &mut Severity),
@@ -265,18 +354,52 @@ mod macos {
                         "required":["selected_ids"]});
                     fs::write(scratch.join("selection-schema.json"), schema.to_string())
                         .map_err(|e| e.to_string())?;
-                    select_connected_logs(
+                    let mut selector = CodexSelector {
+                        model,
+                        scratch: scratch.clone(),
+                        calls: 0,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cached_input_tokens: 0,
+                    };
+                    let selected = select_connected_logs(&authorized, &task, budget, &mut selector);
+                    selector_usage = (
+                        selector.input_tokens,
+                        selector.output_tokens,
+                        selector.cached_input_tokens,
+                    );
+                    selected
+                }
+                "codex_memory_on" | "codex_memory_off" => {
+                    let model = model.ok_or("codex selector requires a model")?;
+                    let schema = json!({"type":"object","additionalProperties":false,
+                        "properties":{"selected_ids":{"type":"array","items":{"type":"string"}}},
+                        "required":["selected_ids"]});
+                    fs::write(scratch.join("selection-schema.json"), schema.to_string())
+                        .map_err(|e| e.to_string())?;
+                    let mut selector = CodexSelector {
+                        model,
+                        scratch: scratch.clone(),
+                        calls: 0,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cached_input_tokens: 0,
+                    };
+                    let selected = select_connected_logs_for_study(
                         &authorized,
                         &task,
                         budget,
-                        &mut CodexSelector {
-                            model,
-                            scratch: scratch.clone(),
-                            calls: 0,
-                        },
-                    )
+                        &mut selector,
+                        selector_name == "codex_memory_on",
+                    );
+                    selector_usage = (
+                        selector.input_tokens,
+                        selector.output_tokens,
+                        selector.cached_input_tokens,
+                    );
+                    selected
                 }
-                _ => return Err("selector must be first_id, severity, or codex".into()),
+                _ => return Err("invalid selector method".into()),
             }
             .map_err(|e| format!("{e:?}"))?;
             write_pack(&pack, &source_id, &output_path)?;
@@ -284,10 +407,14 @@ mod macos {
                 "{}",
                 json!({
                     "selector":selector_name,"selected_groups":pack.selected.len(),
+                    "development_labels":labeled_records,
                     "selected_calls":pack.selection_calls,
                     "selector_elapsed_ms":pack.selection_elapsed_ms,
                     "candidate_pool_truncated":pack.candidate_pool_truncated,
                     "output_budget_truncated":pack.output_budget_truncated,
+                    "selector_input_tokens":selector_usage.0,
+                    "selector_output_tokens":selector_usage.1,
+                    "selector_cached_input_tokens":selector_usage.2,
                 })
             );
             Ok(())

@@ -103,12 +103,61 @@ pub fn select_connected_logs(
     select_connected_logs_with_graph(sources, task, max_output_bytes, selector, true)
 }
 
+/// Evaluate labeled memory in a disposable study corpus without activating a
+/// production route. Callers must provide an isolated corpus and keep this
+/// result out of the live connected selector until qualification succeeds.
+pub fn select_connected_logs_for_study(
+    sources: &[AuthorizedCorpus<'_>],
+    task: &str,
+    max_output_bytes: usize,
+    selector: &mut impl LogGroupSelector,
+    memory_enabled: bool,
+) -> Result<ConnectedLogPack, CompactionError> {
+    select_connected_logs_internal(
+        sources,
+        task,
+        max_output_bytes,
+        selector,
+        true,
+        if memory_enabled {
+            MemoryMode::ShadowOverride
+        } else {
+            MemoryMode::Disabled
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+enum MemoryMode {
+    ActiveOnly,
+    ShadowOverride,
+    Disabled,
+}
+
 fn select_connected_logs_with_graph(
     sources: &[AuthorizedCorpus<'_>],
     task: &str,
     max_output_bytes: usize,
     selector: &mut impl LogGroupSelector,
     graph_enabled: bool,
+) -> Result<ConnectedLogPack, CompactionError> {
+    select_connected_logs_internal(
+        sources,
+        task,
+        max_output_bytes,
+        selector,
+        graph_enabled,
+        MemoryMode::ActiveOnly,
+    )
+}
+
+fn select_connected_logs_internal(
+    sources: &[AuthorizedCorpus<'_>],
+    task: &str,
+    max_output_bytes: usize,
+    selector: &mut impl LogGroupSelector,
+    graph_enabled: bool,
+    memory_mode: MemoryMode,
 ) -> Result<ConnectedLogPack, CompactionError> {
     if sources.is_empty()
         || task.trim().is_empty()
@@ -300,12 +349,16 @@ fn select_connected_logs_with_graph(
             .shadow_group_bonus(task, &cards)
             .map_err(|_| CompactionError::Corpus)?;
         shadow_memory_candidates += bonuses.len();
-        if source
-            .store
-            .active_route()
-            .map_err(|_| CompactionError::Corpus)?
-            .is_some()
-        {
+        let use_memory = match memory_mode {
+            MemoryMode::ActiveOnly => source
+                .store
+                .active_route()
+                .map_err(|_| CompactionError::Corpus)?
+                .is_some(),
+            MemoryMode::ShadowOverride => true,
+            MemoryMode::Disabled => false,
+        };
+        if use_memory {
             memory_keys.extend(bonuses.into_iter().map(|(id, _)| (source_index, id)));
         }
     }
@@ -1023,6 +1076,22 @@ mod tests {
         let shadow = query(&store);
         assert_eq!(shadow.shadow_memory_candidates, 1);
         assert_eq!(pack_lines(&shadow)[0].0, b"noise");
+        let study = |memory_enabled| {
+            select_connected_logs_for_study(
+                &[AuthorizedCorpus {
+                    source_digest: [2; 32],
+                    store: &store,
+                }],
+                "checkout reservation failed",
+                4096,
+                &mut First,
+                memory_enabled,
+            )
+            .unwrap()
+        };
+        assert_eq!(pack_lines(&study(false))[0].0, b"noise");
+        assert_eq!(pack_lines(&study(true))[0].0, b"target-a");
+        assert_eq!(pack_lines(&query(&store))[0].0, b"noise");
         let version = store
             .register_shadow_route("selector-v2", "model-v1", [7; 32], true)
             .unwrap();

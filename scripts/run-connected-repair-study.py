@@ -148,6 +148,8 @@ def run_agent(workspace, prompt, model, events_path, timeout):
         "protocol_valid": protocol_valid,
         "command_count": len(commands),
         "input_tokens": usage.get("input_tokens"),
+        "cached_input_tokens": usage.get("cached_input_tokens"),
+        "cache_write_input_tokens": usage.get("cache_write_input_tokens"),
         "output_tokens": usage.get("output_tokens"),
     }
 

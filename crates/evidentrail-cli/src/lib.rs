@@ -21,6 +21,7 @@ mod sensitive_log;
 pub use connected_cli::{run as run_sources_cli, run_logs as run_connected_logs_cli};
 pub use connected_compaction::{
     AuthorizedCorpus, ConnectedLogEntry, ConnectedLogPack, select_connected_logs,
+    select_connected_logs_for_study,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
