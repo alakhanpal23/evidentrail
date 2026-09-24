@@ -29,6 +29,7 @@ use evidentrail_ingest::{
 use rustix::fs::{CWD, FlockOperation, Mode, OFlags, flock, openat};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -318,6 +319,8 @@ pub(crate) fn query_connected_logs(
         .map_err(|_| query_error(CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE")))?
         .as_millis() as i64;
     let mut stores = Vec::new();
+    let mut selected_descriptors = Vec::new();
+    let mut selected_key_digests = Vec::new();
     let mut source_states = Vec::new();
     let mut datadog_tiers = BTreeMap::<String, BTreeSet<String>>::new();
     for entry in entries {
@@ -380,6 +383,8 @@ pub(crate) fn query_connected_logs(
                     "scanned_through_millis": store.read_checkpoint().map_err(|_| query_error(CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED")))?.map(|value| value.completed_through_millis),
                     "high_water_millis": high_water,
                 }));
+                selected_descriptors.push((entry.source_digest, entry.descriptor));
+                selected_key_digests.push(corpus_key_generation(&key));
                 stores.push((entry.source_digest, store));
             }
             Err(error) => {
@@ -409,18 +414,42 @@ pub(crate) fn query_connected_logs(
             metadata: Some(json!({"sources": source_states, "coverage": "no_authorized_source"})),
         });
     }
+    let snapshots = stores
+        .iter()
+        .map(|(_, store)| store.read_snapshot())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| {
+            query_error(CliFailure::runtime(
+                "EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED",
+            ))
+        })?;
     let authorized = stores
         .iter()
-        .map(|(source_digest, store)| AuthorizedCorpus {
+        .zip(&snapshots)
+        .map(|((source_digest, _), snapshot)| AuthorizedCorpus {
             source_digest: *source_digest,
-            store,
+            store: snapshot,
         })
         .collect::<Vec<_>>();
+    // WAL snapshots keep the candidate and original-record view stable while
+    // the watcher is free to append newer records. Nothing is returned until
+    // the sources are revalidated under the catalog lock below.
+    drop(catalog_guard);
     let mut selector = OpenAiIncidentReasoner::from_compact_environment()
         .map_err(|error| query_error(CliFailure::runtime(error.code())))?;
     let pack = select_connected_logs(&authorized, task, max_raw_bytes, &mut selector)
         .map_err(|error| query_error(CliFailure::runtime(error.code())))?;
     let body = render_connected_logs(&pack).map_err(query_error)?;
+    let catalog_guard =
+        wait_for_connected_catalog_lock(Duration::from_secs(60)).map_err(query_error)?;
+    verify_query_sources(
+        &authority,
+        &tenant,
+        &selected_descriptors,
+        &selected_key_digests,
+        &snapshots,
+    )
+    .map_err(query_error)?;
     let selected_refs = pack
         .selected
         .iter()
@@ -471,6 +500,112 @@ pub(crate) fn query_connected_logs(
         selected_refs,
         _catalog_guard: catalog_guard,
     })
+}
+
+fn verify_query_sources(
+    authority: &MacOsCorpusKeychainV1,
+    tenant: &[u8; 32],
+    selected_descriptors: &[([u8; 32], Vec<u8>)],
+    selected_key_digests: &[[u8; 32]],
+    snapshots: &[evidentrail_corpus::CorpusReadSnapshot<'_>],
+) -> Result<(), CliFailure> {
+    let current = authority
+        .list_bound(tenant)
+        .map_err(|error| CliFailure::runtime(error.code()))?;
+    let interrupted_rotations = interrupted_datadog_rotations(&current)?;
+    let current = current
+        .into_iter()
+        .map(|entry| (entry.source_digest, entry.descriptor))
+        .collect::<BTreeMap<_, _>>();
+    if selected_descriptors.len() != snapshots.len()
+        || selected_descriptors.len() != selected_key_digests.len()
+    {
+        return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"));
+    }
+    for (((source_digest, descriptor), expected_key), snapshot) in selected_descriptors
+        .iter()
+        .zip(selected_key_digests)
+        .zip(snapshots)
+    {
+        if current.get(source_digest) != Some(descriptor) {
+            return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"));
+        }
+        let current_key = authority
+            .load(tenant, source_digest)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"))?;
+        if corpus_key_generation(&current_key) != *expected_key {
+            return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"));
+        }
+        match parse_binding(descriptor)? {
+            SourceBinding::CloudWatch(cloudwatch) => {
+                let caller_arn = cloudwatch
+                    .caller_arn
+                    .as_deref()
+                    .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"))?;
+                let source_plan = plan(&cloudwatch)?;
+                let transport = AwsCloudWatchTransportV1::connect(
+                    source_plan.clone(),
+                    &cloudwatch.account,
+                    Some(caller_arn),
+                    cloudwatch.profile.as_deref(),
+                )
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_UNAVAILABLE"))?;
+                let mut source = CloudWatchHistorySourceV1::new(source_plan, transport)
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_UNAVAILABLE"))?;
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
+                    .as_millis() as i64;
+                source
+                    .fetch_page(
+                        HistoryPartitionV1 {
+                            start_millis: now.saturating_sub(1000),
+                            end_millis: now,
+                        },
+                        None,
+                    )
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_UNAVAILABLE"))?;
+            }
+            SourceBinding::Datadog(datadog) => {
+                if interrupted_rotations.contains(&datadog.connection_id) {
+                    return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"));
+                }
+                let credentials = MacOsConnectedCredentialKeychainV1::production();
+                let secret = credentials
+                    .load(tenant, source_digest)
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_UNAVAILABLE"))?;
+                let (mut api_key, mut application_key) = decode_datadog_secret(&secret)?;
+                let source = DatadogHistorySourceV1::connect(
+                    datadog_site(&datadog.site)
+                        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"))?,
+                    datadog_tier(&datadog.tier)
+                        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"))?,
+                    std::mem::take(&mut *api_key),
+                    std::mem::take(&mut *application_key),
+                )
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_UNAVAILABLE"))?;
+                let identity = source
+                    .current_access_identity()
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_UNAVAILABLE"))?;
+                check_datadog_identity(&datadog, &identity)
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"))?;
+                let scope = source
+                    .current_access_scope_digest(&identity)
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_UNAVAILABLE"))?;
+                snapshot
+                    .bind_provider_access_scope(&scope)
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn corpus_key_generation(key: &[u8; 32]) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(b"evidentrail/query-corpus-key-generation/v1\0");
+    hash.update(key);
+    hash.finalize().into()
 }
 
 /// Recheck a registered source against its live provider credentials before
@@ -2297,6 +2432,23 @@ pub(crate) fn connected_catalog_lock() -> Result<File, CliFailure> {
         .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_SOURCES_DATA_DIR_UNSAFE"))?
         .join(".connections.lock");
     acquire_connected_lock(&lock_path)
+}
+
+fn wait_for_connected_catalog_lock(max_wait: Duration) -> Result<File, CliFailure> {
+    let started = Instant::now();
+    loop {
+        match connected_catalog_lock() {
+            Ok(guard) => return Ok(guard),
+            Err(error) if error.code == "EVIDENTRAIL_SOURCES_BUSY" => {
+                let remaining = max_wait.saturating_sub(started.elapsed());
+                if remaining.is_zero() {
+                    return Err(error);
+                }
+                thread::sleep(remaining.min(Duration::from_millis(250)));
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 fn acquire_connected_lock(lock_path: &Path) -> Result<File, CliFailure> {

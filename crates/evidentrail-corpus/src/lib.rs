@@ -173,7 +173,41 @@ pub struct EncryptedHistoryStore {
     connection: Connection,
 }
 
+/// A stable WAL read view. Writers using another connection can keep syncing
+/// while every read through this store observes the same corpus generation.
+pub struct CorpusReadSnapshot<'a> {
+    store: &'a EncryptedHistoryStore,
+}
+
+impl std::ops::Deref for CorpusReadSnapshot<'_> {
+    type Target = EncryptedHistoryStore;
+
+    fn deref(&self) -> &Self::Target {
+        self.store
+    }
+}
+
+impl Drop for CorpusReadSnapshot<'_> {
+    fn drop(&mut self) {
+        let _ = self.store.connection.execute_batch("ROLLBACK");
+    }
+}
+
 impl EncryptedHistoryStore {
+    /// Pin the current committed corpus generation until the guard is dropped.
+    /// Opening the snapshot under the catalog lock lets a connected query
+    /// release that lock during model selection without mixing sync generations.
+    pub fn read_snapshot(&self) -> Result<CorpusReadSnapshot<'_>, CorpusError> {
+        self.connection
+            .execute_batch("BEGIN DEFERRED TRANSACTION")
+            .map_err(|_| CorpusError::Storage)?;
+        if self.record_count().is_err() {
+            let _ = self.connection.execute_batch("ROLLBACK");
+            return Err(CorpusError::Storage);
+        }
+        Ok(CorpusReadSnapshot { store: self })
+    }
+
     /// One database file is bound permanently to one tenant and one source.
     /// `key` must come from a production key authority; zero keys are refused.
     pub fn open(
@@ -2389,6 +2423,44 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    #[test]
+    fn read_snapshot_stays_stable_while_another_connection_syncs() {
+        let path = test_path();
+        let key = [7; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        let first = HistoryRecordV1 {
+            native_id: b"first".to_vec(),
+            event_timestamp_millis: 1,
+            bytes: b"first original log".to_vec(),
+        };
+        let second = HistoryRecordV1 {
+            native_id: b"second".to_vec(),
+            event_timestamp_millis: 2,
+            bytes: b"second original log".to_vec(),
+        };
+        let mut writer = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+        writer.commit_page_checked(&[first]).unwrap();
+        let reader = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+        {
+            let snapshot = reader.read_snapshot().unwrap();
+            assert_eq!(snapshot.record_count().unwrap(), 1);
+            writer.commit_page_checked(&[second]).unwrap();
+            assert_eq!(snapshot.record_count().unwrap(), 1);
+            assert!(snapshot.get_record(b"second").unwrap().is_none());
+            let late_reader = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert_eq!(late_reader.record_count().unwrap(), 2);
+        }
+        assert_eq!(reader.record_count().unwrap(), 2);
+        assert_eq!(
+            reader.get_record(b"second").unwrap().unwrap().bytes,
+            b"second original log"
+        );
+        drop(reader);
+        drop(writer);
+        cleanup(&path);
     }
 
     #[test]

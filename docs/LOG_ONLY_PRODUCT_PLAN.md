@@ -127,11 +127,20 @@ RCA/brief commands still exist; delete those obsolete product paths only after
 the connected replacement and migration contract are verified. The
 [README](../README.md) describes the current user flow and its limits; this
 plan defines the target behavior and acceptance gates.
-Connected queries currently hold the catalog lock through model selection,
-pausing background sync during a long query. The watcher now treats this lock
-contention as a normal retry rather than exponentially backing off, but
-shortening the lock scope while preserving revocation and source verification
-remains a release gate.
+Connected queries now pin a consistent encrypted WAL read snapshot after
+catch-up and release the catalog lock during model selection. Background sync
+can append records while a model works, without changing the query's candidate
+or original-record view. Before any result leaves the process, the query
+reacquires the lock, checks that every selected source still has the same
+registration and corpus-key generation, and revalidates CloudWatch identity/read
+access or Datadog identity/access scope. A changed or unavailable source fails
+the whole query, including a disconnect/reconnect with the same descriptor.
+The lock remains held through result delivery, and long read snapshots may
+grow WAL files; live concurrent sync/revocation tests and WAL resource limits
+remain release gates. Final revalidation waits up to 60 seconds for an active
+sync pass before failing closed; a slow pass can still waste the completed
+model selection. The watcher treats lock contention as a normal retry rather
+than exponentially backing off.
 
 CloudWatch registration now pins the STS caller ARN in the source descriptor.
 Every transport reconnect and provider page checks the same ARN, and legacy
