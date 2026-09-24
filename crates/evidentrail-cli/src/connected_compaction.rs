@@ -582,6 +582,55 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::*;
+    use crate::incident_analysis::OpenAiIncidentReasoner;
+
+    const BGL_CATEGORY_TASKS: [(&str, &str); 12] = [
+        ("APPCHILD", "no child processes creating node map"),
+        ("APPOUT", "login chdir input output error"),
+        ("APPREAD", "failed to read message prefix on control stream"),
+        ("APPRES", "connection reset by peer reading message prefix"),
+        ("APPSEV", "link has been severed after load message"),
+        ("APPTO", "connection timed out reading message prefix"),
+        ("KERNDTLB", "data tlb error interrupt"),
+        ("KERNMNTF", "lustre mount failed"),
+        ("KERNREC", "kernel recovery error"),
+        ("KERNRTSP", "rts panic stopping execution"),
+        ("KERNSTOR", "data storage interrupt"),
+        ("KERNTERM", "bad message header invalid cpu"),
+    ];
+
+    fn load_bgl_sample() -> Vec<Vec<u8>> {
+        let sample_path = std::env::var("EVIDENTRAIL_BGL_2K_PATH")
+            .expect("set EVIDENTRAIL_BGL_2K_PATH to the pinned BGL_2k.log sample");
+        let raw = fs::read(sample_path).unwrap();
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&raw)),
+            "2a819ea540909db682005c9cf948387a40729b5c2e9f19d430e29ce704825496"
+        );
+        let lines = raw
+            .split_inclusive(|byte| *byte == b'\n')
+            .map(Vec::from)
+            .collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2000);
+        lines
+    }
+
+    fn ingest_bgl_sample(lines: &[Vec<u8>], path: &Path) -> EncryptedHistoryStore {
+        let mut store = EncryptedHistoryStore::open(path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
+        for (start, chunk) in lines.chunks(256).enumerate() {
+            let records = chunk
+                .iter()
+                .enumerate()
+                .map(|(offset, line)| HistoryRecordV1 {
+                    native_id: format!("line-{}", start * 256 + offset).into_bytes(),
+                    event_timestamp_millis: (start * 256 + offset) as i64,
+                    bytes: line.clone(),
+                })
+                .collect::<Vec<_>>();
+            store.commit_page_checked(&records).unwrap();
+        }
+        store
+    }
 
     fn test_path() -> PathBuf {
         static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -1390,31 +1439,9 @@ mod tests {
     #[test]
     #[ignore = "requires the pinned LogHub BGL_2k.log sample"]
     fn loghub_bgl_sample_preserves_labeled_alert_lines() {
-        let sample_path = std::env::var("EVIDENTRAIL_BGL_2K_PATH")
-            .expect("set EVIDENTRAIL_BGL_2K_PATH to the pinned BGL_2k.log sample");
-        let raw = fs::read(sample_path).unwrap();
-        assert_eq!(
-            format!("{:x}", Sha256::digest(&raw)),
-            "2a819ea540909db682005c9cf948387a40729b5c2e9f19d430e29ce704825496"
-        );
-        let lines = raw
-            .split_inclusive(|byte| *byte == b'\n')
-            .collect::<Vec<_>>();
-        assert_eq!(lines.len(), 2000);
+        let lines = load_bgl_sample();
         let path = test_path();
-        let mut store = EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
-        for (start, chunk) in lines.chunks(256).enumerate() {
-            let records = chunk
-                .iter()
-                .enumerate()
-                .map(|(offset, line)| HistoryRecordV1 {
-                    native_id: format!("line-{}", start * 256 + offset).into_bytes(),
-                    event_timestamp_millis: (start * 256 + offset) as i64,
-                    bytes: line.to_vec(),
-                })
-                .collect::<Vec<_>>();
-            store.commit_page_checked(&records).unwrap();
-        }
+        let store = ingest_bgl_sample(&lines, &path);
         let pack = select_connected_logs(
             &[AuthorizedCorpus {
                 source_digest: [2; 32],
@@ -1477,26 +1504,12 @@ mod tests {
             let card = sample_card(id, &sample);
             assert!(card["line"].as_str().unwrap().contains(clue));
         }
-        let category_tasks = [
-            ("APPCHILD", "no child processes creating node map"),
-            ("APPOUT", "login chdir input output error"),
-            ("APPREAD", "failed to read message prefix on control stream"),
-            ("APPRES", "connection reset by peer reading message prefix"),
-            ("APPSEV", "link has been severed after load message"),
-            ("APPTO", "connection timed out reading message prefix"),
-            ("KERNDTLB", "data tlb error interrupt"),
-            ("KERNMNTF", "lustre mount failed"),
-            ("KERNREC", "kernel recovery error"),
-            ("KERNRTSP", "rts panic stopping execution"),
-            ("KERNSTOR", "data storage interrupt"),
-            ("KERNTERM", "bad message header invalid cpu"),
-        ];
         let mut first_id_hits = 0;
         let mut severity_hits = 0;
         let mut recent_hits = 0;
         let mut first_id_off_label = 0;
         let mut severity_off_label = 0;
-        for (label, task) in category_tasks {
+        for (label, task) in BGL_CATEGORY_TASKS {
             let first_id = select_connected_logs(
                 &[AuthorizedCorpus {
                     source_digest: [2; 32],
@@ -1559,7 +1572,7 @@ mod tests {
         println!(
             "BGL_CATEGORY_SUMMARY {}",
             json!({
-                "categories": category_tasks.len(),
+                "categories": BGL_CATEGORY_TASKS.len(),
                 "first_id_hits": first_id_hits,
                 "severity_hits": severity_hits,
                 "recent_hits": recent_hits,
@@ -1567,9 +1580,98 @@ mod tests {
                 "severity_off_label_lines": severity_off_label,
             })
         );
-        assert_eq!(first_id_hits, category_tasks.len());
-        assert_eq!(severity_hits, category_tasks.len());
+        assert_eq!(first_id_hits, BGL_CATEGORY_TASKS.len());
+        assert_eq!(severity_hits, BGL_CATEGORY_TASKS.len());
         assert_eq!(recent_hits, 1);
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    #[ignore = "opt-in live model evaluation on the pinned LogHub BGL sample"]
+    fn loghub_bgl_live_model_selection_eval() {
+        assert_eq!(
+            std::env::var("EVIDENTRAIL_RUN_BGL_MODEL_EVAL").as_deref(),
+            Ok("1"),
+            "set EVIDENTRAIL_RUN_BGL_MODEL_EVAL=1 to permit live model calls"
+        );
+        let model_name = std::env::var("EVIDENTRAIL_COMPACT_LOCAL_MODEL")
+            .unwrap_or_else(|_| "gpt-6-sol".to_owned());
+        let mut model = OpenAiIncidentReasoner::from_compact_environment()
+            .expect("configure a local Ollama model or OPENAI_API_KEY");
+        let lines = load_bgl_sample();
+        let path = test_path();
+        let store = ingest_bgl_sample(&lines, &path);
+        let mut category_hits = 0;
+        let mut target_label_lines = 0;
+        let mut off_label_lines = 0;
+        let mut returned_lines = 0;
+        let mut truncated_queries = 0;
+        let mut elapsed_ms = 0;
+        for (label, task) in BGL_CATEGORY_TASKS {
+            let started = Instant::now();
+            let pack = select_connected_logs(
+                &[AuthorizedCorpus {
+                    source_digest: [2; 32],
+                    store: &store,
+                }],
+                task,
+                4096,
+                &mut model,
+            )
+            .unwrap();
+            let duration_ms = started.elapsed().as_millis();
+            elapsed_ms += duration_ms;
+            let selected = pack_lines(&pack);
+            let matching = selected
+                .iter()
+                .filter(|(id, raw)| {
+                    assert_eq!(store.get_record(id).unwrap().unwrap().bytes, *raw);
+                    raw.split(|byte| *byte == b' ').next() == Some(label.as_bytes())
+                })
+                .count();
+            category_hits += usize::from(matching > 0);
+            target_label_lines += matching;
+            off_label_lines += selected.len() - matching;
+            returned_lines += selected.len();
+            truncated_queries += usize::from(
+                pack.candidate_pool_truncated
+                    || pack.service_directory_truncated
+                    || pack.output_budget_truncated,
+            );
+            println!(
+                "BGL_MODEL_EVAL {}",
+                json!({
+                    "model": model_name,
+                    "label": label,
+                    "task": task,
+                    "target_label_hit": matching > 0,
+                    "target_label_lines": matching,
+                    "off_label_lines": selected.len() - matching,
+                    "selected_lines": selected.len(),
+                    "selected_groups": pack.selected.len(),
+                    "candidate_groups": pack.candidate_count,
+                    "candidate_pool_truncated": pack.candidate_pool_truncated,
+                    "service_directory_truncated": pack.service_directory_truncated,
+                    "output_budget_truncated": pack.output_budget_truncated,
+                    "elapsed_ms": duration_ms,
+                })
+            );
+        }
+        println!(
+            "BGL_MODEL_SUMMARY {}",
+            json!({
+                "model": model_name,
+                "queries": BGL_CATEGORY_TASKS.len(),
+                "category_hits": category_hits,
+                "target_label_lines": target_label_lines,
+                "off_label_lines": off_label_lines,
+                "returned_lines": returned_lines,
+                "truncated_queries": truncated_queries,
+                "total_elapsed_ms": elapsed_ms,
+                "raw_log_budget_per_query": 4096,
+            })
+        );
         drop(store);
         cleanup(&path);
     }

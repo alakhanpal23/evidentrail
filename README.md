@@ -88,6 +88,9 @@ latency or model-accuracy measurements.
 An opt-in [LogHub BGL evaluation](reports/connected-loghub-bgl-2026-09-23.md)
 uses pinned real system logs to check exact source lines, repeat grouping, and
 bounded expansion. It remains a single-task proxy, not a downstream fix study.
+An opt-in [live-model BGL harness](reports/connected-loghub-bgl-model-eval.md)
+runs the actual selector on 12 category tasks at the same output budget; no
+local or hosted model results have been measured yet.
 When that fallback or lexical search is truncated, a connected query can
 inspect up to four 32-service directory pages shared across its sources. When
 more than 32 sources are eligible, pages rotate across them and report

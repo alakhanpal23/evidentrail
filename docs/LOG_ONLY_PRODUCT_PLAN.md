@@ -50,6 +50,10 @@ head and tail samples, with an explicit omission marker for longer records.
 The previous 160-character prefix cap hid several BGL diagnostic suffixes
 after long system-log prefixes. This increases model input size; live-model
 selection quality and cost still need measurement.
+An opt-in live-model harness now runs the actual selector over the same pinned
+12-category BGL proxy and verifies every emitted line against the encrypted
+corpus. It has not been run with a real model; accuracy and cost claims remain
+open.
 
 Local connector and authorization contract tests pass. Live CloudWatch and
 Datadog sandbox validation, complete provider-coverage proofs under retention
