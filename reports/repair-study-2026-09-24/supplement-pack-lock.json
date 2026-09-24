@@ -1,0 +1,128 @@
+{
+  "case_lock_sha256": "e716a83adbf7acb29541c4b3f39520b638ec038b614332f2fe76b9c7a0a138bc",
+  "cases": [
+    {
+      "id": "black-8",
+      "packs": {
+        "challenger": {
+          "selected_raw_bytes": 396,
+          "selection": {
+            "candidate_pool_truncated": false,
+            "end_to_end_elapsed_ms": 3231,
+            "output_budget_truncated": false,
+            "selected_calls": 1,
+            "selected_groups": 4,
+            "selector": "codex",
+            "selector_elapsed_ms": 3206
+          },
+          "selector_model": "gpt-6-luna",
+          "sha256": "efae68a5faf5273d34382834db3b4fee7e086ed727beadb0a5d25edeee69369a"
+        },
+        "current": {
+          "selected_raw_bytes": 375,
+          "selection": {
+            "candidate_pool_truncated": false,
+            "end_to_end_elapsed_ms": 3893,
+            "output_budget_truncated": false,
+            "selected_calls": 1,
+            "selected_groups": 3,
+            "selector": "codex",
+            "selector_elapsed_ms": 3868
+          },
+          "selector_model": "gpt-6-sol",
+          "sha256": "b3a5a5519b561e50fac34bcc88b712ad2d21da381c2223b7b2a85ecb8c9824fb"
+        },
+        "first_id": {
+          "selected_raw_bytes": 396,
+          "selection": {
+            "candidate_pool_truncated": false,
+            "end_to_end_elapsed_ms": 46,
+            "output_budget_truncated": false,
+            "selected_calls": 1,
+            "selected_groups": 4,
+            "selector": "first_id",
+            "selector_elapsed_ms": 0
+          },
+          "selector_model": null,
+          "sha256": "efae68a5faf5273d34382834db3b4fee7e086ed727beadb0a5d25edeee69369a"
+        },
+        "severity": {
+          "selected_raw_bytes": 0,
+          "selection": {
+            "candidate_pool_truncated": false,
+            "end_to_end_elapsed_ms": 23,
+            "output_budget_truncated": false,
+            "selected_calls": 1,
+            "selected_groups": 0,
+            "selector": "severity",
+            "selector_elapsed_ms": 0
+          },
+          "selector_model": null,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "black-9",
+      "packs": {
+        "challenger": {
+          "selected_raw_bytes": 597,
+          "selection": {
+            "candidate_pool_truncated": false,
+            "end_to_end_elapsed_ms": 3460,
+            "output_budget_truncated": false,
+            "selected_calls": 1,
+            "selected_groups": 5,
+            "selector": "codex",
+            "selector_elapsed_ms": 3433
+          },
+          "selector_model": "gpt-6-luna",
+          "sha256": "8af1a84c206badcbe43195602658ef06b3ffb14e48f6831df06289dd4a12fc3a"
+        },
+        "current": {
+          "selected_raw_bytes": 453,
+          "selection": {
+            "candidate_pool_truncated": false,
+            "end_to_end_elapsed_ms": 3789,
+            "output_budget_truncated": false,
+            "selected_calls": 1,
+            "selected_groups": 4,
+            "selector": "codex",
+            "selector_elapsed_ms": 3769
+          },
+          "selector_model": "gpt-6-sol",
+          "sha256": "6b6036be88527a76ec2ee3e7a768a2a1c1e1320ca0ebcd05fce4e27c590b0929"
+        },
+        "first_id": {
+          "selected_raw_bytes": 618,
+          "selection": {
+            "candidate_pool_truncated": false,
+            "end_to_end_elapsed_ms": 18,
+            "output_budget_truncated": false,
+            "selected_calls": 1,
+            "selected_groups": 6,
+            "selector": "first_id",
+            "selector_elapsed_ms": 0
+          },
+          "selector_model": null,
+          "sha256": "fc229b55ca7a54b4daf52c7e7c48b9c2ac57449ac3bdf144bfccd545fc1ead4a"
+        },
+        "severity": {
+          "selected_raw_bytes": 68,
+          "selection": {
+            "candidate_pool_truncated": false,
+            "end_to_end_elapsed_ms": 17,
+            "output_budget_truncated": false,
+            "selected_calls": 1,
+            "selected_groups": 1,
+            "selector": "severity",
+            "selector_elapsed_ms": 0
+          },
+          "selector_model": null,
+          "sha256": "ffc27ad4463671aae9d40ae365c57422f20d34ec0265b2da735af9d65d35253f"
+        }
+      }
+    }
+  ],
+  "schema_version": 1
+}
