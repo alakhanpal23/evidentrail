@@ -3,6 +3,9 @@
 This study asks whether prior, independently annotated development logs improve
 which logs a coding agent receives and whether that changes verified repairs.
 The live connected route stays in shadow unless a separate promotion gate passes.
+The [frozen held-out result](../reports/learning-repair-2026-09-24/REPORT.md)
+did not pass that gate: memory on fixed 4/12 bugs versus 5/12 with memory off,
+and the current route fixed 7/12. The learner remains in shadow.
 
 The frozen cohort contains 12 previously unstudied BugsInPy repairs across
 Black, TheFuck, and Luigi, with at least three fault families. Six other bugs

@@ -33,6 +33,12 @@ evidentrail sources route rollback --source-id SOURCE_ID
 
 The legacy `sources feedback promote` command changes only its feedback snapshot. It has no connected-selection effect. Use `sources route` for the new policy.
 
+The [12-case held-out repair study](../reports/learning-repair-2026-09-24/REPORT.md)
+did not qualify the challenger: memory on fixed 4 cases, memory off fixed 5,
+and the current selector fixed 7. The route remains shadow-only. CLI token
+usage is recorded, but provider-metered dollar cost was unavailable and the
+cost guardrail remains closed.
+
 ## Evaluation contract
 
 Freeze development and held-out tasks before tuning. Use the Prompt 1 manifest and verifier: at least ten held-out cases spanning three projects and three fault families, no case overlap, identical raw-log budgets and coding-agent model, all six paired arms, immutable packs, and exact source bytes. Report log-level evidence recall and irrelevant logs from separately labeled records; report source fidelity, verified repair rate, latency, model calls, and provider-metered cost for every arm. Compare memory-on against the same challenger with memory disabled to isolate cross-task value. Only verified held-out downstream improvements may qualify for promotion. The frozen synthetic retrieval suite is a development diagnostic, not evidence of repair benefit. For a source-local learner, keep development labels outside the repair manifest and verify that their case IDs, bug revisions, and test outputs do not overlap held-out cases; a project-disjoint development split would otherwise leave held-out project sources with no training records. This exception requires an audited label provenance manifest before any six-arm study can claim cross-task learning.
