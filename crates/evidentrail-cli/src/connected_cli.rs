@@ -65,6 +65,19 @@ enum SourceBinding {
     Datadog(DatadogDescriptor),
 }
 
+// Datadog Data Access Control can change cached-log visibility without
+// changing the identity or restriction-query fingerprint we can currently
+// verify. Until that policy is part of a live access check, cached reads and
+// further ingestion must remain unavailable for every Datadog connection.
+const DATADOG_ACCESS_SCOPE_UNVERIFIABLE: &str = "EVIDENTRAIL_DATADOG_ACCESS_SCOPE_UNVERIFIABLE";
+
+fn cache_access_block(binding: &SourceBinding) -> Option<&'static str> {
+    match binding {
+        SourceBinding::CloudWatch(_) => None,
+        SourceBinding::Datadog(_) => Some(DATADOG_ACCESS_SCOPE_UNVERIFIABLE),
+    }
+}
+
 fn parse_binding(descriptor: &[u8]) -> Result<SourceBinding, CliFailure> {
     let value: serde_json::Value = serde_json::from_slice(descriptor)
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_DESCRIPTOR_FAILURE"))?;
@@ -358,6 +371,14 @@ pub(crate) fn query_connected_logs(
             }));
             continue;
         }
+        if let Some(error) = cache_access_block(&binding) {
+            source_states.push(json!({
+                "source_id": source_id,
+                "state": "excluded_access_scope_unverifiable",
+                "error": error,
+            }));
+            continue;
+        }
         let path = corpus_path(&entry.source_digest, false).map_err(query_error)?;
         if !corpus_file_exists_safe(&path).map_err(query_error)? {
             source_states.push(json!({
@@ -539,7 +560,11 @@ fn verify_query_sources(
         },
     )?;
     for ((source_digest, descriptor), snapshot) in selected_descriptors.iter().zip(snapshots) {
-        match parse_binding(descriptor)? {
+        let binding = parse_binding(descriptor)?;
+        if cache_access_block(&binding).is_some() {
+            return Err(CliFailure::runtime("EVIDENTRAIL_LOGS_SOURCE_CHANGED"));
+        }
+        match binding {
             SourceBinding::CloudWatch(cloudwatch) => {
                 let caller_arn = cloudwatch
                     .caller_arn
@@ -668,6 +693,9 @@ pub(crate) fn expand_connected_logs(
     }
     if matches!(&binding, SourceBinding::Datadog(datadog) if datadog.schema_version == 1) {
         return Err(failure("EVIDENTRAIL_DATADOG_RECONNECT_REQUIRED"));
+    }
+    if let Some(error) = cache_access_block(&binding) {
+        return Err(failure(error));
     }
     let path = corpus_path(source_digest, false).map_err(map_failure)?;
     if !corpus_file_exists_safe(&path).map_err(map_failure)? {
@@ -880,6 +908,17 @@ fn sync_cycle() -> Result<SyncCycleSummary, CliFailure> {
             }));
             continue;
         }
+        if let Some(error) = cache_access_block(&binding) {
+            had_error = true;
+            pressure_only = false;
+            outcomes.push(json!({
+                "source_id": hex(&entry.source_digest),
+                "status": "access_scope_unverifiable",
+                "error": error,
+                "coverage": "incomplete",
+            }));
+            continue;
+        }
         let path = corpus_path(&entry.source_digest, false)?;
         if !corpus_file_exists_safe(&path)? {
             had_error = true;
@@ -1038,6 +1077,9 @@ fn sync_binding_inner(
     store: &mut EncryptedHistoryStore,
     high_water: i64,
 ) -> Result<BoundedSyncProgress, String> {
+    if let Some(error) = cache_access_block(binding) {
+        return Err(error.to_owned());
+    }
     match binding {
         SourceBinding::CloudWatch(cloudwatch) => {
             let caller_arn = cloudwatch
@@ -1658,7 +1700,8 @@ fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailur
                 outcomes.push(json!({
                     "tier": tier,
                     "source_id": hex(&source_digest),
-                    "status": "registered_backfill_pending",
+                    "status": "registered_access_scope_unverifiable",
+                    "error": DATADOG_ACCESS_SCOPE_UNVERIFIABLE,
                 }));
             }
             Err(error) => {
@@ -1680,7 +1723,7 @@ fn connect_datadog(options: DatadogConnectOptions) -> Result<ExitCode, CliFailur
             "connection_id": connection_id,
             "org_id": identity.org_id,
             "tiers": outcomes,
-            "coverage": "partial_until_backfill_and_provider_consistency_verified",
+            "coverage": "incomplete_access_scope_unverifiable",
         }),
     )
     .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
@@ -2249,6 +2292,8 @@ fn list_sources_value() -> Result<serde_json::Value, CliFailure> {
         } else if matches!(&binding, SourceBinding::Datadog(datadog) if datadog.schema_version == 1)
         {
             json!({"state": "reconnect_required", "coverage": "incomplete"})
+        } else if let Some(error) = cache_access_block(&binding) {
+            json!({"state": "access_scope_unverifiable", "error": error, "coverage": "incomplete"})
         } else if corpus_file_exists_safe(&path)? {
             let key = authority
                 .load(&tenant, &entry.source_digest)
@@ -2363,8 +2408,8 @@ fn source_setup_summary(sources: &serde_json::Value) -> serde_json::Value {
             "coverage": "none",
             "sources": sources,
             "next_actions": [
-                "Configure a read-only AWS profile or DD_API_KEY and DD_APP_KEY in your environment.",
-                "Run evidentrail sources connect-cloudwatch --account ID --region REGION --log-group GROUP --profile PROFILE, or evidentrail sources connect-datadog --site SITE.",
+                "Configure a read-only AWS profile in your environment.",
+                "Run evidentrail sources connect-cloudwatch --account ID --region REGION --log-group GROUP --profile PROFILE. Datadog sources are currently blocked pending access-scope verification.",
                 "Run evidentrail sources setup again after registration."
             ]
         });
@@ -2375,16 +2420,21 @@ fn source_setup_summary(sources: &serde_json::Value) -> serde_json::Value {
             Some("reconnect_required" | "rotation_interrupted" | "corpus_missing")
         )
     });
+    let access_scope_blocked = entries
+        .iter()
+        .any(|entry| entry["status"]["state"] == "access_scope_unverifiable");
     let needs_sync = entries.iter().any(|entry| {
-        entry["status"]["last_sync_completed_at_millis"].is_null()
-            || entry["status"]["last_attempt_succeeded"] == false
+        entry["status"]["state"] != "access_scope_unverifiable"
+            && (entry["status"]["last_sync_completed_at_millis"].is_null()
+                || entry["status"]["last_attempt_succeeded"] == false)
     });
-    let has_records = entries.iter().any(|entry| {
-        entry["status"]["record_count"]
-            .as_u64()
-            .is_some_and(|count| count > 0)
+    let has_queryable_records = entries.iter().any(|entry| {
+        entry["status"]["state"] != "access_scope_unverifiable"
+            && entry["status"]["record_count"]
+                .as_u64()
+                .is_some_and(|count| count > 0)
     });
-    let status = if needs_reconnect {
+    let status = if needs_reconnect || access_scope_blocked {
         "attention_required"
     } else if needs_sync {
         "sync_required"
@@ -2395,18 +2445,21 @@ fn source_setup_summary(sources: &serde_json::Value) -> serde_json::Value {
     if needs_reconnect {
         next_actions.push("Inspect each source status with evidentrail sources list; reconnect a source whose access scope or corpus is invalid, or run evidentrail sources recover-datadog --connection-id ID after an interrupted rotation.");
     }
+    if access_scope_blocked {
+        next_actions.push("Datadog cached reads and sync are blocked because Data Access Control visibility cannot be verified. Use a CloudWatch connection for queries until full Datadog access-scope verification is implemented.");
+    }
     if needs_sync {
         next_actions.push("Run evidentrail sources sync, then evidentrail sources setup again. Backfill may require repeated bounded passes.");
     }
-    if !needs_reconnect && !needs_sync {
+    if !needs_reconnect && !needs_sync && !access_scope_blocked {
         next_actions.push("Run evidentrail sources service install to keep sources syncing after login; check it with evidentrail sources service status.");
     }
-    if has_records && !needs_reconnect {
+    if has_queryable_records && !needs_reconnect {
         next_actions.push("Run evidentrail logs --task 'Describe the failure you are investigating' --max-raw-bytes 32768 after configuring a supported model. Inspect stderr metadata for partial coverage and retrieval truncation.");
     }
     json!({
         "status": status,
-        "coverage": "provisional",
+        "coverage": if access_scope_blocked { "incomplete" } else { "provisional" },
         "sources": sources,
         "next_actions": next_actions,
     })
@@ -2646,6 +2699,52 @@ mod tests {
     use evidentrail_ingest::{HistoryPageV1, HistoryRecordV1};
 
     #[test]
+    fn datadog_cached_access_fails_closed_while_cloudwatch_remains_queryable() {
+        let datadog = SourceBinding::Datadog(DatadogDescriptor {
+            schema_version: 2,
+            provider: "datadog".to_owned(),
+            site: "us1".to_owned(),
+            tier: "indexes".to_owned(),
+            connection_id: "connection".to_owned(),
+            org_id: "org".to_owned(),
+            user_id: Some("user".to_owned()),
+            role_ids: Some(vec!["role".to_owned()]),
+        });
+        let cloudwatch = SourceBinding::CloudWatch(CloudWatchDescriptor {
+            schema_version: 2,
+            provider: "cloudwatch".to_owned(),
+            account: "123456789012".to_owned(),
+            region: "us-east-1".to_owned(),
+            log_group: "test".to_owned(),
+            profile: None,
+            caller_arn: None,
+        });
+        assert_eq!(
+            cache_access_block(&datadog),
+            Some(DATADOG_ACCESS_SCOPE_UNVERIFIABLE)
+        );
+        assert_eq!(cache_access_block(&cloudwatch), None);
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = env::temp_dir().join(format!(
+            "evidentrail-datadog-block-{}-{suffix}.db",
+            std::process::id()
+        ));
+        let mut store = EncryptedHistoryStore::open(&path, &[9; 32], &[1; 32], &[2; 32]).unwrap();
+        assert_eq!(
+            sync_binding_inner(&datadog, &[1; 32], &[2; 32], &mut store, 100)
+                .err()
+                .as_deref(),
+            Some(DATADOG_ACCESS_SCOPE_UNVERIFIABLE)
+        );
+        assert_eq!(store.record_count().unwrap(), 0);
+        drop(store);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn setup_reports_next_step_without_claiming_complete_coverage() {
         let empty = source_setup_summary(&json!([]));
         assert_eq!(empty["status"], "no_sources");
@@ -2680,6 +2779,26 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|action| action.as_str().unwrap().contains("logs --task"))
+        );
+        let blocked = source_setup_summary(&json!([{
+            "provider": "datadog",
+            "status": {"state": "access_scope_unverifiable", "record_count": 12}
+        }]));
+        assert_eq!(blocked["status"], "attention_required");
+        assert_eq!(blocked["coverage"], "incomplete");
+        assert!(
+            blocked["next_actions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|action| { action.as_str().unwrap().contains("Data Access Control") })
+        );
+        assert!(
+            !blocked["next_actions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|action| { action.as_str().unwrap().contains("logs --task") })
         );
     }
 

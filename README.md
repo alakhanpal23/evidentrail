@@ -56,9 +56,11 @@ IDs, and requires the read-only `logs_read_config` permission to fingerprint
 that user's effective log restriction queries. It also reads the user's
 effective global permissions through Datadog's user-permissions API, which
 requires `user_access_read`. The combined fingerprint is stored in
-the encrypted corpus. A changed restriction query or global permission excludes
-that corpus from sync, queries, and expansion; reconnect to backfill under the
-new scope. Existing corpora with cached records but no current-version
+the encrypted corpus. These checks are implemented, but Datadog sync, queries,
+and expansion are currently blocked for every connection because Data Access
+Control visibility cannot be verified. A changed restriction query or global
+permission would also exclude a corpus under the implemented scope check.
+Existing corpora with cached records but no current-version
 fingerprint also require reconnecting. Registration probes indexes, online
 archives, and Flex separately, and reports tiers it could not connect. The
 indexed tier is refused when
@@ -115,8 +117,8 @@ to the selected source and native ID, and expansion checks the live source
 connection again before reading the encrypted corpus. LaunchAgent startup has
 not been exercised with live provider credentials; no live AWS sandbox has validated this
 flow yet. Datadog identity and tier coverage have not been verified in a live
-provider sandbox. Missing Datadog tiers appear as partial
-coverage in connected query metadata.
+provider sandbox. Connected queries exclude Datadog sources and report the
+access-scope block in metadata.
 If no task terms match the index, a bounded high-severity fallback samples
 rare and common services plus the oldest, newest, and interior points across
 observed time. Existing corpora rebuild the service summary in resumable
@@ -225,11 +227,12 @@ discards every active and staged corpus for that connection and starts a fresh
 backfill. If recovery fails, the staged files remain as a fail-closed gate.
 This recovery path has local filesystem tests but has not been exercised with
 live Datadog credentials.
-Datadog Data Access Control policy can still change without altering the user,
-role IDs, or current access-scope fingerprint. Do not rely on this build to
-enforce those policies over its cached corpus; complete scope-change
-invalidation is a release gate in the product plan. Scoped index grants remain
-unsupported until a verifiable access route exists. Datadog connections
+Datadog Data Access Control policy can change without altering the user,
+role IDs, or current access-scope fingerprint. Datadog sources therefore report
+`access_scope_unverifiable`; sync, connected queries, and expansion exclude
+them before opening cached records. Datadog onboarding is experimental until
+full policy verification and live sandbox tests are complete. Scoped index
+grants remain unsupported until a verifiable access route exists. Connections
 registered before the identity binding
 change report `reconnect_required` and are excluded from sync, queries, and
 expansion. Disconnect and connect them again with read-only credentials;

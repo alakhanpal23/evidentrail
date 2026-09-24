@@ -6,9 +6,11 @@ status below. This plan supersedes the two-path direction in `PRODUCT_ROADMAP.md
 ## Implementation status (2026-09-24)
 
 The connected macOS CLI and MCP path is implemented but is **not production
-validated**. Users can register read-only CloudWatch log groups or Datadog
-storage tiers, then run bounded checkpointed backfill and continuous sync into
-source-bound encrypted corpora. Connected queries search those corpora without
+validated**. Users can register read-only CloudWatch log groups and run bounded
+checkpointed backfill and continuous sync into source-bound encrypted corpora.
+Datadog registration remains experimental: its sources are blocked from sync,
+connected queries, and expansion because the current access fingerprint cannot
+verify Data Access Control policy. Connected CloudWatch queries search the corpus without
 a user-selected time window, let a local or hosted model select advertised
 IDs, and resolve the selected lines to exact original records. Result-scoped
 MCP expansion reads bounded chronological neighbors after checking the source
@@ -206,7 +208,11 @@ missing or scoped to particular indexes. Datadog documents that per-index
 grants are configured through its UI, while the user-permissions API only
 exposes whether the permission is restricted. Other accessible tiers can still
 register. Data Access Control policies remain an unverified cache-access
-guard and release gate. The identity fields come from Datadog's
+guard and release gate. All Datadog tiers now report
+`access_scope_unverifiable` and are excluded from sync, connected queries,
+and expansion before their cached records are opened. This protects existing
+caches while full DAC verification and live narrowed-scope tests remain open.
+The identity fields come from Datadog's
 [current-user API](https://docs.datadoghq.com/api/latest/users/get-current-user/).
 A legacy or changed-identity connection must be disconnected and
 reconnected; retention-expired logs may then be unrecoverable. Live provider
