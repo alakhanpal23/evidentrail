@@ -219,15 +219,21 @@ fn watch_sources(interval: Duration) -> Result<ExitCode, CliFailure> {
 fn watch_cycle_delay(
     interval: Duration,
     consecutive_errors: u32,
-    outcome: &Result<bool, CliFailure>,
+    outcome: &Result<SyncCycleSummary, CliFailure>,
 ) -> (u32, Duration) {
     let next_errors = match outcome {
-        Ok(false)
+        Ok(SyncCycleSummary {
+            had_error: false, ..
+        })
+        | Ok(SyncCycleSummary {
+            pressure_only: true,
+            ..
+        })
         | Err(CliFailure {
             code: "EVIDENTRAIL_SOURCES_BUSY",
             ..
         }) => 0,
-        Ok(true) | Err(_) => consecutive_errors.saturating_add(1),
+        Ok(_) | Err(_) => consecutive_errors.saturating_add(1),
     };
     (next_errors, watch_delay(interval, next_errors))
 }
@@ -814,10 +820,15 @@ fn render_connected_logs(pack: &ConnectedLogPack) -> Result<Vec<u8>, CliFailure>
 }
 
 fn sync_sources() -> Result<ExitCode, CliFailure> {
-    sync_cycle().map(|had_error| ExitCode::from(u8::from(had_error)))
+    sync_cycle().map(|summary| ExitCode::from(u8::from(summary.had_error)))
 }
 
-fn sync_cycle() -> Result<bool, CliFailure> {
+struct SyncCycleSummary {
+    had_error: bool,
+    pressure_only: bool,
+}
+
+fn sync_cycle() -> Result<SyncCycleSummary, CliFailure> {
     let _catalog_guard = connected_catalog_lock()?;
     let authority = MacOsCorpusKeychainV1::production();
     let tenant = authority
@@ -829,6 +840,7 @@ fn sync_cycle() -> Result<bool, CliFailure> {
         .as_millis() as i64;
     let mut outcomes = Vec::new();
     let mut had_error = false;
+    let mut pressure_only = true;
     let mut datadog_tiers = BTreeMap::<String, BTreeSet<String>>::new();
     let entries = authority
         .list_bound(&tenant)
@@ -845,6 +857,7 @@ fn sync_cycle() -> Result<bool, CliFailure> {
         if matches!(&binding, SourceBinding::Datadog(datadog) if interrupted_rotations.contains(&datadog.connection_id))
         {
             had_error = true;
+            pressure_only = false;
             outcomes.push(json!({
                 "source_id": hex(&entry.source_digest),
                 "status": "rotation_interrupted",
@@ -854,6 +867,7 @@ fn sync_cycle() -> Result<bool, CliFailure> {
         }
         if matches!(&binding, SourceBinding::Datadog(datadog) if datadog.schema_version == 1) {
             had_error = true;
+            pressure_only = false;
             outcomes.push(json!({
                 "source_id": hex(&entry.source_digest),
                 "status": "reconnect_required",
@@ -864,6 +878,7 @@ fn sync_cycle() -> Result<bool, CliFailure> {
         let path = corpus_path(&entry.source_digest, false)?;
         if !corpus_file_exists_safe(&path)? {
             had_error = true;
+            pressure_only = false;
             outcomes.push(json!({
                 "source_id": hex(&entry.source_digest),
                 "status": "corpus_missing",
@@ -909,6 +924,7 @@ fn sync_cycle() -> Result<bool, CliFailure> {
             }),
             Err(error) => {
                 had_error = true;
+                pressure_only &= error == "StoreWalPressure";
                 json!({
                     "status": "sync_error",
                     "error": error,
@@ -929,6 +945,7 @@ fn sync_cycle() -> Result<bool, CliFailure> {
         for tier in ["indexes", "online-archives", "flex"] {
             if !tiers.contains(tier) {
                 had_error = true;
+                pressure_only = false;
                 outcomes.push(json!({
                     "provider": "datadog",
                     "connection_id": connection_id,
@@ -943,7 +960,10 @@ fn sync_cycle() -> Result<bool, CliFailure> {
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
     writeln!(io::stdout().lock())
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
-    Ok(had_error)
+    Ok(SyncCycleSummary {
+        had_error,
+        pressure_only: had_error && pressure_only,
+    })
 }
 
 struct BoundedSyncProgress {
@@ -987,6 +1007,13 @@ fn sync_binding(
             Ok(progress)
         }
         Err(error) => {
+            // The WAL is already over its bound while a query snapshot holds
+            // back checkpointing. A failure receipt would append yet another
+            // frame on every watcher retry; resume recording after pressure
+            // clears instead.
+            if error == "StoreWalPressure" {
+                return Err(error);
+            }
             store
                 .record_failed_sync_attempt(SyncAttempt {
                     completed_at_millis,
@@ -2594,6 +2621,17 @@ mod tests {
                 &Err(CliFailure::runtime("EVIDENTRAIL_SOURCES_PROVIDER_FAILED")),
             ),
             (6, Duration::from_secs(3600))
+        );
+        assert_eq!(
+            watch_cycle_delay(
+                Duration::from_secs(60),
+                5,
+                &Ok(SyncCycleSummary {
+                    had_error: true,
+                    pressure_only: true,
+                }),
+            ),
+            (0, Duration::from_secs(60))
         );
     }
 

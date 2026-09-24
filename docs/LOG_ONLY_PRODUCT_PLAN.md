@@ -137,12 +137,18 @@ access or Datadog identity/access scope. A changed or unavailable source fails
 the whole query, including a disconnect/reconnect with the same descriptor.
 An isolated macOS Keychain test exercises that same-descriptor replacement
 while an old corpus snapshot is still open; the generation check rejects it.
-The lock remains held through result delivery, and long read snapshots may
-grow WAL files; live concurrent sync/revocation tests and WAL resource limits
-remain release gates. Final revalidation waits up to 60 seconds for an active
-sync pass before failing closed; a slow pass can still waste the completed
-model selection. The watcher treats lock contention as a normal retry rather
-than exponentially backing off.
+The lock remains held through result delivery. A long read snapshot can prevent
+WAL reset while sync appends records. Before each synced page, the writer now
+checks a 512 MiB per-corpus WAL threshold, attempts a checkpoint if exceeded,
+and reports `StoreWalPressure` rather than appending another page when a reader
+still blocks reset. A pressure-only watcher pass retries at its normal interval
+and resumes after the query ends. One page can overshoot the threshold, and
+migration/backfill writes on corpus open are not covered by this guard. Live
+concurrent sync/revocation tests and a measured disk-resource bound remain
+release gates. Final revalidation waits up to 60 seconds for an active sync
+pass before failing closed; a slow pass can still waste the completed model
+selection. The watcher treats lock contention as a normal retry rather than
+exponentially backing off.
 
 CloudWatch registration now pins the STS caller ARN in the source descriptor.
 Every transport reconnect and provider page checks the same ARN, and legacy

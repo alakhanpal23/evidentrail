@@ -6,7 +6,7 @@
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use evidentrail_ingest::{
@@ -32,6 +32,7 @@ const PARSER_INDEX_VERSION: i64 = 5;
 const GRAPH_INDEX_VERSION: i64 = 2;
 const TERM_INDEX_VERSION: i64 = 1;
 const MAX_RAW_RECORD_BYTES: usize = 16 * 1024 * 1024;
+const MAX_WAL_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CorpusError {
@@ -44,6 +45,7 @@ pub enum CorpusError {
     RecordExceedsPageBudget,
     RecordTooLarge,
     IndexVersionMismatch,
+    WalPressure,
     Storage,
 }
 
@@ -60,6 +62,7 @@ impl CorpusError {
             Self::RecordExceedsPageBudget => "EVIDENTRAIL_CORPUS_RECORD_EXCEEDS_PAGE_BUDGET",
             Self::RecordTooLarge => "EVIDENTRAIL_CORPUS_RECORD_TOO_LARGE",
             Self::IndexVersionMismatch => "EVIDENTRAIL_CORPUS_INDEX_VERSION_MISMATCH",
+            Self::WalPressure => "EVIDENTRAIL_CORPUS_WAL_PRESSURE",
             Self::Storage => "EVIDENTRAIL_CORPUS_STORAGE_FAILURE",
         }
     }
@@ -171,6 +174,7 @@ pub struct EdgeEvidencePage {
 
 pub struct EncryptedHistoryStore {
     connection: Connection,
+    path: PathBuf,
 }
 
 /// A stable WAL read view. Writers using another connection can keep syncing
@@ -515,7 +519,10 @@ impl EncryptedHistoryStore {
                 )
                 .map_err(|_| CorpusError::Storage)?;
         }
-        let mut store = Self { connection };
+        let mut store = Self {
+            connection,
+            path: path.to_path_buf(),
+        };
         store.backfill_severe_services_if_needed()?;
         store.index_unindexed_records()?;
         store.backfill_graph_if_needed()?;
@@ -1056,6 +1063,7 @@ impl EncryptedHistoryStore {
     }
 
     pub fn commit_page_checked(&mut self, records: &[HistoryRecordV1]) -> Result<(), CorpusError> {
+        self.ensure_wal_below_limit(MAX_WAL_BYTES)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1100,6 +1108,31 @@ impl EncryptedHistoryStore {
             }
         }
         transaction.commit().map_err(|_| CorpusError::Storage)
+    }
+
+    fn ensure_wal_below_limit(&self, max_bytes: u64) -> Result<(), CorpusError> {
+        let mut wal = self.path.as_os_str().to_os_string();
+        wal.push("-wal");
+        let wal = PathBuf::from(wal);
+        let wal_bytes = || match wal.symlink_metadata() {
+            Ok(metadata) if metadata.file_type().is_file() => Ok(metadata.len()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
+            Ok(_) | Err(_) => Err(CorpusError::Storage),
+        };
+        if wal_bytes()? <= max_bytes {
+            return Ok(());
+        }
+        // A stale large WAL can be truncated after its readers finish. A
+        // live snapshot prevents that reset; pause ingestion before the next
+        // page rather than letting the file grow without a bound.
+        let busy: i64 = self
+            .connection
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+            .map_err(|_| CorpusError::Storage)?;
+        if busy != 0 || wal_bytes()? > max_bytes {
+            return Err(CorpusError::WalPressure);
+        }
+        Ok(())
     }
 
     pub fn complete_partition_checked(
@@ -2380,7 +2413,10 @@ impl HistoryPageStoreV1 for EncryptedHistoryStore {
 
     fn commit_page(&mut self, records: &[HistoryRecordV1]) -> Result<(), HistorySyncErrorV1> {
         self.commit_page_checked(records)
-            .map_err(|_| HistorySyncErrorV1::Store)
+            .map_err(|error| match error {
+                CorpusError::WalPressure => HistorySyncErrorV1::StoreWalPressure,
+                _ => HistorySyncErrorV1::Store,
+            })
     }
 
     fn complete_partition(
@@ -2458,6 +2494,37 @@ mod tests {
             reader.get_record(b"second").unwrap().unwrap().bytes,
             b"second original log"
         );
+        drop(reader);
+        drop(writer);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn long_snapshot_pauses_writer_at_wal_limit_then_allows_resume() {
+        let path = test_path();
+        let key = [7; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        let mut writer = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+        let reader = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+        let snapshot = reader.read_snapshot().unwrap();
+        for index in 0..24 {
+            writer
+                .commit_page_checked(&[HistoryRecordV1 {
+                    native_id: format!("record-{index}").into_bytes(),
+                    event_timestamp_millis: index,
+                    bytes: vec![b'x'; 8192],
+                }])
+                .unwrap();
+        }
+        assert_eq!(snapshot.record_count().unwrap(), 0);
+        assert_eq!(
+            writer.ensure_wal_below_limit(64 * 1024),
+            Err(CorpusError::WalPressure)
+        );
+        drop(snapshot);
+        assert_eq!(writer.ensure_wal_below_limit(64 * 1024), Ok(()));
+        assert_eq!(writer.record_count().unwrap(), 24);
         drop(reader);
         drop(writer);
         cleanup(&path);

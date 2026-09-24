@@ -65,6 +65,7 @@ pub enum HistorySyncErrorV1 {
     Network,
     Provider,
     Store,
+    StoreWalPressure,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
