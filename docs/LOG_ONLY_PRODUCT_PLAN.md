@@ -124,6 +124,17 @@ answers; a single empty-line abstention contract corrected the measurement.
 Because every log arm passed, this still provides no evidence that connected
 selection improves downstream fixes over baselines. The fixture verifier
 checks a bounded assignment, not a real service repair.
+The workspace probe now also runs an executable synthetic service test after
+each edit and asserts that the unedited service fails. A repeat local-model
+run kept the same 3/3 for every log arm and 2/3 with no logs. This verifies an
+actual behavior change in that small fixture but remains too easy to show
+incremental selection value or real-repository repair success.
+
+The CLI now has `sources setup`, a read-only onboarding status that uses the
+registered-source catalog to give the next connect, sync, recovery, service,
+or query action while marking coverage provisional. Its pure status mapping
+and CLI library tests pass. The live command on this host waited inside the
+macOS login Keychain, so a clean-user onboarding smoke test remains open.
 
 Local connector and authorization contract tests pass. Live CloudWatch and
 Datadog sandbox validation, complete provider-coverage proofs under retention

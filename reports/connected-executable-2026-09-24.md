@@ -62,12 +62,14 @@ schema while retaining the same selected-log packs and verifier.
 schemas in a fresh temporary workspace for each arm. The local model first
 chooses one file from a fixed list, receives that file's current contents and
 schema, and returns one replacement assignment. The harness writes that line
-to the chosen file and feeds its bytes to the fixture verifier. The same
-question, workspace, verifier, and selected-log budget are used for all arms;
-the no-logs arm is a control. This is a scripted two-step model interaction,
-not an autonomous coding agent editing a real repository.
+to the chosen file, runs the corresponding executable service test, and feeds
+the edited bytes to the fixture verifier. Before any edit it asserts that the
+target test fails. The same question, workspace, verifier, and selected-log
+budget are used for all arms; the no-logs arm is a control. This is a scripted
+two-step model interaction with a runnable synthetic service, not an
+autonomous coding agent editing a real repository.
 
-| Input arm | Verifier-accepted edits / 3 |
+| Input arm | Executable-test and verifier-accepted edits / 3 |
 | --- | ---: |
 | No logs | 2/3 |
 | First advertised IDs | 3/3 |
@@ -77,12 +79,16 @@ not an autonomous coding agent editing a real repository.
 
 The model chose the intended file in all 15 arm/case pairs. Without logs it
 abstained on the migration case, while every log arm made a verifier-accepted
-edit. The file and schema alone were enough in the other two cases. Since
+edit that also passed the service test. The file and schema alone were enough in the other two cases. Since
 severity and recent arms also passed all three cases, this probe shows **no
 downstream advantage for Evidentrail's selection**. The verifier only accepts
-a bounded configuration assignment; it does not rerun a deployed service or
-prove that the selected log pack caused the fix. These synthetic faults are
-too easy to distinguish retrieval methods by downstream outcome.
+a bounded configuration assignment and the executable test covers a small
+synthetic service; neither reruns a deployed service nor proves that the
+selected log pack caused the fix. These synthetic faults are too easy to
+distinguish retrieval methods by downstream outcome. The 2026-09-24 rerun with
+the executable test retained the same 3/3 for every log arm and 2/3 with no
+logs. The test fixture itself asserts the buggy configuration fails and a
+known edit passes for each case before model scoring is trusted.
 
 An initial version of this probe asked the model for both `abstain` and a
 replacement line. It sometimes set `abstain=true` while supplying a concrete

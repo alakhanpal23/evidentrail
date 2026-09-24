@@ -10,6 +10,12 @@
 
 On macOS, CloudWatch connection registration is available with an AWS profile:
 
+Start with `target/release/evidentrail sources setup`. It prints a JSON
+onboarding check with registered-source state and the next command to run.
+After connecting, run it again to see whether a bounded sync pass is needed,
+whether a source needs reconnecting, and when a provisional query can be tried.
+It never displays credential values or calls partial history complete.
+
 ```sh
 target/release/evidentrail sources connect-cloudwatch \
   --account 123456789012 --region us-west-2 \
@@ -18,6 +24,7 @@ target/release/evidentrail sources connect-datadog --site us1
 target/release/evidentrail sources rotate-datadog --connection-id ID_FROM_CONNECT
 target/release/evidentrail sources recover-datadog --connection-id ID_FROM_CONNECT
 target/release/evidentrail sources list
+target/release/evidentrail sources setup
 target/release/evidentrail sources sync
 target/release/evidentrail sources service install
 target/release/evidentrail sources service status

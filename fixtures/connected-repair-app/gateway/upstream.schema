@@ -1,0 +1,1 @@
+upstream_timeout_ms: integer from 100 to 60000

@@ -107,6 +107,11 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
             return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
         }
         list_sources()
+    } else if command == "setup" {
+        if args.next().is_some() {
+            return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
+        }
+        setup_sources()
     } else if command == "sync" {
         if args.next().is_some() {
             return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
@@ -2220,7 +2225,7 @@ fn register_corpus(
     Ok(())
 }
 
-fn list_sources() -> Result<ExitCode, CliFailure> {
+fn list_sources_value() -> Result<serde_json::Value, CliFailure> {
     let _catalog_guard = connected_catalog_lock()?;
     let authority = MacOsCorpusKeychainV1::production();
     let tenant = authority
@@ -2329,11 +2334,82 @@ fn list_sources() -> Result<ExitCode, CliFailure> {
         };
         listed.push(summary);
     }
-    serde_json::to_writer(io::stdout().lock(), &listed)
+    Ok(json!(listed))
+}
+
+fn write_sources_json(value: &serde_json::Value) -> Result<ExitCode, CliFailure> {
+    serde_json::to_writer(io::stdout().lock(), value)
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
     writeln!(io::stdout().lock())
         .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_OUTPUT_FAILED"))?;
     Ok(ExitCode::SUCCESS)
+}
+
+fn list_sources() -> Result<ExitCode, CliFailure> {
+    write_sources_json(&list_sources_value()?)
+}
+
+fn setup_sources() -> Result<ExitCode, CliFailure> {
+    write_sources_json(&source_setup_summary(&list_sources_value()?))
+}
+
+fn source_setup_summary(sources: &serde_json::Value) -> serde_json::Value {
+    let Some(entries) = sources.as_array() else {
+        return json!({"status": "invalid_source_state"});
+    };
+    if entries.is_empty() {
+        return json!({
+            "status": "no_sources",
+            "coverage": "none",
+            "sources": sources,
+            "next_actions": [
+                "Configure a read-only AWS profile or DD_API_KEY and DD_APP_KEY in your environment.",
+                "Run evidentrail sources connect-cloudwatch --account ID --region REGION --log-group GROUP --profile PROFILE, or evidentrail sources connect-datadog --site SITE.",
+                "Run evidentrail sources setup again after registration."
+            ]
+        });
+    }
+    let needs_reconnect = entries.iter().any(|entry| {
+        matches!(
+            entry["status"]["state"].as_str(),
+            Some("reconnect_required" | "rotation_interrupted" | "corpus_missing")
+        )
+    });
+    let needs_sync = entries.iter().any(|entry| {
+        entry["status"]["last_sync_completed_at_millis"].is_null()
+            || entry["status"]["last_attempt_succeeded"] == false
+    });
+    let has_records = entries.iter().any(|entry| {
+        entry["status"]["record_count"]
+            .as_u64()
+            .is_some_and(|count| count > 0)
+    });
+    let status = if needs_reconnect {
+        "attention_required"
+    } else if needs_sync {
+        "sync_required"
+    } else {
+        "provisional_sync_observed"
+    };
+    let mut next_actions = Vec::new();
+    if needs_reconnect {
+        next_actions.push("Inspect each source status with evidentrail sources list; reconnect a source whose access scope or corpus is invalid, or run evidentrail sources recover-datadog --connection-id ID after an interrupted rotation.");
+    }
+    if needs_sync {
+        next_actions.push("Run evidentrail sources sync, then evidentrail sources setup again. Backfill may require repeated bounded passes.");
+    }
+    if !needs_reconnect && !needs_sync {
+        next_actions.push("Run evidentrail sources service install to keep sources syncing after login; check it with evidentrail sources service status.");
+    }
+    if has_records && !needs_reconnect {
+        next_actions.push("Run evidentrail logs --task 'Describe the failure you are investigating' --max-raw-bytes 32768 after configuring a supported model. Inspect stderr metadata for partial coverage and retrieval truncation.");
+    }
+    json!({
+        "status": status,
+        "coverage": "provisional",
+        "sources": sources,
+        "next_actions": next_actions,
+    })
 }
 
 fn disconnect_source(requested_source: [u8; 32]) -> Result<ExitCode, CliFailure> {
@@ -2568,6 +2644,44 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use evidentrail_ingest::{HistoryPageV1, HistoryRecordV1};
+
+    #[test]
+    fn setup_reports_next_step_without_claiming_complete_coverage() {
+        let empty = source_setup_summary(&json!([]));
+        assert_eq!(empty["status"], "no_sources");
+        assert_eq!(empty["coverage"], "none");
+        let pending = source_setup_summary(&json!([{
+            "provider": "cloudwatch",
+            "status": {"state": "registered_incomplete", "record_count": 0}
+        }]));
+        assert_eq!(pending["status"], "sync_required");
+        assert_eq!(pending["coverage"], "provisional");
+        let observed = source_setup_summary(&json!([{
+            "provider": "cloudwatch",
+            "status": {
+                "state": "sync_observed",
+                "record_count": 12,
+                "last_sync_completed_at_millis": 100,
+                "last_attempt_succeeded": true,
+                "coverage": "unverified_provider_consistency_at_last_sync"
+            }
+        }]));
+        assert_eq!(observed["status"], "provisional_sync_observed");
+        assert_eq!(observed["coverage"], "provisional");
+        assert!(observed["next_actions"].as_array().unwrap().len() >= 2);
+        let revoked = source_setup_summary(&json!([{
+            "provider": "datadog",
+            "status": {"state": "reconnect_required", "record_count": 12}
+        }]));
+        assert_eq!(revoked["status"], "attention_required");
+        assert!(
+            !revoked["next_actions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|action| action.as_str().unwrap().contains("logs --task"))
+        );
+    }
 
     #[test]
     fn watch_interval_is_bounded_and_errors_back_off() {
