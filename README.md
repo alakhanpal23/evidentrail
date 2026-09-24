@@ -87,8 +87,9 @@ An opt-in [LogHub BGL evaluation](reports/connected-loghub-bgl-2026-09-23.md)
 uses pinned real system logs to check exact source lines, repeat grouping, and
 bounded expansion. It remains a single-task proxy, not a downstream fix study.
 When that fallback or lexical search is truncated, a connected query can
-inspect up to four 32-service directory pages shared across its sources; each
-page includes a bounded slice from every eligible source. Each service card
+inspect up to four 32-service directory pages shared across its sources. When
+more than 32 sources are eligible, pages rotate across them and report
+truncation if the page budget ends first. Each service card
 includes at most two short original-log examples; examples matching the
 sensitive-data patterns are masked before model input. The model may choose
 only advertised service IDs; code resolves those choices to at most 64

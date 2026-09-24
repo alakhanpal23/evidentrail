@@ -10,6 +10,9 @@ use evidentrail_bench_harness::{
 };
 
 const ARM_BUDGET: u64 = 7_000;
+// The helper is bounded by bytes and steps; leave room for shared CI runners
+// executing several subprocess-heavy tests concurrently.
+const TEST_WALL_CAP_NANOS: u64 = 30_000_000_000;
 
 fn helper_path() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_evidentrail-bench-harness-helper"))
@@ -59,7 +62,7 @@ fn case(scenario: &str) -> ExecutableIncidentCaseV1 {
         IncidentLogStreamV1::Stdout,
         IncidentExitExpectationV1::Nonzero(exit),
         true,
-        HarnessLimitsV1::try_new(0, 2 * 1024 * 1024, 64 * 1024, 10_000_000_000).unwrap(),
+        HarnessLimitsV1::try_new(0, 2 * 1024 * 1024, 64 * 1024, TEST_WALL_CAP_NANOS).unwrap(),
     )
     .unwrap()
 }
