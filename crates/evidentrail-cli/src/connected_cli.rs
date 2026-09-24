@@ -8,7 +8,7 @@ use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Read as _, Write as _};
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -18,7 +18,8 @@ use crate::{
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use evidentrail_corpus::{
     ConnectedSourceDescriptorV1, CorpusKeychainErrorV1, EncryptedHistoryStore, FeedbackVerdict,
-    MacOsConnectedCredentialKeychainV1, MacOsCorpusKeychainV1, SyncAttempt, SyncObservation,
+    LearningLabel, LearningSplit, MacOsConnectedCredentialKeychainV1, MacOsCorpusKeychainV1,
+    SyncAttempt, SyncObservation,
 };
 use evidentrail_ingest::{
     AwsCloudWatchTransportV1, CloudWatchCapsV1, CloudWatchHistorySourceV1, CloudWatchPlanV1,
@@ -150,6 +151,8 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, CliFailure> {
         setup_sources()
     } else if command == "feedback" {
         feedback_command(args)
+    } else if command == "route" {
+        route_command(args)
     } else if command == "sync" {
         if args.next().is_some() {
             return Err(CliFailure::usage("EVIDENTRAIL_SOURCES_UNKNOWN_OPTION"));
@@ -234,6 +237,347 @@ pub(crate) fn record_connected_feedback(
         "promoted_groups": evaluation.promoted_groups,
         "ranking_changed": false,
     }))
+}
+
+fn route_command(mut args: impl Iterator<Item = OsString>) -> Result<ExitCode, CliFailure> {
+    let action = args
+        .next()
+        .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_ROUTE_ACTION_REQUIRED"))?;
+    if action != "evaluate"
+        && action != "promote"
+        && action != "inspect"
+        && action != "rollback"
+        && action != "label"
+        && action != "outcome"
+    {
+        return Err(CliFailure::usage("EVIDENTRAIL_ROUTE_ACTION_INVALID"));
+    }
+    let mut source_id = None;
+    let mut version = None;
+    let mut report_path = None;
+    let mut manifest_path = None;
+    let mut results_path = None;
+    let mut case_id = None;
+    let mut task = None;
+    let mut native_id = None;
+    let mut label = None;
+    let mut split = None;
+    let mut provenance = None;
+    let mut repaired = None;
+    while let Some(option) = args.next() {
+        let target = if option == "--source-id" {
+            &mut source_id
+        } else if option == "--version" {
+            &mut version
+        } else if option == "--report" {
+            &mut report_path
+        } else if option == "--manifest" {
+            &mut manifest_path
+        } else if option == "--results" {
+            &mut results_path
+        } else if option == "--case-id" {
+            &mut case_id
+        } else if option == "--task" {
+            &mut task
+        } else if option == "--native-id" {
+            &mut native_id
+        } else if option == "--label" {
+            &mut label
+        } else if option == "--split" {
+            &mut split
+        } else if option == "--provenance-sha256" {
+            &mut provenance
+        } else if option == "--repaired" {
+            &mut repaired
+        } else {
+            return Err(CliFailure::usage("EVIDENTRAIL_ROUTE_ARGUMENTS_INVALID"));
+        };
+        let value = args
+            .next()
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_ROUTE_ARGUMENTS_INVALID"))?
+            .into_string()
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_ROUTE_ARGUMENTS_INVALID"))?;
+        if target.replace(value).is_some() {
+            return Err(CliFailure::usage("EVIDENTRAIL_ROUTE_ARGUMENTS_INVALID"));
+        }
+    }
+    let digest = parse_source_digest(
+        &source_id.ok_or_else(|| CliFailure::usage("EVIDENTRAIL_ROUTE_ARGUMENTS_INVALID"))?,
+    )?;
+    let parsed_version = version
+        .as_deref()
+        .map(str::parse::<i64>)
+        .transpose()
+        .map_err(|_| CliFailure::usage("EVIDENTRAIL_ROUTE_ARGUMENTS_INVALID"))?;
+    if (action == "evaluate") != report_path.is_some()
+        || (action == "evaluate") != manifest_path.is_some()
+        || (action == "evaluate") != results_path.is_some()
+        || (action == "promote" || action == "inspect") != parsed_version.is_some()
+        || ((action == "label" || action == "outcome") != case_id.is_some())
+        || ((action == "label" || action == "outcome") != task.is_some())
+        || (action == "label") != native_id.is_some()
+        || (action == "label") != label.is_some()
+        || (action == "label") != split.is_some()
+        || (action == "outcome") != repaired.is_some()
+        || ((action == "label" || action == "outcome") != provenance.is_some())
+    {
+        return Err(CliFailure::usage("EVIDENTRAIL_ROUTE_ARGUMENTS_INVALID"));
+    }
+    let verified_report = if action == "evaluate" {
+        let report_path = report_path.unwrap();
+        let metadata = fs::metadata(&report_path)
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_ROUTE_REPORT_MISSING"))?;
+        if !metadata.is_file() || metadata.len() > 1024 * 1024 {
+            return Err(CliFailure::usage("EVIDENTRAIL_ROUTE_REPORT_INVALID"));
+        }
+        let bytes = fs::read(report_path)
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_ROUTE_REPORT_MISSING"))?;
+        if bytes.len() > 1024 * 1024 {
+            return Err(CliFailure::usage("EVIDENTRAIL_ROUTE_REPORT_INVALID"));
+        }
+        let report: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|_| CliFailure::usage("EVIDENTRAIL_ROUTE_REPORT_INVALID"))?;
+        verify_route_report(&manifest_path.unwrap(), &results_path.unwrap(), &report)?;
+        Some((bytes, report))
+    } else {
+        None
+    };
+    let _guard = connected_catalog_lock()?;
+    let authority = MacOsCorpusKeychainV1::production();
+    let tenant = authority
+        .local_tenant_digest()
+        .map_err(|e| CliFailure::runtime(e.code()))?;
+    let entry = authority
+        .list_bound(&tenant)
+        .map_err(|e| CliFailure::runtime(e.code()))?
+        .into_iter()
+        .find(|entry| entry.source_digest == digest)
+        .ok_or_else(|| CliFailure::runtime("EVIDENTRAIL_ROUTE_SOURCE_REVOKED"))?;
+    let binding = parse_binding(&entry.descriptor)?;
+    if let Some(error) = cache_access_block(&binding) {
+        return Err(CliFailure::runtime(error));
+    }
+    let path = corpus_path(&digest, false)?;
+    if !corpus_file_exists_safe(&path)? {
+        return Err(CliFailure::runtime("EVIDENTRAIL_ROUTE_CORPUS_MISSING"));
+    }
+    let key = authority
+        .load(&tenant, &digest)
+        .map_err(|e| CliFailure::runtime(e.code()))?;
+    let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &digest)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_ROUTE_CORPUS_FAILURE"))?;
+    let high_water = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CLOCK_FAILURE"))?
+        .as_millis() as i64;
+    sync_binding(&binding, &tenant, &digest, &mut store, high_water)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_ROUTE_SOURCE_UNAVAILABLE"))?;
+    let corpus_error = |_| CliFailure::runtime("EVIDENTRAIL_ROUTE_CORPUS_FAILURE");
+    if action == "label" || action == "outcome" {
+        let case_id = case_id.unwrap();
+        let task = task.unwrap();
+        let provenance = parse_source_digest(&provenance.unwrap())?;
+        if action == "label" {
+            let native_id = URL_SAFE_NO_PAD
+                .decode(native_id.unwrap())
+                .map_err(|_| CliFailure::usage("EVIDENTRAIL_ROUTE_NATIVE_ID_INVALID"))?;
+            let label = match label.unwrap().as_str() {
+                "relevant" => LearningLabel::Relevant,
+                "irrelevant" => LearningLabel::Irrelevant,
+                _ => return Err(CliFailure::usage("EVIDENTRAIL_ROUTE_LABEL_INVALID")),
+            };
+            let split = match split.unwrap().as_str() {
+                "development" => LearningSplit::Development,
+                "held_out" => LearningSplit::HeldOut,
+                _ => return Err(CliFailure::usage("EVIDENTRAIL_ROUTE_SPLIT_INVALID")),
+            };
+            store
+                .record_independent_label(&case_id, &task, &native_id, label, split, provenance)
+                .map_err(corpus_error)?;
+        } else {
+            let repaired = match repaired.unwrap().as_str() {
+                "true" => true,
+                "false" => false,
+                _ => return Err(CliFailure::usage("EVIDENTRAIL_ROUTE_OUTCOME_INVALID")),
+            };
+            store
+                .record_verified_case_outcome(&case_id, &task, repaired, provenance)
+                .map_err(corpus_error)?;
+        }
+        write_sources_json(&json!({"status":"recorded","source_id":hex(&digest),
+            "active_route_effective":store.active_route().map_err(corpus_error)?.is_some()}))
+    } else if action == "evaluate" {
+        let (bytes, report) = verified_report.unwrap();
+        let (selector, model, passed) = assess_route_report(&report)?;
+        let report_digest: [u8; 32] = Sha256::digest(&bytes).into();
+        let registered = store
+            .register_shadow_route(selector, model, report_digest, passed)
+            .map_err(corpus_error)?;
+        write_sources_json(&json!({"status":"shadow_registered","version":registered,
+            "source_id":hex(&digest),"report_sha256":hex(&report_digest),"held_out_passed":passed,
+            "active_route_unchanged":true}))
+    } else if action == "promote" {
+        store
+            .promote_route(parsed_version.unwrap())
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_ROUTE_PROMOTION_REJECTED"))?;
+        write_sources_json(
+            &json!({"status":"active","version":parsed_version,"source_id":hex(&digest)}),
+        )
+    } else if action == "rollback" {
+        let parent = store
+            .rollback_route()
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_ROUTE_ROLLBACK_REJECTED"))?;
+        write_sources_json(
+            &json!({"status":"rolled_back","active_version":parent,"source_id":hex(&digest)}),
+        )
+    } else {
+        let route = store
+            .inspect_route(parsed_version.unwrap())
+            .map_err(corpus_error)?
+            .ok_or_else(|| CliFailure::usage("EVIDENTRAIL_ROUTE_VERSION_UNKNOWN"))?;
+        let effective = store
+            .active_route()
+            .map_err(corpus_error)?
+            .is_some_and(|active| active.version == route.version);
+        write_sources_json(&json!({"source_id":hex(&digest),"version":route.version,
+            "parent_version":route.parent_version,"selector_id":route.selector_id,"model_id":route.model_id,
+            "training_sha256":hex(&route.training_digest),"report_sha256":hex(&route.report_digest),
+            "held_out_passed":route.held_out_passed,"status":route.status,"effective":effective}))
+    }
+}
+
+fn verify_route_report(
+    manifest: &str,
+    results: &str,
+    supplied: &serde_json::Value,
+) -> Result<(), CliFailure> {
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let mut nonce = [0u8; 16];
+    getrandom::fill(&mut nonce)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_ROUTE_VERIFY_FAILURE"))?;
+    let directory = env::temp_dir().join(format!(
+        "evidentrail-route-{}-{}",
+        std::process::id(),
+        hex(&nonce)
+    ));
+    DirBuilder::new()
+        .mode(0o700)
+        .create(&directory)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_ROUTE_VERIFY_FAILURE"))?;
+    let scratch = Scratch(directory);
+    for (name, source) in [
+        (
+            "score-learning-route.py",
+            include_str!("../../../scripts/score-learning-route.py"),
+        ),
+        (
+            "score-connected-repair-study.py",
+            include_str!("../../../scripts/score-connected-repair-study.py"),
+        ),
+        (
+            "verify-connected-repair-trials.py",
+            include_str!("../../../scripts/verify-connected-repair-trials.py"),
+        ),
+    ] {
+        fs::write(scratch.0.join(name), source)
+            .map_err(|_| CliFailure::runtime("EVIDENTRAIL_ROUTE_VERIFY_FAILURE"))?;
+    }
+    let output = Command::new("python3")
+        .arg(scratch.0.join("score-learning-route.py"))
+        .args(["--manifest", manifest, "--results", results])
+        .output()
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_ROUTE_VERIFY_FAILURE"))?;
+    if !output.status.success() || output.stdout.len() > 1024 * 1024 {
+        return Err(CliFailure::usage("EVIDENTRAIL_ROUTE_EVIDENCE_FAILED"));
+    }
+    let verified: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| CliFailure::runtime("EVIDENTRAIL_ROUTE_VERIFY_FAILURE"))?;
+    if &verified != supplied {
+        return Err(CliFailure::usage("EVIDENTRAIL_ROUTE_REPORT_MISMATCH"));
+    }
+    Ok(())
+}
+
+fn assess_route_report(report: &serde_json::Value) -> Result<(&str, &str, bool), CliFailure> {
+    let invalid = || CliFailure::usage("EVIDENTRAIL_ROUTE_REPORT_INVALID");
+    if report["schema_version"].as_u64() != Some(1) {
+        return Err(invalid());
+    }
+    let selector = report["challenger_route"]
+        .as_str()
+        .filter(|s| !s.is_empty() && s.len() <= 128)
+        .ok_or_else(invalid)?;
+    let model = report["repair_agent_model"]
+        .as_str()
+        .filter(|s| !s.is_empty() && s.len() <= 128)
+        .ok_or_else(invalid)?;
+    let current = report["current_route"]
+        .as_str()
+        .filter(|s| !s.is_empty() && *s != selector)
+        .ok_or_else(invalid)?;
+    let _ = current;
+    let counts = &report["verified_repair_successes"];
+    let challenger = counts["challenger"].as_u64().ok_or_else(invalid)?;
+    let baseline = counts["current"].as_u64().ok_or_else(invalid)?;
+    let cases = report["held_out_cases"].as_u64().ok_or_else(invalid)?;
+    let projects = report["held_out_projects"].as_u64().ok_or_else(invalid)?;
+    let families = report["held_out_fault_families"]
+        .as_u64()
+        .ok_or_else(invalid)?;
+    let mut passed = cases >= 10 && projects >= 3 && families >= 3 && challenger > baseline;
+    for arm in ["no_logs", "first_id", "severity", "current"] {
+        let row = &report["paired_comparisons"][arm];
+        let baseline_only = row["baseline_only"].as_u64().ok_or_else(invalid)?;
+        let p = row["one_sided_exact_p"].as_f64().ok_or_else(invalid)?;
+        passed &= baseline_only == 0 && p.is_finite() && (0.0..=0.01).contains(&p);
+    }
+    let p95_current = report["p95_elapsed_ms"]["current"]
+        .as_u64()
+        .ok_or_else(invalid)?;
+    let p95_challenger = report["p95_elapsed_ms"]["challenger"]
+        .as_u64()
+        .ok_or_else(invalid)?;
+    let calls_current = report["model_calls"]["current"]
+        .as_u64()
+        .ok_or_else(invalid)?;
+    let calls_challenger = report["model_calls"]["challenger"]
+        .as_u64()
+        .ok_or_else(invalid)?;
+    passed &= p95_challenger <= p95_current.max(1).saturating_mul(5) / 4;
+    passed &= calls_challenger <= calls_current.max(1).saturating_mul(5) / 4;
+    passed &= report["challenger_eligible_for_human_review"].as_bool() == Some(true);
+    let ablation = &report["memory_ablation"];
+    if ablation.is_null() {
+        return Ok((selector, model, false));
+    }
+    let memory_off = report["challenger_no_memory_route"]
+        .as_str()
+        .filter(|s| !s.is_empty() && *s != selector)
+        .ok_or_else(invalid)?;
+    let _ = memory_off;
+    let on = ablation["memory_on_verified_repairs"]
+        .as_u64()
+        .ok_or_else(invalid)?;
+    let off = ablation["memory_off_verified_repairs"]
+        .as_u64()
+        .ok_or_else(invalid)?;
+    let off_only = ablation["memory_off_only"].as_u64().ok_or_else(invalid)?;
+    let memory_p = ablation["one_sided_exact_p"].as_f64().ok_or_else(invalid)?;
+    passed &= ablation["held_out_cases"].as_u64() == Some(cases)
+        && ablation["raw_budget_matched"].as_bool() == Some(true)
+        && ablation["source_exact"].as_bool() == Some(true)
+        && ablation["qualified"].as_bool() == Some(true)
+        && on > off
+        && off_only == 0
+        && memory_p.is_finite()
+        && (0.0..=0.01).contains(&memory_p)
+        && report["route_eligible_for_promotion"].as_bool() == Some(true);
+    Ok((selector, model, passed))
 }
 
 fn feedback_command(mut args: impl Iterator<Item = OsString>) -> Result<ExitCode, CliFailure> {
@@ -681,6 +1025,7 @@ pub(crate) fn query_connected_logs(
         "sources": source_states,
         "coverage": if partial_source { "partial" } else { "unverified_provider_consistency" },
         "candidate_count": pack.candidate_count,
+        "shadow_memory_candidates": pack.shadow_memory_candidates,
         "prefinal_pruned_groups": pack.prefinal_pruned_groups,
         "graph_candidate_count": pack.graph_candidate_count,
         "fallback_candidate_count": pack.fallback_candidate_count,
@@ -3093,6 +3438,32 @@ fn hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn route_report_requires_independent_memory_ablation() {
+        let mut report = serde_json::json!({
+            "schema_version":1,"challenger_route":"memory-v1","current_route":"current-v1",
+            "challenger_no_memory_route":"memory-disabled-v1",
+            "repair_agent_model":"agent-v1","held_out_cases":10,"held_out_projects":3,
+            "held_out_fault_families":3,"verified_repair_successes":{"challenger":10,"current":0},
+            "paired_comparisons":{
+                "no_logs":{"baseline_only":0,"one_sided_exact_p":0.001},
+                "first_id":{"baseline_only":0,"one_sided_exact_p":0.001},
+                "severity":{"baseline_only":0,"one_sided_exact_p":0.001},
+                "current":{"baseline_only":0,"one_sided_exact_p":0.001}},
+            "p95_elapsed_ms":{"current":100,"challenger":110},
+            "model_calls":{"current":100,"challenger":110},
+            "challenger_eligible_for_human_review":true
+        });
+        assert_eq!(assess_route_report(&report).unwrap().2, false);
+        report["memory_ablation"] = serde_json::json!({"held_out_cases":10,
+            "memory_on_verified_repairs":10,"memory_off_verified_repairs":0,
+            "memory_off_only":0,"one_sided_exact_p":0.001,
+            "raw_budget_matched":true,"source_exact":true,"qualified":true});
+        report["route_eligible_for_promotion"] = serde_json::json!(true);
+        assert_eq!(assess_route_report(&report).unwrap().2, true);
+        report["memory_ablation"]["memory_off_only"] = serde_json::json!(1);
+        assert_eq!(assess_route_report(&report).unwrap().2, false);
+    }
     use super::*;
     use evidentrail_ingest::{HistoryPageV1, HistoryRecordV1};
 
@@ -3864,6 +4235,7 @@ mod tests {
             source_record_counts: vec![([2; 32], 2)],
             total_groups: 1,
             candidate_count: 1,
+            shadow_memory_candidates: 0,
             prefinal_pruned_groups: 0,
             graph_candidate_count: 0,
             fallback_candidate_count: 0,
