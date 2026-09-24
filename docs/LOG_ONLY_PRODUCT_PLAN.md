@@ -40,6 +40,11 @@ parser rebuild recognizes its preamble, reducing 2,000 lines from 2,000 to
 1,374 groups; one required representative is selected and its adjacent
 repeated alert is recovered by expansion. This is still not a multi-incident
 relevance or downstream-task benchmark.
+An expanded 12-category proxy on that same sample finds at least one labeled
+line for all 12 message-derived tasks with either deterministic selector,
+versus one with a newest-group baseline, but 147/189 and 136/178 returned
+lines carry other labels. That is a noisy proxy, not a model-quality result or
+proof that those other lines are irrelevant.
 
 Local connector and authorization contract tests pass. Live CloudWatch and
 Datadog sandbox validation, complete provider-coverage proofs under retention
@@ -73,6 +78,10 @@ read-only `logs_read_config` permission. Datadog also documents
 [Data Access Control](https://docs.datadoghq.com/account_management/rbac/data_access/)
 as another way API query visibility can change. This gate is not implemented
 yet.
+The read-only [dataset list](https://docs.datadoghq.com/api/latest/datasets/get-all-datasets/)
+can reveal configured boundaries, but the documented Strict/Standard mode and
+unrestricted-group behavior must also be covered; hashing only the dataset list
+would be an incomplete access fingerprint.
 
 ## One product contract
 

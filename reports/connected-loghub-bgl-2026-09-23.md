@@ -30,6 +30,25 @@ source-byte fidelity and candidate reachability for these two labeled lines;
 it does not establish broad relevance accuracy. The alert labels mark log
 categories, not a verified coding-agent fix or causal diagnosis.
 
+## Twelve-category retrieval proxy
+
+The same pinned 2,000-line corpus contains 143 alert-labeled lines in 12
+categories. A second local probe queries each category with a phrase taken
+from one of its messages. At a 4,096-byte raw-log budget and a 12-group
+selection limit, both a first-advertised-ID selector and a deterministic
+critical/error selector returned at least one exact original line from all
+12 target categories. A 12-newest-group baseline covered 1 of 12. Across the
+12 queries, 147 of 189 lines returned by the first-ID selector and 136 of 178
+returned by the critical/error selector carried a different alert label.
+Those are **off-label lines**, not proven irrelevant lines: different categories
+can describe the same incident. One query reported a truncated candidate
+pool. The probe confirms reachability for these message-derived tasks while
+exposing substantial output noise under a small log budget. It does not
+measure a model's choices, independent user tasks, answer usefulness, or
+downstream fixes. The earlier severity baseline considered only `error` and
+missed BGL's `FATAL` lines, which the parser classifies as `critical`; the
+corrected baseline includes both roles.
+
 Run `bash scripts/eval-loghub-bgl.sh` from the repository root. The script
 fetches the pinned upstream sample into a temporary directory; the test
 checks its hash before ingesting it.

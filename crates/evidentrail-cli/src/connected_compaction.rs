@@ -585,7 +585,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .filter(|group| group["role"] == "error")
+                .filter(|group| matches!(group["role"].as_str(), Some("critical" | "error")))
                 .take(request["max_selected_groups"].as_u64().unwrap() as usize)
                 .map(|group| group["id"].as_str().unwrap().to_owned())
                 .collect())
@@ -1408,6 +1408,99 @@ mod tests {
         assert!(alert_group.repeat_count >= 2);
         assert_eq!(selected_hits, 1);
         assert_eq!(recent_hits, 0);
+        let category_tasks = [
+            ("APPCHILD", "no child processes creating node map"),
+            ("APPOUT", "login chdir input output error"),
+            ("APPREAD", "failed to read message prefix on control stream"),
+            ("APPRES", "connection reset by peer reading message prefix"),
+            ("APPSEV", "link has been severed after load message"),
+            ("APPTO", "connection timed out reading message prefix"),
+            ("KERNDTLB", "data tlb error interrupt"),
+            ("KERNMNTF", "lustre mount failed"),
+            ("KERNREC", "kernel recovery error"),
+            ("KERNRTSP", "rts panic stopping execution"),
+            ("KERNSTOR", "data storage interrupt"),
+            ("KERNTERM", "bad message header invalid cpu"),
+        ];
+        let mut first_id_hits = 0;
+        let mut severity_hits = 0;
+        let mut recent_hits = 0;
+        let mut first_id_off_label = 0;
+        let mut severity_off_label = 0;
+        for (label, task) in category_tasks {
+            let first_id = select_connected_logs(
+                &[AuthorizedCorpus {
+                    source_digest: [2; 32],
+                    store: &store,
+                }],
+                task,
+                4096,
+                &mut SelectAllCandidates,
+            )
+            .unwrap();
+            let severity = select_connected_logs(
+                &[AuthorizedCorpus {
+                    source_digest: [2; 32],
+                    store: &store,
+                }],
+                task,
+                4096,
+                &mut SelectErrors,
+            )
+            .unwrap();
+            let label_count = |pack: &ConnectedLogPack| {
+                pack_lines(pack)
+                    .iter()
+                    .filter(|(id, raw)| {
+                        let in_source = store.get_record(id).unwrap().unwrap().bytes == *raw;
+                        assert!(in_source);
+                        raw.split(|byte| *byte == b' ').next() == Some(label.as_bytes())
+                    })
+                    .count()
+            };
+            let first_id_label_count = label_count(&first_id);
+            let severity_label_count = label_count(&severity);
+            let first_id_line_count = pack_lines(&first_id).len();
+            let severity_line_count = pack_lines(&severity).len();
+            let first_id_hit = first_id_label_count > 0;
+            let severity_hit = severity_label_count > 0;
+            let recent_hit = recent
+                .iter()
+                .any(|(_, raw)| raw.split(|byte| *byte == b' ').next() == Some(label.as_bytes()));
+            first_id_hits += usize::from(first_id_hit);
+            severity_hits += usize::from(severity_hit);
+            recent_hits += usize::from(recent_hit);
+            first_id_off_label += first_id_line_count - first_id_label_count;
+            severity_off_label += severity_line_count - severity_label_count;
+            println!(
+                "BGL_CATEGORY_EVAL {}",
+                json!({
+                    "label": label,
+                    "first_id_hit": first_id_hit,
+                    "first_id_selected_lines": first_id_line_count,
+                    "first_id_off_label_lines": first_id_line_count - first_id_label_count,
+                    "severity_hit": severity_hit,
+                    "severity_selected_lines": severity_line_count,
+                    "severity_off_label_lines": severity_line_count - severity_label_count,
+                    "recent_hit": recent_hit,
+                    "candidate_pool_truncated": first_id.candidate_pool_truncated,
+                })
+            );
+        }
+        println!(
+            "BGL_CATEGORY_SUMMARY {}",
+            json!({
+                "categories": category_tasks.len(),
+                "first_id_hits": first_id_hits,
+                "severity_hits": severity_hits,
+                "recent_hits": recent_hits,
+                "first_id_off_label_lines": first_id_off_label,
+                "severity_off_label_lines": severity_off_label,
+            })
+        );
+        assert_eq!(first_id_hits, category_tasks.len());
+        assert_eq!(severity_hits, category_tasks.len());
+        assert_eq!(recent_hits, 1);
         drop(store);
         cleanup(&path);
     }
