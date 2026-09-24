@@ -131,6 +131,7 @@ fn select_connected_logs_with_graph(
     let mut fallback_candidate_count = 0;
     let mut source_cards = Vec::with_capacity(sources.len());
     let mut directory_eligible = Vec::with_capacity(sources.len());
+    let mut weak_query_sources = Vec::with_capacity(sources.len());
     let mut prepared = Vec::new();
     for source in sources {
         let (bound_tenant, bound_source) = source
@@ -183,7 +184,9 @@ fn select_connected_logs_with_graph(
             .map_err(|_| CompactionError::Corpus)?;
         // A strong message-specific match should keep its lexical ordering;
         // repeated errors help only when the task has weak direct evidence.
-        let repeated = if query_terms >= 3 && strongest_match * 3 >= query_terms * 2 {
+        let weak_query = !(query_terms >= 3 && strongest_match * 3 >= query_terms * 2);
+        weak_query_sources.push(weak_query);
+        let repeated = if !weak_query {
             None
         } else {
             Some(
@@ -286,14 +289,40 @@ fn select_connected_logs_with_graph(
         }
     }
     let candidate_count = prepared.len();
+    let mut repeated_representatives = (0..candidate_count)
+        .filter(|&index| {
+            let entry = &prepared[index];
+            weak_query_sources[entry.source_index]
+                && entry.card.repeat_count > 1
+                && matches!(entry.card.role.as_str(), "critical" | "error" | "warning")
+        })
+        .collect::<Vec<_>>();
+    repeated_representatives.sort_unstable_by(|&left, &right| {
+        prepared[right]
+            .card
+            .repeat_count
+            .cmp(&prepared[left].card.repeat_count)
+            .then_with(|| left.cmp(&right))
+    });
+    repeated_representatives.truncate(REPEATED_SEVERE_BUDGET);
     let mut candidates = (0..candidate_count).collect::<Vec<_>>();
     let mut prefinal_pruned_groups = 0;
     while candidates.len() > GROUPS_PER_PAGE {
-        // A page-local ranking can erase a rare service before the final
-        // selector sees it. Carry one high-signal group from each of the
-        // sparsest source/service pairs through the intermediate rounds.
-        let mut reduced = service_representatives(&prepared, &candidates);
+        // Page-local ranking can erase rare-service and recurring-severity
+        // evidence before the final selector sees it. Carry both bounded
+        // kinds through intermediate rounds; neither is forced into output.
+        let candidate_set = candidates.iter().copied().collect::<BTreeSet<_>>();
+        let mut reduced = repeated_representatives
+            .iter()
+            .copied()
+            .filter(|index| candidate_set.contains(index))
+            .collect::<Vec<_>>();
         let mut seen = reduced.iter().copied().collect::<BTreeSet<_>>();
+        for index in service_representatives(&prepared, &candidates) {
+            if seen.insert(index) {
+                reduced.push(index);
+            }
+        }
         for chunk in candidates.chunks(GROUPS_PER_PAGE) {
             for index in select_page(
                 &prepared,
@@ -1277,6 +1306,62 @@ mod tests {
             entry.first_native_id == b"rare-service"
                 && entry.first_raw == store.get_record(b"rare-service").unwrap().unwrap().bytes
         }));
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn multi_page_selection_preserves_repeated_severe_group_for_final_ranking() {
+        struct FinalOnly;
+        impl LogGroupSelector for FinalOnly {
+            fn select(&mut self, request: &Value) -> Result<Vec<String>, CompactionError> {
+                if request["max_selected_groups"].as_u64() != Some(FINAL_SELECTION_LIMIT as u64) {
+                    return Ok(Vec::new());
+                }
+                Ok(request["groups"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|group| group["count"] == 20)
+                    .map(|group| group["id"].as_str().unwrap().to_owned())
+                    .collect())
+            }
+        }
+
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
+        let mut records = (0..140)
+            .map(|index| HistoryRecordV1 {
+                native_id: format!("noise-{index}").into_bytes(),
+                event_timestamp_millis: index,
+                bytes: format!(
+                    "{{\"service\":\"checkout\",\"level\":\"ERROR\",\"message\":\"failure {}\"}}\n",
+                    noise_word(index as usize)
+                )
+                .into_bytes(),
+            })
+            .collect::<Vec<_>>();
+        records.extend((0..20).map(|index| HistoryRecordV1 {
+            native_id: format!("repeat-{index}").into_bytes(),
+            event_timestamp_millis: 140 + index,
+            bytes: b"{\"service\":\"checkout\",\"level\":\"ERROR\",\"message\":\"failure payment timeout\"}\n".to_vec(),
+        }));
+        store.commit_page_checked(&records).unwrap();
+        let pack = select_connected_logs(
+            &[AuthorizedCorpus {
+                source_digest: [2; 32],
+                store: &store,
+            }],
+            "failure",
+            32768,
+            &mut FinalOnly,
+        )
+        .unwrap();
+        assert!(pack.candidate_count > GROUPS_PER_PAGE);
+        assert_eq!(pack.selected.len(), 1);
+        assert_eq!(pack.selected[0].repeat_count, 20);
+        assert_eq!(pack.selected[0].first_native_id, b"repeat-0");
+        assert_eq!(pack.selected[0].last_native_id, Some(b"repeat-19".to_vec()));
         drop(store);
         cleanup(&path);
     }

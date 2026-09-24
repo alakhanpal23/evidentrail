@@ -86,6 +86,13 @@ proof that repetition implies causal relevance. An actual local Qwen2.5-Coder
 exact line in 1/7, taking 370.7 seconds across 28 selector calls. It is not a
 qualified default. No hosted route or downstream repair was evaluated on
 these seven cases.
+The intermediate pager now carries at most eight high-repeat severe groups
+through to final ranking alongside rare-service representatives. A paired
+seven-case local-model rerun reached 4/7 labeled templates and 7/7 labeled
+services, but still only 1/7 exact lines while returning 154 rather than 130
+lines. The extra non-root-service lines have no relevance labels. This keeps
+the model route unqualified until useful-answer and downstream-fix evaluations
+can test the recall/noise tradeoff.
 An opt-in live-model harness now runs the actual selector over the same pinned
 12-category BGL proxy and verifies every emitted line against the encrypted
 corpus. A local Qwen2.5-Coder 7B run hit 12/12 categories with 107 off-label

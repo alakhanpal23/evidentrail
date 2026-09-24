@@ -146,7 +146,9 @@ selection and downstream fix quality remain unqualified. One local
 Qwen2.5-Coder 7B run selected 3/7 labeled templates and 1/7 exact lines,
 versus 7/7 and 3/7 for first-ID selection, and took 371 seconds across the
 seven queries. This model is not a qualified default; Ollama needed a 32K
-context for the probe.
+context for the probe. Carrying eight high-repeat severe groups through
+intermediate pages raised that model's template hits to 4/7 in a second run,
+while exact hits stayed 1/7 and returned lines rose from 130 to 154.
 An opt-in [executable fault-stream probe](reports/connected-executable-2026-09-24.md)
 uses three frozen synthetic faults with an early causal precursor and a later
 symptom. Both the first-ID baseline and one local model run returned both
