@@ -28,7 +28,7 @@ pub use macos_corpus_keychain::{
     ConnectedSourceDescriptorV1, CorpusKeychainErrorV1, MacOsCorpusKeychainV1,
 };
 
-const PARSER_INDEX_VERSION: i64 = 3;
+const PARSER_INDEX_VERSION: i64 = 4;
 const GRAPH_INDEX_VERSION: i64 = 2;
 const TERM_INDEX_VERSION: i64 = 1;
 const MAX_RAW_RECORD_BYTES: usize = 16 * 1024 * 1024;
@@ -359,7 +359,7 @@ impl EncryptedHistoryStore {
                 |row| row.get(0),
             )
             .map_err(|_| CorpusError::Storage)?;
-        if !matches!(version, 1 | 2 | PARSER_INDEX_VERSION) {
+        if !matches!(version, 1 | 2 | 3 | PARSER_INDEX_VERSION) {
             return Err(CorpusError::IndexVersionMismatch);
         }
         connection
@@ -416,7 +416,7 @@ impl EncryptedHistoryStore {
         }
         if version == 1 {
             // Reset derived state atomically. A crash during the subsequent
-            // bounded backfill leaves version 3 with missing memberships,
+            // bounded backfill leaves version 4 with missing memberships,
             // which `index_unindexed_records` resumes on the next open.
             connection
                 .execute_batch(
@@ -427,7 +427,7 @@ impl EncryptedHistoryStore {
                  DELETE FROM log_groups;
                  DELETE FROM edge_evidence;
                  DELETE FROM service_edges;
-                 UPDATE index_metadata SET parser_version = 3 WHERE singleton = 1;
+                 UPDATE index_metadata SET parser_version = 4 WHERE singleton = 1;
                  UPDATE graph_metadata SET extractor_version = 2,
                      graph_version = 0, backfill_complete = 0 WHERE singleton = 1;
                  UPDATE term_metadata SET backfill_complete = 0 WHERE singleton = 1;
@@ -436,9 +436,9 @@ impl EncryptedHistoryStore {
                  COMMIT;",
                 )
                 .map_err(|_| CorpusError::Storage)?;
-        } else if version == 2 {
-            // Reclassify existing top-level status fields without touching
-            // source bytes or the independently versioned service graph.
+        } else if matches!(version, 2 | 3) {
+            // Rebuild parser-derived groups, terms, and severe-service summaries
+            // without touching source bytes or the independently versioned graph.
             connection
                 .execute_batch(
                     "BEGIN IMMEDIATE;
@@ -446,7 +446,7 @@ impl EncryptedHistoryStore {
                  DELETE FROM group_terms;
                  DELETE FROM severe_service_groups;
                  DELETE FROM log_groups;
-                 UPDATE index_metadata SET parser_version = 3 WHERE singleton = 1;
+                 UPDATE index_metadata SET parser_version = 4 WHERE singleton = 1;
                  UPDATE term_metadata SET backfill_complete = 0 WHERE singleton = 1;
                  UPDATE severe_service_metadata SET backfill_complete = 0 WHERE singleton = 1;
                  UPDATE severe_service_metadata SET last_group_id = 0 WHERE singleton = 1;
@@ -2695,6 +2695,42 @@ mod tests {
             assert_eq!(store.read_group_cards(0, 10).unwrap()[0].role, "error");
             assert_eq!(store.graph_version().unwrap(), graph_version);
             assert_eq!(store.search_priority_groups(10).unwrap().groups.len(), 1);
+        }
+        cleanup(&path);
+    }
+
+    #[test]
+    fn v3_index_rebuilds_bgl_groups_without_changing_original_records() {
+        let path = test_path();
+        let key = [31; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        let raw = b"APPREAD 1117869872 2005.06.04 R04-M1-N4-I:J18-U11 2005-06-04-00.24.32.432192 R04-M1-N4-I:J18-U11 RAS APP FATAL worker failed to read control stream".to_vec();
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            store
+                .commit_page_checked(&[HistoryRecordV1 {
+                    native_id: b"bgl-alert".to_vec(),
+                    event_timestamp_millis: 1,
+                    bytes: raw.clone(),
+                }])
+                .unwrap();
+            store
+                .connection
+                .execute("UPDATE log_groups SET role = 'context'", [])
+                .unwrap();
+            store
+                .connection
+                .execute("UPDATE index_metadata SET parser_version = 3", [])
+                .unwrap();
+        }
+        {
+            let store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert_eq!(store.get_record(b"bgl-alert").unwrap().unwrap().bytes, raw);
+            let groups = store.read_group_cards(0, 10).unwrap();
+            assert_eq!(groups.len(), 1);
+            assert_eq!(groups[0].service, "app");
+            assert_eq!(groups[0].role, "critical");
         }
         cleanup(&path);
     }

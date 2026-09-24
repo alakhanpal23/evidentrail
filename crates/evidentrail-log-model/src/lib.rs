@@ -51,22 +51,26 @@ pub fn explicit_peer_service(raw: &str) -> Option<String> {
 
 pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
     let parsed = serde_json::from_str::<Value>(raw).ok();
-    let timestamp = parsed.as_ref().and_then(|value| {
-        value
-            .get("timestamp")
-            .and_then(|timestamp| {
-                timestamp
-                    .as_i64()
-                    .or_else(|| timestamp.as_str()?.parse::<i64>().ok())
-            })
-            .or_else(|| {
-                value
-                    .get("timeUnixNano")
-                    .and_then(Value::as_str)
-                    .and_then(|nanos| nanos.parse::<i64>().ok())
-                    .map(|nanos| nanos / 1_000_000_000)
-            })
-    });
+    let bgl = parsed.is_none().then(|| parse_bgl_record(raw)).flatten();
+    let timestamp = parsed
+        .as_ref()
+        .and_then(|value| {
+            value
+                .get("timestamp")
+                .and_then(|timestamp| {
+                    timestamp
+                        .as_i64()
+                        .or_else(|| timestamp.as_str()?.parse::<i64>().ok())
+                })
+                .or_else(|| {
+                    value
+                        .get("timeUnixNano")
+                        .and_then(Value::as_str)
+                        .and_then(|nanos| nanos.parse::<i64>().ok())
+                        .map(|nanos| nanos / 1_000_000_000)
+                })
+        })
+        .or_else(|| bgl.as_ref().map(|record| record.epoch_seconds));
     let message = parsed
         .as_ref()
         .and_then(|value| {
@@ -77,6 +81,7 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
                 .or_else(|| value.pointer("/body/stringValue").and_then(Value::as_str))
                 .or_else(|| value.pointer("/attributes/message").and_then(Value::as_str))
         })
+        .or_else(|| bgl.as_ref().map(|record| record.message.as_str()))
         .unwrap_or(raw);
     let service = parsed
         .as_ref()
@@ -95,6 +100,7 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         })
         .filter(|name| valid_service(name))
         .map(str::to_owned)
+        .or_else(|| bgl.as_ref().map(|record| record.service.clone()))
         .or_else(|| bracketed_service(raw).map(str::to_owned))
         .or_else(|| field_value(raw, "service="))
         .unwrap_or_else(|| "unknown".to_owned());
@@ -125,9 +131,10 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         })
         .or_else(|| bracketed_level(raw).map(str::to_owned))
         .or_else(|| field_value(raw, "level="))
+        .or_else(|| bgl.as_ref().map(|record| record.level.clone()))
         .unwrap_or_default();
     let role = classify_role(&level, message);
-    let fingerprint = if parsed.is_some() {
+    let fingerprint = if parsed.is_some() || bgl.is_some() {
         let mut tokens = message.split_ascii_whitespace().collect::<Vec<_>>();
         if tokens.first().is_some_and(|token| looks_like_date(token)) {
             tokens.remove(0);
@@ -166,6 +173,54 @@ pub fn parse_event(line: usize, raw: &str) -> ParsedEvent {
         fingerprint,
         timestamp,
     }
+}
+
+struct BglRecord {
+    epoch_seconds: i64,
+    service: String,
+    level: String,
+    message: String,
+}
+
+/// Recognize only the full BGL/LogHub preamble; generic unstructured lines
+/// continue through the conservative raw-line parser.
+fn parse_bgl_record(raw: &str) -> Option<BglRecord> {
+    if !raw.contains(" RAS ") {
+        return None;
+    }
+    let tokens = raw.split_ascii_whitespace().collect::<Vec<_>>();
+    if tokens.len() < 10
+        || tokens[1].len() != 10
+        || !tokens[1].bytes().all(|byte| byte.is_ascii_digit())
+        || !looks_like_dotted_date(tokens[2])
+        || tokens[3] != tokens[5]
+        || !tokens[4].starts_with(&tokens[2].replace('.', "-"))
+        || tokens[6] != "RAS"
+        || !valid_service(tokens[7])
+        || !matches!(
+            tokens[8],
+            "FATAL" | "ERROR" | "WARN" | "WARNING" | "INFO" | "DEBUG"
+        )
+    {
+        return None;
+    }
+    Some(BglRecord {
+        epoch_seconds: tokens[1].parse().ok()?,
+        service: tokens[7].to_ascii_lowercase(),
+        level: tokens[8].to_ascii_lowercase(),
+        message: tokens[9..].join(" "),
+    })
+}
+
+fn looks_like_dotted_date(token: &str) -> bool {
+    let bytes = token.as_bytes();
+    bytes.len() == 10
+        && bytes[4] == b'.'
+        && bytes[7] == b'.'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| matches!(index, 4 | 7) || byte.is_ascii_digit())
 }
 
 fn bracketed_service(raw: &str) -> Option<&str> {
@@ -208,6 +263,15 @@ fn normalize_fingerprint_token(token: &str) -> String {
             ',' | ';' | '"' | '\'' | '(' | ')' | '[' | ']' | '{' | '}'
         )
     });
+    if let Some((host, port)) = trimmed.rsplit_once(':') {
+        if !port.is_empty()
+            && port.bytes().all(|byte| byte.is_ascii_digit())
+            && host.split('.').count() == 4
+            && host.split('.').all(|octet| octet.parse::<u8>().is_ok())
+        {
+            return format!("{host}:<port>");
+        }
+    }
     if let Some((key, value)) = trimmed.split_once(['=', ':']) {
         if matches!(
             key,
@@ -411,5 +475,19 @@ mod tests {
     fn top_level_log_status_controls_role_even_without_error_words() {
         let raw = r#"{"service":"billing","status":"error","message":"downstream call blocked"}"#;
         assert_eq!(parse_event(1, raw).role, "error");
+    }
+
+    #[test]
+    fn bgl_preamble_does_not_fragment_a_repeated_alert_template() {
+        let first = "APPREAD 1117869872 2005.06.04 R04-M1-N4-I:J18-U11 2005-06-04-00.24.32.432192 R04-M1-N4-I:J18-U11 RAS APP FATAL worker failed to read control stream from 172.16.96.116:33569";
+        let second = "APPREAD 1117869876 2005.06.04 R27-M1-N4-I:J18-U01 2005-06-04-00.24.36.222560 R27-M1-N4-I:J18-U01 RAS APP FATAL worker failed to read control stream from 172.16.96.116:33370";
+        let first = parse_event(1, first);
+        let second = parse_event(2, second);
+        assert_eq!(first.service, "app");
+        assert_eq!(first.role, "critical");
+        assert_eq!(first.timestamp, Some(1_117_869_872));
+        assert_eq!(first.fingerprint, second.fingerprint);
+        assert!(first.raw.contains(":33569"));
+        assert!(second.raw.contains(":33370"));
     }
 }

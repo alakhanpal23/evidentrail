@@ -76,6 +76,9 @@ An ignored [local connected scale exercise](reports/connected-scale-local-2026-0
 checks exact old, middle, and new clues in 100,000- and 1,000,000-record
 encrypted corpora. Its single-run timing observations are not production
 latency or model-accuracy measurements.
+An opt-in [LogHub BGL evaluation](reports/connected-loghub-bgl-2026-09-23.md)
+uses pinned real system logs to check exact source lines, repeat grouping, and
+bounded expansion. It remains a single-task proxy, not a downstream fix study.
 When that fallback or lexical search is truncated, a connected query can
 inspect up to four 32-service directory pages shared across its sources; each
 page includes a bounded slice from every eligible source. Each service card

@@ -28,6 +28,11 @@ live model choices or downstream coding-agent success.
 An ignored local scale exercise also checks exact clue bytes and counts at
 100,000 and 1,000,000 indexed records; its single-run debug timings do not
 qualify production latency or noisy model retrieval.
+A pinned LogHub BGL sample adds one real-log task with alert labels. A versioned
+parser rebuild recognizes its preamble, reducing 2,000 lines from 2,000 to
+1,374 groups; one required representative is selected and its adjacent
+repeated alert is recovered by expansion. This is still not a multi-incident
+relevance or downstream-task benchmark.
 
 Local connector and authorization contract tests pass. Live CloudWatch and
 Datadog sandbox validation, complete provider-coverage proofs under retention

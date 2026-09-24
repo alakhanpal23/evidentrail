@@ -551,6 +551,7 @@ mod tests {
 
     use evidentrail_ingest::HistoryRecordV1;
     use serde::Deserialize;
+    use sha2::{Digest, Sha256};
 
     use super::*;
 
@@ -1245,6 +1246,92 @@ mod tests {
                     .any(|entry| entry.first_native_id == native_id)
             );
         }
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    #[ignore = "requires the pinned LogHub BGL_2k.log sample"]
+    fn loghub_bgl_sample_preserves_labeled_alert_lines() {
+        let sample_path = std::env::var("EVIDENTRAIL_BGL_2K_PATH")
+            .expect("set EVIDENTRAIL_BGL_2K_PATH to the pinned BGL_2k.log sample");
+        let raw = fs::read(sample_path).unwrap();
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&raw)),
+            "2a819ea540909db682005c9cf948387a40729b5c2e9f19d430e29ce704825496"
+        );
+        let lines = raw
+            .split_inclusive(|byte| *byte == b'\n')
+            .collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2000);
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
+        for (start, chunk) in lines.chunks(256).enumerate() {
+            let records = chunk
+                .iter()
+                .enumerate()
+                .map(|(offset, line)| HistoryRecordV1 {
+                    native_id: format!("line-{}", start * 256 + offset).into_bytes(),
+                    event_timestamp_millis: (start * 256 + offset) as i64,
+                    bytes: line.to_vec(),
+                })
+                .collect::<Vec<_>>();
+            store.commit_page_checked(&records).unwrap();
+        }
+        let pack = select_connected_logs(
+            &[AuthorizedCorpus {
+                source_digest: [2; 32],
+                store: &store,
+            }],
+            "failed to read message prefix on control stream",
+            4096,
+            &mut SelectAllCandidates,
+        )
+        .unwrap();
+        let selected = pack_lines(&pack);
+        let recent = recent_lines(&store, 4096);
+        let required = [8usize, 9];
+        let selected_hits = required
+            .iter()
+            .filter(|index| {
+                let id = format!("line-{index}").into_bytes();
+                selected
+                    .iter()
+                    .any(|(native_id, raw)| *native_id == id && *raw == lines[**index])
+            })
+            .count();
+        let recent_hits = required
+            .iter()
+            .filter(|index| {
+                let id = format!("line-{index}").into_bytes();
+                recent.iter().any(|(native_id, _)| *native_id == id)
+            })
+            .count();
+        let alert_group = pack
+            .selected
+            .iter()
+            .find(|entry| entry.first_native_id == b"line-8")
+            .unwrap();
+        let expanded = store.read_nearby(b"line-8", 0, 1, 4096).unwrap().unwrap();
+        assert!(
+            expanded
+                .records
+                .iter()
+                .any(|record| { record.native_id == b"line-9" && record.bytes == lines[9] })
+        );
+        println!(
+            "loghub-bgl records={} groups={} candidate_groups={} selected_lines={} representative_hits={selected_hits}/2 expanded_hits=2/2 recent_hits={recent_hits}/2 repeat_count={}",
+            store.record_count().unwrap(),
+            store.group_count().unwrap(),
+            pack.candidate_count,
+            selected.len(),
+            alert_group.repeat_count
+        );
+        assert_eq!(store.record_count().unwrap(), 2000);
+        assert!(store.group_count().unwrap() < 2000);
+        assert!(alert_group.repeat_count >= 2);
+        assert_eq!(selected_hits, 1);
+        assert_eq!(recent_hits, 0);
         drop(store);
         cleanup(&path);
     }
