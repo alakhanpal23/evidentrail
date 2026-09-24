@@ -25,6 +25,9 @@ guarantee of finding every relevant record. The frozen encrypted-corpus
 fixture measures exact evidence recall, irrelevant lines, a recent-log
 baseline, and graph ablation with deterministic selectors. It does not measure
 live model choices or downstream coding-agent success.
+An ignored local scale exercise also checks exact clue bytes and counts at
+100,000 and 1,000,000 indexed records; its single-run debug timings do not
+qualify production latency or noisy model retrieval.
 
 Local connector and authorization contract tests pass. Live CloudWatch and
 Datadog sandbox validation, complete provider-coverage proofs under retention

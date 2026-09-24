@@ -1131,4 +1131,121 @@ mod tests {
         cleanup(&left_path);
         cleanup(&right_path);
     }
+
+    #[test]
+    #[ignore = "runs a 100,000-record connected corpus scale exercise"]
+    fn large_connected_history_returns_exact_old_middle_and_new_clues() {
+        connected_history_scale(100_000);
+    }
+
+    #[test]
+    #[ignore = "runs a 1,000,000-record connected corpus scale exercise"]
+    fn million_record_connected_history_returns_exact_old_middle_and_new_clues() {
+        connected_history_scale(1_000_000);
+    }
+
+    fn connected_history_scale(record_count: usize) {
+        let middle = record_count / 2;
+        let last = record_count - 1;
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
+        let ingest_started = Instant::now();
+        for start in (0..record_count).step_by(512) {
+            let records = (start..(start + 512).min(record_count))
+                .map(|index| {
+                    let message = if index == 0 {
+                        "deploy pool exhausted".to_owned()
+                    } else if index == middle {
+                        "database disk full".to_owned()
+                    } else if index == last {
+                        "rollback restored service".to_owned()
+                    } else {
+                        format!("routine {}", noise_word(index))
+                    };
+                    let status = if [0, middle, last].contains(&index) {
+                        "error"
+                    } else {
+                        "info"
+                    };
+                    HistoryRecordV1 {
+                        native_id: format!("event-{index}").into_bytes(),
+                        event_timestamp_millis: index as i64,
+                        bytes: format!(
+                            "{{\"service\":\"api\",\"status\":\"{status}\",\"message\":\"{message}\"}}"
+                        )
+                        .into_bytes(),
+                    }
+                })
+                .collect::<Vec<_>>();
+            store.commit_page_checked(&records).unwrap();
+        }
+        let ingest_time = ingest_started.elapsed();
+        let indexed_groups = store.group_count().unwrap();
+        let source = AuthorizedCorpus {
+            source_digest: [2; 32],
+            store: &store,
+        };
+        let query_started = Instant::now();
+        let pack = select_connected_logs(
+            &[source],
+            "deploy pool exhausted database disk full rollback restored service",
+            4096,
+            &mut SelectErrors,
+        )
+        .unwrap();
+        let query_time = query_started.elapsed();
+        println!(
+            "connected-scale records={record_count} groups={indexed_groups} ingest_ms={} query_ms={} candidates={}",
+            ingest_time.as_millis(),
+            query_time.as_millis(),
+            pack.candidate_count
+        );
+        assert_eq!(
+            pack.source_record_counts,
+            vec![([2; 32], record_count as u64)]
+        );
+        assert!(indexed_groups > (record_count as u64 * 9 / 10));
+        assert!(!pack.output_budget_truncated);
+        for index in [0, middle, last] {
+            let native_id = format!("event-{index}").into_bytes();
+            let selected = pack
+                .selected
+                .iter()
+                .find(|entry| entry.first_native_id == native_id)
+                .unwrap();
+            assert_eq!(selected.repeat_count, 1);
+            assert_eq!(
+                selected.first_raw,
+                store.get_record(&native_id).unwrap().unwrap().bytes
+            );
+        }
+        let fallback_started = Instant::now();
+        let fallback = select_connected_logs(
+            &[AuthorizedCorpus {
+                source_digest: [2; 32],
+                store: &store,
+            }],
+            "unexplained outage",
+            4096,
+            &mut SelectErrors,
+        )
+        .unwrap();
+        println!(
+            "connected-scale fallback_query_ms={} fallback_candidates={}",
+            fallback_started.elapsed().as_millis(),
+            fallback.fallback_candidate_count
+        );
+        assert_eq!(fallback.fallback_candidate_count, 3);
+        for index in [0, middle, last] {
+            let native_id = format!("event-{index}").into_bytes();
+            assert!(
+                fallback
+                    .selected
+                    .iter()
+                    .any(|entry| entry.first_native_id == native_id)
+            );
+        }
+        drop(store);
+        cleanup(&path);
+    }
 }

@@ -72,6 +72,10 @@ or truncated result does not prove that relevant logs are absent. A
 [frozen synthetic retrieval fixture](reports/connected-retrieval-v2.md)
 measures this fallback and the graph ablation, but model and live-source
 quality remain unverified.
+An ignored [local connected scale exercise](reports/connected-scale-local-2026-09-23.md)
+checks exact old, middle, and new clues in 100,000- and 1,000,000-record
+encrypted corpora. Its single-run timing observations are not production
+latency or model-accuracy measurements.
 When that fallback or lexical search is truncated, a connected query can
 inspect up to four 32-service directory pages shared across its sources; each
 page includes a bounded slice from every eligible source. Each service card
