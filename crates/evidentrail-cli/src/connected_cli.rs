@@ -473,9 +473,7 @@ pub(crate) fn expand_connected_logs(
         .ok_or_else(|| failure("EVIDENTRAIL_CONNECTED_EXPAND_ANCHOR_MISSING"))?;
     let mut body = Vec::new();
     for record in &nearby.records {
-        if crate::incident_analysis::contains_sensitive_data(&String::from_utf8_lossy(
-            &record.bytes,
-        )) {
+        if crate::sensitive_log::contains_sensitive_data(&String::from_utf8_lossy(&record.bytes)) {
             return Err(failure("EVIDENTRAIL_CONNECTED_EXPAND_SENSITIVE_RECORD"));
         }
         let mut row = json!({

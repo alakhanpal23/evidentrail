@@ -15,6 +15,7 @@ mod hosted_ranking;
 mod incident_analysis;
 mod log_compaction;
 mod mcp;
+mod sensitive_log;
 
 #[cfg(target_os = "macos")]
 pub use connected_cli::{run as run_sources_cli, run_logs as run_connected_logs_cli};

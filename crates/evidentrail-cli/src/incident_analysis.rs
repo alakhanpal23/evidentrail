@@ -15,6 +15,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
+use crate::sensitive_log::contains_sensitive_data;
+
 const MAX_LOG_BYTES: usize = 16 * 1024 * 1024;
 const MAX_QUESTION_BYTES: usize = 4096;
 const MAX_TOPOLOGY_BYTES: usize = 64 * 1024;
@@ -2620,52 +2622,6 @@ fn request_contains_sensitive_data(value: &Value) -> bool {
         Value::Object(fields) => fields.values().any(request_contains_sensitive_data),
         _ => false,
     }
-}
-
-pub(crate) fn contains_sensitive_data(text: &str) -> bool {
-    let lower = text.to_ascii_lowercase();
-    if [
-        "password=",
-        "passwd=",
-        "api_key=",
-        "access_token=",
-        "secret=",
-        "authorization:",
-        "dsn=",
-        "bearer ",
-        "-----begin private key-----",
-    ]
-    .iter()
-    .any(|pattern| lower.contains(pattern))
-    {
-        return true;
-    }
-    [
-        "password",
-        "passwd",
-        "api_key",
-        "apikey",
-        "access_token",
-        "accesstoken",
-        "refresh_token",
-        "session_token",
-        "secret",
-        "client_secret",
-        "private_key",
-        "authorization",
-        "token",
-        "dsn",
-        "connection_string",
-        "aws_access_key_id",
-        "aws_secret_access_key",
-    ]
-    .iter()
-    .any(|key| {
-        let quoted = format!("\"{key}\"");
-        lower
-            .match_indices(&quoted)
-            .any(|(start, _)| lower[start + quoted.len()..].trim_start().starts_with(':'))
-    })
 }
 
 fn extract_output_text(provider: &Value) -> Option<&str> {

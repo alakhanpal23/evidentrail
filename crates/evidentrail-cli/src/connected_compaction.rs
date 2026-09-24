@@ -7,8 +7,8 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use evidentrail_corpus::{CorpusGroupCard, EncryptedHistoryStore, RecordSample};
 use serde_json::{Value, json};
 
-use crate::incident_analysis::contains_sensitive_data;
 use crate::log_compaction::{CompactionError, LogGroupSelector};
+use crate::sensitive_log::contains_sensitive_data;
 
 const LEXICAL_BUDGET: usize = 256;
 const GRAPH_BUDGET: usize = 64;
