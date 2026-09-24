@@ -235,6 +235,13 @@ impl EncryptedHistoryStore {
                      high_water_millis INTEGER NOT NULL CHECK (high_water_millis >= 0),
                      succeeded INTEGER NOT NULL CHECK (succeeded IN (0, 1))
                  );
+                 CREATE TABLE IF NOT EXISTS historical_reconciliation (
+                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                     cursor_millis INTEGER NOT NULL CHECK (cursor_millis >= 0),
+                     last_cycle_end_millis INTEGER CHECK (last_cycle_end_millis >= 0),
+                     partition_millis INTEGER NOT NULL DEFAULT 31536000000
+                         CHECK (partition_millis > 0 AND partition_millis <= 31536000000)
+                 );
                  CREATE TABLE IF NOT EXISTS history_records (
                      native_id BLOB PRIMARY KEY,
                      event_timestamp_millis INTEGER NOT NULL,
@@ -702,6 +709,110 @@ impl EncryptedHistoryStore {
         Ok(value.map(|completed_through_millis| HistoryCheckpointV1 {
             completed_through_millis,
         }))
+    }
+
+    /// Cursor for a rolling replay of history older than the recent lookback.
+    /// Zero starts a new cycle. The cursor is source-bound inside this corpus.
+    pub fn read_historical_reconciliation_cursor(&self) -> Result<i64, CorpusError> {
+        self.connection
+            .query_row(
+                "SELECT cursor_millis FROM historical_reconciliation WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(|value| value.unwrap_or(0))
+            .map_err(|_| CorpusError::Storage)
+    }
+
+    pub fn read_historical_reconciliation_last_cycle_end(
+        &self,
+    ) -> Result<Option<i64>, CorpusError> {
+        self.connection
+            .query_row(
+                "SELECT last_cycle_end_millis FROM historical_reconciliation WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(|value| value.flatten())
+            .map_err(|_| CorpusError::Storage)
+    }
+
+    pub fn read_historical_reconciliation_partition_millis(&self) -> Result<i64, CorpusError> {
+        self.connection
+            .query_row(
+                "SELECT partition_millis FROM historical_reconciliation WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(|value| value.unwrap_or(365 * 24 * 60 * 60 * 1000))
+            .map_err(|_| CorpusError::Storage)
+    }
+
+    pub fn record_historical_reconciliation_partition_hint(
+        &mut self,
+        expected_cursor: i64,
+        partition_millis: i64,
+    ) -> Result<(), CorpusError> {
+        if expected_cursor < 0
+            || !(1..=365 * 24 * 60 * 60 * 1000).contains(&partition_millis)
+            || self.read_historical_reconciliation_cursor()? != expected_cursor
+            || self.read_checkpoint()?.is_none()
+        {
+            return Err(CorpusError::InvalidCheckpoint);
+        }
+        self.connection
+            .execute(
+                "INSERT INTO historical_reconciliation(singleton, cursor_millis, partition_millis)
+                 VALUES (1, ?1, ?2) ON CONFLICT(singleton) DO UPDATE SET
+                 partition_millis = MIN(historical_reconciliation.partition_millis,
+                                        excluded.partition_millis)",
+                params![expected_cursor, partition_millis],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        Ok(())
+    }
+
+    /// Persist only a completed replay boundary. Reaching `cycle_end` starts
+    /// the next sweep at zero; a crash before this write safely replays pages.
+    pub fn record_historical_reconciliation_progress(
+        &mut self,
+        expected_cursor: i64,
+        completed_through_millis: i64,
+        cycle_end_millis: i64,
+    ) -> Result<(), CorpusError> {
+        if expected_cursor < 0
+            || completed_through_millis < expected_cursor
+            || cycle_end_millis <= expected_cursor
+            || completed_through_millis > cycle_end_millis
+            || self.read_historical_reconciliation_cursor()? != expected_cursor
+            || self
+                .read_checkpoint()?
+                .is_none_or(|checkpoint| checkpoint.completed_through_millis < cycle_end_millis)
+        {
+            return Err(CorpusError::InvalidCheckpoint);
+        }
+        let next_cursor = if completed_through_millis == cycle_end_millis {
+            0
+        } else {
+            completed_through_millis
+        };
+        let completed_cycle =
+            (completed_through_millis == cycle_end_millis).then_some(cycle_end_millis);
+        self.connection
+            .execute(
+                "INSERT INTO historical_reconciliation(singleton, cursor_millis, last_cycle_end_millis)
+                 VALUES (1, ?1, ?2) ON CONFLICT(singleton) DO UPDATE SET
+                 cursor_millis = excluded.cursor_millis,
+                 last_cycle_end_millis = COALESCE(
+                     excluded.last_cycle_end_millis,
+                     historical_reconciliation.last_cycle_end_millis)",
+                params![next_cursor, completed_cycle],
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        Ok(())
     }
 
     pub fn read_sync_observation(&self) -> Result<Option<SyncObservation>, CorpusError> {
@@ -2210,6 +2321,76 @@ mod tests {
                 })
                 .unwrap();
             assert!(store.read_sync_attempt().unwrap().unwrap().succeeded);
+        }
+        cleanup(&path);
+    }
+
+    #[test]
+    fn historical_reconciliation_cursor_persists_and_resets_only_at_cycle_end() {
+        let path = test_path();
+        let key = [32; 32];
+        let tenant = [1; 32];
+        let source = [2; 32];
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            store
+                .complete_partition_checked(HistoryCheckpointV1 {
+                    completed_through_millis: 100,
+                })
+                .unwrap();
+            assert_eq!(store.read_historical_reconciliation_cursor().unwrap(), 0);
+            assert_eq!(
+                store
+                    .read_historical_reconciliation_partition_millis()
+                    .unwrap(),
+                365 * 24 * 60 * 60 * 1000
+            );
+            store
+                .record_historical_reconciliation_partition_hint(0, 50)
+                .unwrap();
+            assert_eq!(
+                store
+                    .read_historical_reconciliation_partition_millis()
+                    .unwrap(),
+                50
+            );
+            assert_eq!(
+                store
+                    .read_historical_reconciliation_last_cycle_end()
+                    .unwrap(),
+                None
+            );
+            assert_eq!(
+                store.record_historical_reconciliation_progress(0, 40, 101),
+                Err(CorpusError::InvalidCheckpoint)
+            );
+            store
+                .record_historical_reconciliation_progress(0, 40, 80)
+                .unwrap();
+            assert_eq!(
+                store.record_historical_reconciliation_progress(0, 50, 80),
+                Err(CorpusError::InvalidCheckpoint)
+            );
+        }
+        {
+            let mut store = EncryptedHistoryStore::open(&path, &key, &tenant, &source).unwrap();
+            assert_eq!(store.read_historical_reconciliation_cursor().unwrap(), 40);
+            assert_eq!(
+                store
+                    .read_historical_reconciliation_partition_millis()
+                    .unwrap(),
+                50
+            );
+            store
+                .record_historical_reconciliation_progress(40, 80, 80)
+                .unwrap();
+            assert_eq!(store.read_historical_reconciliation_cursor().unwrap(), 0);
+            assert_eq!(
+                store
+                    .read_historical_reconciliation_last_cycle_end()
+                    .unwrap(),
+                Some(80)
+            );
         }
         cleanup(&path);
     }

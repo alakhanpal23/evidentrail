@@ -14,6 +14,10 @@ IDs, and resolve the selected lines to exact original records. Result-scoped
 MCP expansion reads bounded chronological neighbors after checking the source
 connection again. Sync attempts, candidate truncation, and output truncation
 are reported separately from the log body.
+After a recent lookback replay, spare sync budget now sweeps older history from
+a durable source-local cursor and resumes after restart. This can discover
+older late arrivals but does not prove complete provider coverage, especially
+when source retention expires or scans repeatedly hit page limits.
 
 The corpus maintains a versioned template index, severe-service directory,
 and explicit-peer service graph. Lexical search, priority fallback, and graph
@@ -107,11 +111,11 @@ is simpler.
    stable event identities, and continuously catch up after backfill. Do not
    assume a provider page token survives a process restart: resume from a
    durable timestamp partition with overlap, deduplicate by source-native ID,
-   and reconcile late arrivals. The initial reconciliation replay covers a
-   configured recent lookback; add a durable reconciliation cursor and
-   provider-specific consistency tests before claiming full accessible-history
-   coverage. Preserve original bytes, source identity,
-   provider event ID/cursor, timestamps when present, and parse confidence.
+   and reconcile late arrivals. A recent lookback replay and durable cursor
+   for older sweeps are implemented; provider-specific consistency tests are
+   still required before claiming full accessible-history coverage. Preserve
+   original bytes, source identity, provider event ID/cursor, timestamps when
+   present, and parse confidence.
    Group by stable template, service, severity, and diagnostic fields. Repeated
    request IDs and timestamps should collapse; distinct error codes and
    unexpected values should remain distinguishable. Malformed records remain

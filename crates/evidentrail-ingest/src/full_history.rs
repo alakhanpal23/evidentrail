@@ -73,8 +73,8 @@ pub enum HistorySyncStatusV1 {
     ScannedToHighWater,
     Backfilling,
     PartialPageLimit,
-    /// A completed replay of a bounded lookback. Older late arrivals remain
-    /// possible, so this does not certify complete provider coverage.
+    /// A completed replay of the requested bounded range or lookback. Other
+    /// late arrivals remain possible; this is not provider coverage proof.
     ReconciledLookback,
 }
 
@@ -213,6 +213,28 @@ pub fn reconcile_history_v1(
         return Err(HistorySyncErrorV1::InvalidConfiguration);
     }
     let start_millis = high_water_millis.saturating_sub(lookback_millis).max(0);
+    reconcile_history_range_v1(source, store, start_millis, high_water_millis, limits)
+}
+
+/// Replay an older bounded range without advancing the forward checkpoint.
+/// A caller can persist `completed_through_millis` after a completed partition
+/// and resume from that boundary; an incomplete partition must be retried.
+pub fn reconcile_history_range_v1(
+    source: &mut impl HistoryPageSourceV1,
+    store: &mut impl HistoryPageStoreV1,
+    start_millis: i64,
+    high_water_millis: i64,
+    limits: HistorySyncLimitsV1,
+) -> Result<HistorySyncReceiptV1, HistorySyncErrorV1> {
+    if !limits.valid()
+        || start_millis < 0
+        || high_water_millis <= start_millis
+        || store
+            .checkpoint()?
+            .is_none_or(|checkpoint| checkpoint.completed_through_millis < high_water_millis)
+    {
+        return Err(HistorySyncErrorV1::InvalidConfiguration);
+    }
     let mut cursor = start_millis;
     let mut receipt = HistorySyncReceiptV1 {
         status: HistorySyncStatusV1::Backfilling,
@@ -514,6 +536,51 @@ mod tests {
         let receipt = reconcile_history_v1(&mut source, &mut store, 20, scan_limits).unwrap();
         assert_eq!(receipt.status, HistorySyncStatusV1::ReconciledLookback);
         assert_eq!(store.records.len(), 1);
+    }
+
+    #[test]
+    fn historical_range_replay_resumes_from_completed_boundary() {
+        struct LateSource;
+        impl HistoryPageSourceV1 for LateSource {
+            fn fetch_page(
+                &mut self,
+                partition: HistoryPartitionV1,
+                _: Option<&[u8]>,
+            ) -> Result<HistoryPageV1, HistorySyncErrorV1> {
+                Ok(HistoryPageV1 {
+                    records: (partition.start_millis <= 15 && partition.end_millis >= 15)
+                        .then(|| HistoryRecordV1 {
+                            native_id: b"old-late".to_vec(),
+                            event_timestamp_millis: 15,
+                            bytes: b"old late record".to_vec(),
+                        })
+                        .into_iter()
+                        .collect(),
+                    next_token: None,
+                })
+            }
+        }
+        let mut store = Store {
+            checkpoint: Some(HistoryCheckpointV1 {
+                completed_through_millis: 100,
+            }),
+            ..Store::default()
+        };
+        let mut scan_limits = limits(3);
+        scan_limits.max_partitions = 1;
+        let first =
+            reconcile_history_range_v1(&mut LateSource, &mut store, 0, 30, scan_limits).unwrap();
+        assert_eq!(first.status, HistorySyncStatusV1::Backfilling);
+        assert_eq!(first.completed_through_millis, 10);
+        let second =
+            reconcile_history_range_v1(&mut LateSource, &mut store, 10, 30, scan_limits).unwrap();
+        assert_eq!(second.completed_through_millis, 20);
+        assert!(store.records.contains_key(b"old-late".as_slice()));
+        assert_eq!(store.checkpoint.unwrap().completed_through_millis, 100);
+        assert_eq!(
+            reconcile_history_range_v1(&mut LateSource, &mut store, 20, 101, scan_limits),
+            Err(HistorySyncErrorV1::InvalidConfiguration)
+        );
     }
 
     #[test]

@@ -24,7 +24,7 @@ use evidentrail_ingest::{
     AwsCloudWatchTransportV1, CloudWatchCapsV1, CloudWatchHistorySourceV1, CloudWatchPlanV1,
     DatadogHistorySourceV1, DatadogSiteV1, DatadogStorageTierV1, HistoryPageSourceV1,
     HistoryPartitionV1, HistorySyncErrorV1, HistorySyncLimitsV1, HistorySyncStatusV1,
-    reconcile_history_v1, synchronize_history_v1,
+    reconcile_history_range_v1, reconcile_history_v1, synchronize_history_v1,
 };
 use rustix::fs::{CWD, FlockOperation, Mode, OFlags, flock, openat};
 use serde::{Deserialize, Serialize};
@@ -148,6 +148,7 @@ pub(crate) fn source_id_for_mcp(source_digest: &[u8; 32]) -> String {
 
 const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
 const MAX_SYNC_PAGES: usize = 256;
+const MAX_HISTORICAL_PAGES_PER_PASS: usize = 8;
 const DEFAULT_WATCH_INTERVAL_SECS: u64 = 60;
 const MAX_WATCH_INTERVAL_SECS: u64 = 3600;
 
@@ -330,6 +331,9 @@ pub(crate) fn query_connected_logs(
                     "source_id": source_id,
                     "state": progress.status,
                     "reconciliation": progress.reconciliation,
+                    "historical_reconciliation": progress.historical_reconciliation,
+                    "historical_cursor_millis": store.read_historical_reconciliation_cursor().map_err(|_| query_error(CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED")))?,
+                    "historical_last_cycle_end_millis": store.read_historical_reconciliation_last_cycle_end().map_err(|_| query_error(CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED")))?,
                     "scanned_through_millis": store.read_checkpoint().map_err(|_| query_error(CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED")))?.map(|value| value.completed_through_millis),
                     "high_water_millis": high_water,
                 }));
@@ -392,7 +396,13 @@ pub(crate) fn query_connected_logs(
         .any(|state| state["state"] != "scanned_to_high_water")
         || source_states
             .iter()
-            .any(|state| state["reconciliation"] != "recent_lookback_scanned");
+            .any(|state| state["reconciliation"] != "recent_lookback_scanned")
+        || source_states.iter().any(|state| {
+            !matches!(
+                state["historical_reconciliation"].as_str(),
+                Some("cycle_complete" | "recent_cycle_complete" | "not_applicable")
+            )
+        });
     let metadata = json!({
         "sources": source_states,
         "coverage": if partial_source { "partial" } else { "unverified_provider_consistency" },
@@ -491,8 +501,10 @@ pub(crate) fn expand_connected_logs(
             "after_truncated": nearby.after_truncated,
             "sync_state": progress.status,
             "reconciliation": progress.reconciliation,
+            "historical_reconciliation": progress.historical_reconciliation,
         "coverage": if progress.status == "scanned_to_high_water"
-            && progress.reconciliation == "recent_lookback_scanned" {
+            && progress.reconciliation == "recent_lookback_scanned"
+            && progress.historical_replay_complete() {
             "unverified_provider_consistency"
         } else {
             "partial"
@@ -656,7 +668,8 @@ fn sync_cycle() -> Result<bool, CliFailure> {
         let coverage = match &sync_result {
             Ok(progress)
                 if progress.status == "scanned_to_high_water"
-                    && progress.reconciliation == "recent_lookback_scanned" =>
+                    && progress.reconciliation == "recent_lookback_scanned"
+                    && progress.historical_replay_complete() =>
             {
                 "unverified_provider_consistency"
             }
@@ -668,6 +681,7 @@ fn sync_cycle() -> Result<bool, CliFailure> {
                 "status": progress.status,
                 "pages": progress.pages,
                 "reconciliation": progress.reconciliation,
+                "historical_reconciliation": progress.historical_reconciliation,
             }),
             Err(error) => {
                 had_error = true;
@@ -712,6 +726,16 @@ struct BoundedSyncProgress {
     status: &'static str,
     pages: usize,
     reconciliation: &'static str,
+    historical_reconciliation: &'static str,
+}
+
+impl BoundedSyncProgress {
+    fn historical_replay_complete(&self) -> bool {
+        matches!(
+            self.historical_reconciliation,
+            "cycle_complete" | "recent_cycle_complete" | "not_applicable"
+        )
+    }
 }
 
 fn sync_binding(
@@ -840,6 +864,7 @@ fn bounded_sync(
             status: "backfilling",
             pages,
             reconciliation: "not_run",
+            historical_reconciliation: "not_run_backfill",
         });
     }
     let remaining = MAX_SYNC_PAGES - pages;
@@ -848,6 +873,7 @@ fn bounded_sync(
             status: "scanned_to_high_water",
             pages,
             reconciliation: "not_run_budget_exhausted",
+            historical_reconciliation: "not_run_budget_exhausted",
         });
     }
     let reconciliation = reconcile_history_v1(
@@ -868,11 +894,88 @@ fn bounded_sync(
         HistorySyncStatusV1::Backfilling | HistorySyncStatusV1::PartialPageLimit => "partial",
         HistorySyncStatusV1::ScannedToHighWater => "partial",
     };
+    let historical_reconciliation = if reconciliation_status != "recent_lookback_scanned" {
+        "not_run_recent_partial"
+    } else if pages == MAX_SYNC_PAGES {
+        "not_run_budget_exhausted"
+    } else {
+        sweep_older_history(source, store, high_water, &mut pages)?
+    };
     Ok(BoundedSyncProgress {
         status: "scanned_to_high_water",
         pages,
         reconciliation: reconciliation_status,
+        historical_reconciliation,
     })
+}
+
+fn sweep_older_history(
+    source: &mut impl HistoryPageSourceV1,
+    store: &mut EncryptedHistoryStore,
+    high_water: i64,
+    pages: &mut usize,
+) -> Result<&'static str, HistorySyncErrorV1> {
+    let older_end = high_water.saturating_sub(7 * DAY_MILLIS);
+    if older_end <= 0 {
+        return Ok("not_applicable");
+    }
+    let mut cursor = store
+        .read_historical_reconciliation_cursor()
+        .map_err(|_| HistorySyncErrorV1::Store)?;
+    if cursor == 0
+        && store
+            .read_historical_reconciliation_last_cycle_end()
+            .map_err(|_| HistorySyncErrorV1::Store)?
+            .is_some_and(|last_end| older_end.saturating_sub(last_end) < DAY_MILLIS)
+    {
+        return Ok("recent_cycle_complete");
+    }
+    if cursor >= older_end {
+        return Err(HistorySyncErrorV1::InvalidConfiguration);
+    }
+    let mut partition_millis = store
+        .read_historical_reconciliation_partition_millis()
+        .map_err(|_| HistorySyncErrorV1::Store)?;
+    let sweep_page_limit = (*pages + MAX_HISTORICAL_PAGES_PER_PASS).min(MAX_SYNC_PAGES);
+    while *pages < sweep_page_limit {
+        let receipt = reconcile_history_range_v1(
+            source,
+            store,
+            cursor,
+            older_end,
+            HistorySyncLimitsV1 {
+                partition_millis,
+                max_partitions: 1,
+                max_pages_per_partition: (sweep_page_limit - *pages).min(32),
+                max_records_per_page: 10_000,
+                max_record_bytes: 8 * 1024 * 1024,
+            },
+        )?;
+        *pages += receipt.committed_pages;
+        if receipt.completed_through_millis > cursor {
+            store
+                .record_historical_reconciliation_progress(
+                    cursor,
+                    receipt.completed_through_millis,
+                    older_end,
+                )
+                .map_err(|_| HistorySyncErrorV1::Store)?;
+            cursor = receipt.completed_through_millis;
+        }
+        if cursor == older_end {
+            return Ok("cycle_complete");
+        }
+        if receipt.status == HistorySyncStatusV1::PartialPageLimit {
+            if partition_millis == 1 {
+                return Ok("partial_page_limit");
+            }
+            partition_millis = (partition_millis / 2).max(1);
+            store
+                .record_historical_reconciliation_partition_hint(cursor, partition_millis)
+                .map_err(|_| HistorySyncErrorV1::Store)?;
+        }
+    }
+    Ok("progress_partial")
 }
 
 fn parse_cloudwatch_args(
@@ -1427,6 +1530,20 @@ fn list_sources() -> Result<ExitCode, CliFailure> {
             let attempt = store
                 .read_sync_attempt()
                 .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
+            let historical_cursor = store
+                .read_historical_reconciliation_cursor()
+                .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
+            let historical_last_cycle_end =
+                store
+                    .read_historical_reconciliation_last_cycle_end()
+                    .map_err(|_| CliFailure::runtime("EVIDENTRAIL_SOURCES_CORPUS_OPEN_FAILED"))?;
+            let historical_recent = observation.is_some_and(|value| {
+                let older_end = value.high_water_millis.saturating_sub(7 * DAY_MILLIS);
+                older_end <= 0
+                    || (historical_cursor == 0
+                        && historical_last_cycle_end
+                            .is_some_and(|last| older_end.saturating_sub(last) < DAY_MILLIS))
+            });
             let last_attempt_failed = attempt.is_some_and(|value| !value.succeeded);
             json!({
                 "state": if last_attempt_failed { "last_sync_failed" } else if observation.is_some() { "sync_observed" } else { "registered_incomplete" },
@@ -1437,13 +1554,15 @@ fn list_sources() -> Result<ExitCode, CliFailure> {
                 "last_sync_age_millis": observation.map(|value| now_millis.saturating_sub(value.completed_at_millis)),
                 "last_sync_scanned_to_high_water": observation.map(|value| value.scanned_to_high_water),
                 "last_sync_reconciled_lookback": observation.map(|value| value.reconciled_lookback),
+                "historical_reconciliation_cursor_millis": historical_cursor,
+                "historical_last_cycle_end_millis": historical_last_cycle_end,
                 "last_attempt_completed_at_millis": attempt.map(|value| value.completed_at_millis),
                 "last_attempt_high_water_millis": attempt.map(|value| value.high_water_millis),
                 "last_attempt_age_millis": attempt.map(|value| now_millis.saturating_sub(value.completed_at_millis)),
                 "last_attempt_succeeded": attempt.map(|value| value.succeeded),
                 "coverage": if last_attempt_failed {
                     "incomplete"
-                } else if observation.is_some_and(|value| value.scanned_to_high_water && value.reconciled_lookback) {
+                } else if historical_recent && observation.is_some_and(|value| value.scanned_to_high_water && value.reconciled_lookback) {
                     "unverified_provider_consistency_at_last_sync"
                 } else {
                     "partial"
@@ -2055,6 +2174,7 @@ mod tests {
         let progress = bounded_sync(&mut ReplaySource, &mut store, 10).unwrap();
         assert_eq!(progress.status, "scanned_to_high_water");
         assert_eq!(progress.reconciliation, "recent_lookback_scanned");
+        assert_eq!(progress.historical_reconciliation, "not_applicable");
         assert_eq!(progress.pages, 2);
         assert_eq!(store.record_count().unwrap(), 1);
         assert_eq!(
@@ -2064,6 +2184,197 @@ mod tests {
                 .unwrap()
                 .completed_through_millis,
             10
+        );
+        drop(store);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = fs::remove_file(format!("{}{suffix}", path.display()));
+        }
+    }
+
+    #[test]
+    fn historical_sweep_resumes_after_restart_and_finds_older_late_record() {
+        struct LateSource;
+        impl HistoryPageSourceV1 for LateSource {
+            fn fetch_page(
+                &mut self,
+                partition: HistoryPartitionV1,
+                _: Option<&[u8]>,
+            ) -> Result<HistoryPageV1, HistorySyncErrorV1> {
+                let late_at = 500 * DAY_MILLIS;
+                Ok(HistoryPageV1 {
+                    records: (partition.start_millis <= late_at && partition.end_millis >= late_at)
+                        .then(|| HistoryRecordV1 {
+                            native_id: b"older-late".to_vec(),
+                            event_timestamp_millis: late_at,
+                            bytes: b"[database] ERROR: old late arrival".to_vec(),
+                        })
+                        .into_iter()
+                        .collect(),
+                    next_token: None,
+                })
+            }
+        }
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = env::temp_dir().join(format!(
+            "evidentrail-history-sweep-{}-{suffix}.db",
+            std::process::id()
+        ));
+        let high_water = 3 * 365 * DAY_MILLIS;
+        {
+            let mut store =
+                EncryptedHistoryStore::open(&path, &[10; 32], &[1; 32], &[2; 32]).unwrap();
+            store
+                .complete_partition_checked(evidentrail_ingest::HistoryCheckpointV1 {
+                    completed_through_millis: high_water,
+                })
+                .unwrap();
+            let mut pages = MAX_SYNC_PAGES - 1;
+            let state =
+                sweep_older_history(&mut LateSource, &mut store, high_water, &mut pages).unwrap();
+            assert_eq!(state, "progress_partial");
+            assert_eq!(
+                store.read_historical_reconciliation_cursor().unwrap(),
+                365 * DAY_MILLIS
+            );
+            assert_eq!(store.record_count().unwrap(), 0);
+        }
+        {
+            let mut store =
+                EncryptedHistoryStore::open(&path, &[10; 32], &[1; 32], &[2; 32]).unwrap();
+            let mut pages = 0;
+            let state =
+                sweep_older_history(&mut LateSource, &mut store, high_water, &mut pages).unwrap();
+            assert_eq!(state, "cycle_complete");
+            assert_eq!(store.read_historical_reconciliation_cursor().unwrap(), 0);
+            assert_eq!(
+                store.get_record(b"older-late").unwrap().unwrap().bytes,
+                b"[database] ERROR: old late arrival"
+            );
+            assert_eq!(
+                store
+                    .read_checkpoint()
+                    .unwrap()
+                    .unwrap()
+                    .completed_through_millis,
+                high_water
+            );
+            let mut repeated_pages = 0;
+            assert_eq!(
+                sweep_older_history(&mut LateSource, &mut store, high_water, &mut repeated_pages)
+                    .unwrap(),
+                "recent_cycle_complete"
+            );
+            assert_eq!(repeated_pages, 0);
+        }
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = fs::remove_file(format!("{}{suffix}", path.display()));
+        }
+    }
+
+    #[test]
+    fn historical_sweep_remembers_smaller_partition_after_page_cap() {
+        struct EndlessPages;
+        impl HistoryPageSourceV1 for EndlessPages {
+            fn fetch_page(
+                &mut self,
+                _: HistoryPartitionV1,
+                token: Option<&[u8]>,
+            ) -> Result<HistoryPageV1, HistorySyncErrorV1> {
+                let next = token
+                    .map(|value| {
+                        std::str::from_utf8(value)
+                            .unwrap()
+                            .parse::<usize>()
+                            .unwrap()
+                    })
+                    .unwrap_or(0)
+                    + 1;
+                Ok(HistoryPageV1 {
+                    records: vec![],
+                    next_token: Some(next.to_string().into_bytes()),
+                })
+            }
+        }
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = env::temp_dir().join(format!(
+            "evidentrail-sweep-cap-{}-{suffix}.db",
+            std::process::id()
+        ));
+        let high_water = 2 * 365 * DAY_MILLIS;
+        {
+            let mut store =
+                EncryptedHistoryStore::open(&path, &[11; 32], &[1; 32], &[2; 32]).unwrap();
+            store
+                .complete_partition_checked(evidentrail_ingest::HistoryCheckpointV1 {
+                    completed_through_millis: high_water,
+                })
+                .unwrap();
+            let mut pages = MAX_SYNC_PAGES - 1;
+            assert_eq!(
+                sweep_older_history(&mut EndlessPages, &mut store, high_water, &mut pages).unwrap(),
+                "progress_partial"
+            );
+            assert_eq!(store.read_historical_reconciliation_cursor().unwrap(), 0);
+        }
+        {
+            let store = EncryptedHistoryStore::open(&path, &[11; 32], &[1; 32], &[2; 32]).unwrap();
+            assert_eq!(
+                store
+                    .read_historical_reconciliation_partition_millis()
+                    .unwrap(),
+                365 * DAY_MILLIS / 2
+            );
+        }
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = fs::remove_file(format!("{}{suffix}", path.display()));
+        }
+    }
+
+    #[test]
+    fn historical_sweep_caps_provider_pages_per_pass() {
+        struct EmptySource;
+        impl HistoryPageSourceV1 for EmptySource {
+            fn fetch_page(
+                &mut self,
+                _: HistoryPartitionV1,
+                _: Option<&[u8]>,
+            ) -> Result<HistoryPageV1, HistorySyncErrorV1> {
+                Ok(HistoryPageV1 {
+                    records: vec![],
+                    next_token: None,
+                })
+            }
+        }
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = env::temp_dir().join(format!(
+            "evidentrail-sweep-budget-{}-{suffix}.db",
+            std::process::id()
+        ));
+        let mut store = EncryptedHistoryStore::open(&path, &[12; 32], &[1; 32], &[2; 32]).unwrap();
+        let high_water = 20 * 365 * DAY_MILLIS;
+        store
+            .complete_partition_checked(evidentrail_ingest::HistoryCheckpointV1 {
+                completed_through_millis: high_water,
+            })
+            .unwrap();
+        let mut pages = 0;
+        assert_eq!(
+            sweep_older_history(&mut EmptySource, &mut store, high_water, &mut pages).unwrap(),
+            "progress_partial"
+        );
+        assert_eq!(pages, MAX_HISTORICAL_PAGES_PER_PASS);
+        assert_eq!(
+            store.read_historical_reconciliation_cursor().unwrap(),
+            8 * 365 * DAY_MILLIS
         );
         drop(store);
         for suffix in ["", "-wal", "-shm"] {

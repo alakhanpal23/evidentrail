@@ -36,6 +36,13 @@ source-bound corpus key and encrypted local corpus, then report
 durable checkpoint and replays recent history after reaching its high-water
 mark. `sources watch` repeats these passes, releasing the source lock after
 each pass and backing off to at most one hour when a provider or source fails.
+After the recent seven-day replay completes, at most eight spare provider pages
+per sync pass walk older history with a durable source-local cursor. A
+completed sweep is not repeated until its boundary is at least a day old.
+Source metadata exposes the historical cursor and last completed boundary;
+a partial sweep is never
+presented as complete provider coverage. A partition that hits a page cap is
+retried at a smaller durable width on later passes.
 Each pass records its outcome in the encrypted source corpus. `sources list`
 shows the last attempt's result and age alongside the last successful scan's
 completion time, high-water mark, age, and reconciliation state. A failed
