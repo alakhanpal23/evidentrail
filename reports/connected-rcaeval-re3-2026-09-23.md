@@ -10,12 +10,33 @@ The conversion and original Parquet files remain temporary. No incident time
 window, metrics, traces, root-service name, or fault label is given to the
 selector. The task is the same in every case: “Investigate service errors and
 failed requests.” The raw-log output budget is 32 KiB for every arm.
+The script also verifies the pinned `cases.parquet` index (SHA-256
+`c49a288920dbba2e8e724679a14636d5c7eb2b45426bba14007ef79a6c0ab1bb`)
+and uses its root-service and injection-time labels for evaluation only. The
+index says these three cases have no root-cause file, so it supplies no
+line-level relevance labels or repair verifier.
 
 | Case (labeled service) | Source lines | Indexed groups | Candidate groups | First-ID root lines, before → after diversity safeguard | Severity root lines | Recent root lines |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `re3ob_cartservice_f1_1` (cartservice) | 65,025 | 6,036 | 5 | 6/9 → 6/9 | 6/9 | 4/12 |
 | `re3ob_emailservice_f1_1` (emailservice) | 70,076 | 6,422 | 140 | 0/12 → 2/13 | 0/12 | 0/12 |
 | `re3ob_adservice_f3_1` (adservice) | 70,558 | 6,673 | 2 | 1/3 → 1/3 | 0/2 | 0/12 |
+
+A second deterministic run on 2026-09-24 checked whether each selected
+root-service line occurred at or after the pinned fault-injection time. The
+selector still received the same generic task and the full corpus; injection
+time was used only by the scorer. All of the first-ID arm's root-service lines
+in these three cases were post-injection: cart 6/9 returned lines, email 2/13,
+and ad 1/3. Severity selection returned post-injection root lines in cart
+only (6/9), and the recent-line baseline had four in cart and none in email
+or ad. A post-injection line from the labeled service is a stronger temporal
+proxy than service membership alone, but it may still be unrelated to the
+injected fault.
+An attempted GPT-OSS 20B rerun with this additional scorer completed cart
+(6/9 post-injection root lines), then one email-case model call hit the local
+provider's 120-second request timeout. The run has no valid aggregate model
+score for the new metric. The earlier completed GPT-OSS service-membership
+result below is unchanged.
 
 The 140-group email case exposed a specific retrieval-stage failure. Its
 service was advertised in an intermediate page, but page-local first-ID

@@ -2079,6 +2079,9 @@ mod tests {
 
         let directory = std::env::var("EVIDENTRAIL_RCAEVAL_CONNECTED_DIR")
             .expect("run scripts/eval-rcaeval-connected.py to prepare pinned data");
+        let labels: Value =
+            serde_json::from_slice(&fs::read(Path::new(&directory).join("labels.json")).unwrap())
+                .unwrap();
         let cases = [
             ("re3ob_cartservice_f1_1", "cartservice"),
             ("re3ob_emailservice_f1_1", "emailservice"),
@@ -2092,6 +2095,9 @@ mod tests {
                 .expect("configure a local Ollama model or OPENAI_API_KEY")
         });
         for (case, root_service) in cases {
+            assert_eq!(labels[case]["root_cause_service"], root_service);
+            assert_eq!(labels[case]["has_root_cause_file"], false);
+            let inject_time = labels[case]["inject_time"].as_i64().unwrap();
             let raw = fs::read(Path::new(&directory).join(format!("{case}.jsonl"))).unwrap();
             let lines = raw
                 .split_inclusive(|byte| *byte == b'\n')
@@ -2101,14 +2107,17 @@ mod tests {
                 EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
             let ingest_started = Instant::now();
             let mut root_source_lines = 0;
+            let mut post_injection_root_source_lines = 0;
             for (start, chunk) in lines.chunks(256).enumerate() {
                 let records = chunk
                     .iter()
                     .enumerate()
                     .map(|(offset, line)| {
                         let row: Value = serde_json::from_slice(line).unwrap();
-                        root_source_lines +=
-                            usize::from(row["service"].as_str() == Some(root_service));
+                        let root = row["service"].as_str() == Some(root_service);
+                        root_source_lines += usize::from(root);
+                        post_injection_root_source_lines +=
+                            usize::from(root && row["timestamp"].as_i64().unwrap() >= inject_time);
                         HistoryRecordV1 {
                             native_id: format!("line-{}", start * 256 + offset).into_bytes(),
                             event_timestamp_millis: row["timestamp"].as_i64().unwrap() * 1000,
@@ -2125,6 +2134,14 @@ mod tests {
                 .filter(|(_, raw)| {
                     serde_json::from_slice::<Value>(raw).unwrap()["service"].as_str()
                         == Some(root_service)
+                })
+                .count();
+            let recent_post_injection_root_lines = recent
+                .iter()
+                .filter(|(_, raw)| {
+                    let row: Value = serde_json::from_slice(raw).unwrap();
+                    row["service"].as_str() == Some(root_service)
+                        && row["timestamp"].as_i64().unwrap() >= inject_time
                 })
                 .count();
             for (method, severity_only) in [("first_id", false), ("severity", true)] {
@@ -2154,6 +2171,14 @@ mod tests {
                             == Some(root_service)
                     })
                     .count();
+                let selected_post_injection_root_lines = selected
+                    .iter()
+                    .filter(|(_, raw)| {
+                        let row: Value = serde_json::from_slice(raw).unwrap();
+                        row["service"].as_str() == Some(root_service)
+                            && row["timestamp"].as_i64().unwrap() >= inject_time
+                    })
+                    .count();
                 println!(
                     "RCAEVAL_CONNECTED_EVAL {}",
                     json!({
@@ -2162,6 +2187,7 @@ mod tests {
                         "root_service": root_service,
                         "source_lines": lines.len(),
                         "root_source_lines": root_source_lines,
+                        "post_injection_root_source_lines": post_injection_root_source_lines,
                         "groups": store.group_count().unwrap(),
                         "ingest_ms": ingest_ms,
                         "query_ms": started.elapsed().as_millis(),
@@ -2173,8 +2199,10 @@ mod tests {
                         "prefinal_pruned_groups": pack.prefinal_pruned_groups,
                         "selected_lines": selected.len(),
                         "selected_root_lines": selected_root_lines,
+                        "selected_post_injection_root_lines": selected_post_injection_root_lines,
                         "recent_lines": recent.len(),
                         "recent_root_lines": recent_root_lines,
+                        "recent_post_injection_root_lines": recent_post_injection_root_lines,
                         "candidate_pool_truncated": pack.candidate_pool_truncated,
                         "service_directory_truncated": pack.service_directory_truncated,
                         "output_budget_truncated": pack.output_budget_truncated,
@@ -2209,6 +2237,14 @@ mod tests {
                             == Some(root_service)
                     })
                     .count();
+                let selected_post_injection_root_lines = selected
+                    .iter()
+                    .filter(|(_, raw)| {
+                        let row: Value = serde_json::from_slice(raw).unwrap();
+                        row["service"].as_str() == Some(root_service)
+                            && row["timestamp"].as_i64().unwrap() >= inject_time
+                    })
+                    .count();
                 println!(
                     "RCAEVAL_CONNECTED_EVAL {}",
                     json!({
@@ -2222,6 +2258,7 @@ mod tests {
                         "prefinal_pruned_groups": pack.prefinal_pruned_groups,
                         "selected_lines": selected.len(),
                         "selected_root_lines": selected_root_lines,
+                        "selected_post_injection_root_lines": selected_post_injection_root_lines,
                         "query_ms": started.elapsed().as_millis(),
                         "selection_calls": pack.selection_calls,
                         "selection_elapsed_ms": pack.selection_elapsed_ms,

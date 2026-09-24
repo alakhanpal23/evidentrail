@@ -745,8 +745,8 @@ mod tests {
             parse_user_permissions_digest(first),
             parse_user_permissions_digest(narrowed)
         );
-        assert_eq!(parse_user_permissions_digest(first).unwrap().1, true);
-        assert_eq!(parse_user_permissions_digest(first).unwrap().2, false);
+        assert!(parse_user_permissions_digest(first).unwrap().1);
+        assert!(!parse_user_permissions_digest(first).unwrap().2);
         assert_eq!(
             parse_user_permissions_digest(
                 br#"{"data":[{"type":"permissions","id":"p1","attributes":{"restricted":false}}]}"#

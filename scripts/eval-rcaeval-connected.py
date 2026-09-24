@@ -25,9 +25,33 @@ CASES = {
     "re3ob_emailservice_f1_1": "463675c417315ef5538c4b728698e6964bf0fe618daa94f06693f4f54989d511",
     "re3ob_adservice_f3_1": "d8fb490a359db7cda3ce618ce51251ceec89b90026839f90a891391e3d51b197",
 }
+INDEX_SHA256 = "c49a288920dbba2e8e724679a14636d5c7eb2b45426bba14007ef79a6c0ab1bb"
+
+
+def load_labels():
+    url = f"https://huggingface.co/datasets/phamquiluan/RCAEval/resolve/{REVISION}/cases.parquet"
+    with urllib.request.urlopen(url, timeout=60) as response:
+        source = response.read()
+    if hashlib.sha256(source).hexdigest() != INDEX_SHA256:
+        raise ValueError("pinned RCAEval case index changed")
+    index = parquet.read_table(
+        io.BytesIO(source),
+        columns=["case", "root_cause_service", "inject_time", "n_logs", "has_root_cause_file"],
+    )
+    labels = {row["case"]: row for row in index.to_pylist() if row["case"] in CASES}
+    if len(labels) != len(CASES) or any(
+        not isinstance(row["root_cause_service"], str)
+        or not isinstance(row["inject_time"], int)
+        or row["has_root_cause_file"] is not False
+        for row in labels.values()
+    ):
+        raise ValueError("RCAEval case labels do not match the pinned probe")
+    return labels
 
 
 def prepare(directory):
+    labels = load_labels()
+    (directory / "labels.json").write_text(json.dumps(labels, sort_keys=True))
     for case, expected_sha256 in CASES.items():
         url = f"https://huggingface.co/datasets/phamquiluan/RCAEval/resolve/{REVISION}/{case}/logs.parquet"
         with urllib.request.urlopen(url, timeout=60) as response:
@@ -37,6 +61,8 @@ def prepare(directory):
         table = parquet.read_table(
             io.BytesIO(source), columns=["timestamp", "container_name", "message"]
         )
+        if table.num_rows != labels[case]["n_logs"]:
+            raise ValueError(f"RCAEval index log count mismatch: {case}")
         with (directory / f"{case}.jsonl").open("wb") as output:
             for row in table.to_pylist():
                 if not isinstance(row["timestamp"], int) or not isinstance(row["container_name"], str) or not isinstance(row["message"], str):
