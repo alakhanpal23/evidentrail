@@ -13,6 +13,7 @@ use crate::sensitive_log::contains_sensitive_data;
 
 const LEXICAL_BUDGET: usize = 256;
 const GRAPH_BUDGET: usize = 64;
+const REPEATED_SEVERE_BUDGET: usize = 8;
 const GROUPS_PER_PAGE: usize = 64;
 const PAGE_SELECTION_LIMIT: usize = 8;
 const FINAL_SELECTION_LIMIT: usize = 12;
@@ -176,6 +177,44 @@ fn select_connected_logs_with_graph(
             cards = fallback.groups;
             needs_directory |= fallback.candidate_pool_truncated;
         }
+        let (query_terms, strongest_match) = source
+            .store
+            .task_match_strength(task)
+            .map_err(|_| CompactionError::Corpus)?;
+        // A strong message-specific match should keep its lexical ordering;
+        // repeated errors help only when the task has weak direct evidence.
+        let repeated = if query_terms >= 3 && strongest_match * 3 >= query_terms * 2 {
+            None
+        } else {
+            Some(
+                source
+                    .store
+                    .search_repeated_severe_groups((REPEATED_SEVERE_BUDGET / sources.len()).max(1))
+                    .map_err(|_| CompactionError::Corpus)?,
+            )
+        };
+        candidate_pool_truncated |= repeated
+            .as_ref()
+            .is_some_and(|page| page.candidate_pool_truncated);
+        needs_directory |= repeated
+            .as_ref()
+            .is_some_and(|page| page.candidate_pool_truncated);
+        let mut ranked = cards.into_iter();
+        let mut merged = ranked.next().into_iter().collect::<Vec<_>>();
+        let mut seen = merged
+            .iter()
+            .map(|card| card.group_id)
+            .collect::<BTreeSet<_>>();
+        if let Some(repeated) = repeated {
+            merged.extend(
+                repeated
+                    .groups
+                    .into_iter()
+                    .filter(|card| seen.insert(card.group_id)),
+            );
+        }
+        merged.extend(ranked.filter(|card| seen.insert(card.group_id)));
+        let cards = merged;
         source_cards.push(cards);
         directory_eligible.push(needs_directory);
     }
@@ -1906,6 +1945,7 @@ mod tests {
                     "severity_off_label_lines": severity_line_count - severity_label_count,
                     "recent_hit": recent_hit,
                     "candidate_pool_truncated": first_id.candidate_pool_truncated,
+                    "task_match_strength": store.task_match_strength(task).unwrap(),
                 })
             );
         }
@@ -2025,9 +2065,13 @@ mod tests {
     fn rcaeval_connected_log_only_probe() {
         struct ProbeSelector<'a> {
             root_service: &'a str,
+            target_group_id: Option<String>,
             severity_only: bool,
             root_advertised: bool,
             root_in_last_group_page: bool,
+            target_group_advertised: bool,
+            target_group_in_last_page: bool,
+            target_group_selected_last_page: bool,
         }
 
         impl LogGroupSelector for ProbeSelector<'_> {
@@ -2040,11 +2084,16 @@ mod tests {
                         .iter()
                         .any(|group| group["service"].as_str() == Some(self.root_service));
                     self.root_advertised |= self.root_in_last_group_page;
+                    self.target_group_in_last_page =
+                        self.target_group_id.as_deref().is_some_and(|id| {
+                            groups.iter().any(|group| group["id"].as_str() == Some(id))
+                        });
+                    self.target_group_advertised |= self.target_group_in_last_page;
                 }
                 let limit = request["max_selected_groups"]
                     .as_u64()
                     .ok_or(CompactionError::InvalidInput)? as usize;
-                Ok(groups
+                let selected = groups
                     .iter()
                     .filter(|group| {
                         !self.severity_only
@@ -2052,15 +2101,26 @@ mod tests {
                     })
                     .take(limit)
                     .map(|group| group["id"].as_str().unwrap().to_owned())
-                    .collect())
+                    .collect::<Vec<_>>();
+                if request["selection_kind"].as_str() != Some("service_directory") {
+                    self.target_group_selected_last_page = self
+                        .target_group_id
+                        .as_ref()
+                        .is_some_and(|id| selected.contains(id));
+                }
+                Ok(selected)
             }
         }
 
         struct ModelProbeSelector<'a> {
             model: &'a mut OpenAiIncidentReasoner,
             root_service: &'a str,
+            target_group_id: Option<String>,
             root_advertised: bool,
             root_in_last_group_page: bool,
+            target_group_advertised: bool,
+            target_group_in_last_page: bool,
+            target_group_selected_last_page: bool,
         }
 
         impl LogGroupSelector for ModelProbeSelector<'_> {
@@ -2072,8 +2132,22 @@ mod tests {
                         .iter()
                         .any(|group| group["service"].as_str() == Some(self.root_service));
                     self.root_advertised |= self.root_in_last_group_page;
+                    self.target_group_in_last_page =
+                        self.target_group_id.as_deref().is_some_and(|id| {
+                            request["groups"].as_array().is_some_and(|groups| {
+                                groups.iter().any(|group| group["id"].as_str() == Some(id))
+                            })
+                        });
+                    self.target_group_advertised |= self.target_group_in_last_page;
                 }
-                self.model.select(request)
+                let selected = self.model.select(request)?;
+                if request["selection_kind"].as_str() != Some("service_directory") {
+                    self.target_group_selected_last_page = self
+                        .target_group_id
+                        .as_ref()
+                        .is_some_and(|id| selected.contains(id));
+                }
+                Ok(selected)
             }
         }
 
@@ -2089,6 +2163,7 @@ mod tests {
             OpenAiIncidentReasoner::from_compact_environment()
                 .expect("configure a local Ollama model or OPENAI_API_KEY")
         });
+        const TASK: &str = "Investigate service errors and failed requests";
         for (case, label) in labels.as_object().unwrap() {
             let root_service = label["root_cause_service"].as_str().unwrap();
             let root_message = label["root_message"].as_str();
@@ -2121,6 +2196,7 @@ mod tests {
             let mut root_source_lines = 0;
             let mut post_injection_root_source_lines = 0;
             let mut labeled_source_lines = 0;
+            let mut labeled_native_id = None::<Vec<u8>>;
             for (start, chunk) in lines.chunks(256).enumerate() {
                 let records = chunk
                     .iter()
@@ -2128,14 +2204,18 @@ mod tests {
                     .map(|(offset, line)| {
                         let row: Value = serde_json::from_slice(line).unwrap();
                         let root = row["service"].as_str() == Some(root_service);
-                        labeled_source_lines += usize::from(
-                            root && root_message.is_some_and(|message| row["message"] == message),
-                        );
+                        let labeled =
+                            root && root_message.is_some_and(|message| row["message"] == message);
+                        let native_id = format!("line-{}", start * 256 + offset).into_bytes();
+                        if labeled {
+                            labeled_source_lines += 1;
+                            labeled_native_id = Some(native_id.clone());
+                        }
                         root_source_lines += usize::from(root);
                         post_injection_root_source_lines +=
                             usize::from(root && row["timestamp"].as_i64().unwrap() >= inject_time);
                         HistoryRecordV1 {
-                            native_id: format!("line-{}", start * 256 + offset).into_bytes(),
+                            native_id,
                             event_timestamp_millis: row["timestamp"].as_i64().unwrap() * 1000,
                             bytes: line.to_vec(),
                         }
@@ -2147,6 +2227,48 @@ mod tests {
             if root_message.is_some() {
                 assert_eq!(labeled_source_lines, 1);
             }
+            let target_group = labeled_native_id
+                .as_deref()
+                .map(|id| store.group_for_record(id).unwrap().unwrap());
+            let target_group_id = target_group
+                .as_ref()
+                .map(|group| format!("S0G{}", group.group_id));
+            let target_group_represents_label = target_group.as_ref().is_some_and(|group| {
+                labeled_native_id
+                    .as_ref()
+                    .is_some_and(|id| group.first_native_id == *id || group.last_native_id == *id)
+            });
+            let target_group_in_lexical = target_group.as_ref().is_some_and(|group| {
+                store
+                    .search_candidate_groups(TASK, 256)
+                    .unwrap()
+                    .groups
+                    .iter()
+                    .any(|candidate| candidate.group_id == group.group_id)
+            });
+            let target_severe_repeat_rank = target_group.as_ref().and_then(|target| {
+                let mut severe = Vec::new();
+                let mut after = 0;
+                loop {
+                    let page = store.read_group_cards(after, 256).unwrap();
+                    if page.is_empty() {
+                        break;
+                    }
+                    after = page.last().unwrap().group_id;
+                    severe.extend(page.into_iter().filter(|card| {
+                        matches!(card.role.as_str(), "critical" | "error" | "warning")
+                    }));
+                }
+                severe.sort_unstable_by(|a, b| {
+                    b.repeat_count
+                        .cmp(&a.repeat_count)
+                        .then_with(|| a.group_id.cmp(&b.group_id))
+                });
+                severe
+                    .iter()
+                    .position(|card| card.group_id == target.group_id)
+                    .map(|rank| rank + 1)
+            });
             let recent = recent_lines(&store, 32768);
             let recent_labeled_lines = recent
                 .iter()
@@ -2178,9 +2300,13 @@ mod tests {
             for (method, severity_only) in [("first_id", false), ("severity", true)] {
                 let mut selector = ProbeSelector {
                     root_service,
+                    target_group_id: target_group_id.clone(),
                     severity_only,
                     root_advertised: false,
                     root_in_last_group_page: false,
+                    target_group_advertised: false,
+                    target_group_in_last_page: false,
+                    target_group_selected_last_page: false,
                 };
                 let started = Instant::now();
                 let pack = select_connected_logs(
@@ -2188,7 +2314,7 @@ mod tests {
                         source_digest: [2; 32],
                         store: &store,
                     }],
-                    "Investigate service errors and failed requests",
+                    TASK,
                     32768,
                     &mut selector,
                 )
@@ -2232,6 +2358,14 @@ mod tests {
                         "root_source_lines": root_source_lines,
                         "post_injection_root_source_lines": post_injection_root_source_lines,
                         "labeled_source_lines": labeled_source_lines,
+                        "target_group_repeat_count": target_group.as_ref().map(|group| group.repeat_count),
+                        "target_group_represents_label": target_group_represents_label,
+                        "target_group_in_lexical": target_group_in_lexical,
+                        "target_severe_repeat_rank": target_severe_repeat_rank,
+                        "task_match_strength": store.task_match_strength(TASK).unwrap(),
+                        "target_group_advertised": selector.target_group_advertised,
+                        "target_group_in_last_page": selector.target_group_in_last_page,
+                        "target_group_selected_last_page": selector.target_group_selected_last_page,
                         "groups": store.group_count().unwrap(),
                         "ingest_ms": ingest_ms,
                         "query_ms": started.elapsed().as_millis(),
@@ -2262,8 +2396,12 @@ mod tests {
                 let mut selector = ModelProbeSelector {
                     model,
                     root_service,
+                    target_group_id: target_group_id.clone(),
                     root_advertised: false,
                     root_in_last_group_page: false,
+                    target_group_advertised: false,
+                    target_group_in_last_page: false,
+                    target_group_selected_last_page: false,
                 };
                 let started = Instant::now();
                 let pack = select_connected_logs(
@@ -2271,7 +2409,7 @@ mod tests {
                         source_digest: [2; 32],
                         store: &store,
                     }],
-                    "Investigate service errors and failed requests",
+                    TASK,
                     32768,
                     &mut selector,
                 )
@@ -2320,6 +2458,13 @@ mod tests {
                         "selected_root_lines": selected_root_lines,
                         "selected_post_injection_root_lines": selected_post_injection_root_lines,
                         "selected_labeled_lines": selected_labeled_lines,
+                        "target_group_repeat_count": target_group.as_ref().map(|group| group.repeat_count),
+                        "target_group_represents_label": target_group_represents_label,
+                        "target_group_in_lexical": target_group_in_lexical,
+                        "target_severe_repeat_rank": target_severe_repeat_rank,
+                        "target_group_advertised": selector.target_group_advertised,
+                        "target_group_in_last_page": selector.target_group_in_last_page,
+                        "target_group_selected_last_page": selector.target_group_selected_last_page,
                         "selected_template_lines": selected_template_lines,
                         "labeled_source_lines": labeled_source_lines,
                         "query_ms": started.elapsed().as_millis(),

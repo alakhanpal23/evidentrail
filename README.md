@@ -130,12 +130,13 @@ the first-ID baseline found it in 3/3. Neither local route is qualified for
 unconditional connected selection by this probe.
 An opt-in [seven-case RCAEval line-label probe](reports/connected-rcaeval-labeled-2026-09-24.md)
 checks published root-cause log lines across 596,494 Sock Shop records. The
-first-ID selector found the labeled service in all seven cases but returned
-the exact labeled line or its parsed template in none; a recent-line baseline
-also missed every label. A parser update reduces template fragmentation and
-rebuilds derived indexes on reopen while preserving original log bytes, but
-did not improve line recall on this generic-task probe. Model and downstream
-fix quality remain unqualified.
+first-ID selector initially found the labeled service in all seven cases but
+returned neither the exact labeled line nor its parsed template. After an
+indexed repeated-severity candidate path, it found 3/7 exact lines and 7/7
+parsed templates at the same output budget. This increased selector paging
+and candidate truncation; a recent-line baseline still missed every label.
+The parser groups variable fields while preserving original log bytes. Model
+selection and downstream fix quality remain unqualified.
 An opt-in [executable fault-stream probe](reports/connected-executable-2026-09-24.md)
 uses three frozen synthetic faults with an early causal precursor and a later
 symptom. Both the first-ID baseline and one local model run returned both

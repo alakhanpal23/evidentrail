@@ -272,6 +272,9 @@ impl EncryptedHistoryStore {
                  CREATE INDEX IF NOT EXISTS log_groups_severe_service_time
                      ON log_groups(service, last_timestamp_millis DESC, group_id DESC)
                      WHERE role IN ('critical', 'error', 'warning');
+                 CREATE INDEX IF NOT EXISTS log_groups_severe_repeat
+                     ON log_groups(repeat_count DESC, group_id)
+                     WHERE role IN ('critical', 'error', 'warning');
                  CREATE TABLE IF NOT EXISTS severe_service_groups (
                      service TEXT PRIMARY KEY,
                      group_count INTEGER NOT NULL CHECK (group_count > 0),
@@ -1235,6 +1238,24 @@ impl EncryptedHistoryStore {
             .map_err(|_| CorpusError::Storage)
     }
 
+    /// Resolve a source-native record to its current derived template group.
+    /// The caller must already hold authorization for this source-bound store.
+    pub fn group_for_record(
+        &self,
+        native_id: &[u8],
+    ) -> Result<Option<CorpusGroupCard>, CorpusError> {
+        let group_id: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT group_id FROM group_members WHERE native_id = ?1",
+                [native_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| CorpusError::Storage)?;
+        group_id.map(|id| self.read_group_by_id(id)).transpose()
+    }
+
     /// Search the complete indexed group corpus with a bounded lexical candidate pool.
     /// An empty result does not prove that no relevant logs exist; callers must
     /// surface retrieval uncertainty and may page through all group cards.
@@ -1302,6 +1323,35 @@ impl EncryptedHistoryStore {
             total_groups,
             candidate_pool_truncated,
         })
+    }
+
+    /// Number of distinct query terms and the largest number found in one group.
+    pub fn task_match_strength(&self, task: &str) -> Result<(usize, usize), CorpusError> {
+        if task.len() > 8192 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let terms = search_terms(task, 32);
+        if terms.is_empty() {
+            return Ok((0, 0));
+        }
+        let placeholders = vec!["?"; terms.len()].join(",");
+        let sql = format!(
+            "SELECT COALESCE(MAX(matches), 0) FROM (
+                SELECT COUNT(*) AS matches FROM group_terms
+                WHERE term_digest IN ({placeholders}) GROUP BY group_id)"
+        );
+        let digests = terms
+            .iter()
+            .map(|term| Sha256::digest(term.as_bytes()).to_vec())
+            .collect::<Vec<_>>();
+        let matched: i64 = self
+            .connection
+            .query_row(&sql, rusqlite::params_from_iter(&digests), |row| row.get(0))
+            .map_err(|_| CorpusError::Storage)?;
+        Ok((
+            terms.len(),
+            usize::try_from(matched).map_err(|_| CorpusError::Storage)?,
+        ))
     }
 
     /// Fallback when task terms do not match any indexed group. This is a
@@ -1386,6 +1436,54 @@ impl EncryptedHistoryStore {
                 }
             }
         }
+        Ok(CandidateGroupPage {
+            groups,
+            total_groups,
+            candidate_pool_truncated,
+        })
+    }
+
+    /// High-repeat severe templates across the accessible source corpus.
+    /// These are candidates, not proof of causality or a complete ranking.
+    pub fn search_repeated_severe_groups(
+        &self,
+        limit: usize,
+    ) -> Result<CandidateGroupPage, CorpusError> {
+        if limit == 0 || limit > 256 {
+            return Err(CorpusError::InvalidPageBudget);
+        }
+        let total_groups = self.group_count()?;
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT group_id, service, role, repeat_count,
+                        first_timestamp_millis, last_timestamp_millis,
+                        first_native_id, last_native_id
+                 FROM log_groups
+                 WHERE role IN ('critical', 'error', 'warning')
+                   AND repeat_count > 1
+                 ORDER BY repeat_count DESC, group_id ASC LIMIT ?1",
+            )
+            .map_err(|_| CorpusError::Storage)?;
+        let rows = statement
+            .query_map([limit as i64 + 1], |row| {
+                Ok(CorpusGroupCard {
+                    group_id: row.get(0)?,
+                    service: row.get(1)?,
+                    role: row.get(2)?,
+                    repeat_count: row.get(3)?,
+                    first_timestamp_millis: row.get(4)?,
+                    last_timestamp_millis: row.get(5)?,
+                    first_native_id: row.get(6)?,
+                    last_native_id: row.get(7)?,
+                })
+            })
+            .map_err(|_| CorpusError::Storage)?;
+        let mut groups = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CorpusError::Storage)?;
+        let candidate_pool_truncated = groups.len() > limit;
+        groups.truncate(limit);
         Ok(CandidateGroupPage {
             groups,
             total_groups,
@@ -2830,6 +2928,11 @@ mod tests {
             assert!(!match_page.candidate_pool_truncated);
             assert_eq!(match_page.total_groups, store.group_count().unwrap());
             assert_eq!(
+                store.task_match_strength("inventory reservation").unwrap(),
+                (2, 2)
+            );
+            assert_eq!(store.task_match_strength("unmatched quux").unwrap(), (2, 0));
+            assert_eq!(
                 store
                     .search_candidate_groups("checkout error", 1)
                     .unwrap()
@@ -3098,6 +3201,69 @@ mod tests {
             assert_eq!(groups[0].repeat_count, 2);
             assert_eq!(groups[0].role, "warning");
         }
+        cleanup(&path);
+    }
+
+    #[test]
+    fn native_record_resolves_to_its_derived_group() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[33; 32], &[1; 32], &[2; 32]).unwrap();
+        store
+            .commit_page_checked(&[
+                HistoryRecordV1 {
+                    native_id: b"first".to_vec(),
+                    event_timestamp_millis: 1,
+                    bytes: br#"{"service":"front-end","message":"POST /cart 500 72.969 ms - 70"}"#
+                        .to_vec(),
+                },
+                HistoryRecordV1 {
+                    native_id: b"second".to_vec(),
+                    event_timestamp_millis: 2,
+                    bytes: br#"{"service":"front-end","message":"POST /cart 500 54.305 ms - 82"}"#
+                        .to_vec(),
+                },
+            ])
+            .unwrap();
+        let first = store.group_for_record(b"first").unwrap().unwrap();
+        let second = store.group_for_record(b"second").unwrap().unwrap();
+        assert_eq!(first.group_id, second.group_id);
+        assert_eq!(first.repeat_count, 2);
+        assert_eq!(store.group_for_record(b"missing").unwrap(), None);
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn repeated_severe_search_orders_by_repeat_count_and_reports_cap() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[34; 32], &[1; 32], &[2; 32]).unwrap();
+        let mut records = Vec::new();
+        for (label, status, count) in [
+            ("rare", "error", 2),
+            ("common", "warning", 3),
+            ("healthy", "info", 5),
+        ] {
+            for index in 0..count {
+                records.push(HistoryRecordV1 {
+                    native_id: format!("{label}-{index}").into_bytes(),
+                    event_timestamp_millis: index,
+                    bytes: format!(
+                        "{{\"service\":\"api\",\"status\":\"{status}\",\"message\":\"{label}\"}}"
+                    )
+                    .into_bytes(),
+                });
+            }
+        }
+        store.commit_page_checked(&records).unwrap();
+        let page = store.search_repeated_severe_groups(1).unwrap();
+        assert!(page.candidate_pool_truncated);
+        assert_eq!(page.groups.len(), 1);
+        assert_eq!(page.groups[0].repeat_count, 3);
+        assert_eq!(
+            store.search_repeated_severe_groups(2).unwrap().groups[1].repeat_count,
+            2
+        );
+        drop(store);
         cleanup(&path);
     }
 
