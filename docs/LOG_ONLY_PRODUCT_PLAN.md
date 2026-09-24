@@ -93,6 +93,13 @@ services, but still only 1/7 exact lines while returning 154 rather than 130
 lines. The extra non-root-service lines have no relevance labels. This keeps
 the model route unqualified until useful-answer and downstream-fix evaluations
 can test the recall/noise tradeoff.
+An evaluation-only replay reserving two final slots for repeated severe groups
+recovered 7/7 labeled templates and 3/7 exact lines in one paired run, versus
+4/7 and 1/7 for the local model, with 156 versus 154 returned lines. The
+first-ID baseline matched its label coverage with 154 lines. The replay made
+no additional model calls but displaced selected groups in three cases; their
+usefulness is unknown. The safeguard is not shipped pending held-out relevance
+and downstream repair evaluation.
 An opt-in live-model harness now runs the actual selector over the same pinned
 12-category BGL proxy and verifies every emitted line against the encrypted
 corpus. A local Qwen2.5-Coder 7B run hit 12/12 categories with 107 off-label

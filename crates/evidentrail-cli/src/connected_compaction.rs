@@ -2258,6 +2258,7 @@ mod tests {
 
         struct ModelProbeSelector<'a> {
             model: &'a mut OpenAiIncidentReasoner,
+            trace: Vec<(Value, Vec<String>)>,
             root_service: &'a str,
             target_group_id: Option<String>,
             root_advertised: bool,
@@ -2285,6 +2286,7 @@ mod tests {
                     self.target_group_advertised |= self.target_group_in_last_page;
                 }
                 let selected = self.model.select(request)?;
+                self.trace.push((request.clone(), selected.clone()));
                 if request["selection_kind"].as_str() != Some("service_directory") {
                     self.target_group_selected_last_page = self
                         .target_group_id
@@ -2292,6 +2294,60 @@ mod tests {
                         .is_some_and(|id| selected.contains(id));
                 }
                 Ok(selected)
+            }
+        }
+
+        struct GuardedReplaySelector {
+            trace: Vec<(Value, Vec<String>)>,
+            cursor: usize,
+            protected: usize,
+        }
+
+        impl LogGroupSelector for GuardedReplaySelector {
+            fn select(&mut self, request: &Value) -> Result<Vec<String>, CompactionError> {
+                let (expected, recorded) = self
+                    .trace
+                    .get(self.cursor)
+                    .ok_or(CompactionError::InvalidInput)?;
+                if expected != request {
+                    return Err(CompactionError::InvalidInput);
+                }
+                self.cursor += 1;
+                let mut selected = recorded.clone();
+                if request["max_selected_groups"].as_u64() != Some(FINAL_SELECTION_LIMIT as u64)
+                    || request["selection_kind"].as_str() == Some("service_directory")
+                {
+                    return Ok(selected);
+                }
+                let mut repeated = request["groups"]
+                    .as_array()
+                    .ok_or(CompactionError::InvalidInput)?
+                    .iter()
+                    .filter(|group| {
+                        group["count"].as_u64().is_some_and(|count| count > 1)
+                            && matches!(
+                                group["role"].as_str(),
+                                Some("critical" | "error" | "warning")
+                            )
+                    })
+                    .collect::<Vec<_>>();
+                repeated.sort_unstable_by(|left, right| {
+                    right["count"]
+                        .as_u64()
+                        .cmp(&left["count"].as_u64())
+                        .then_with(|| left["id"].as_str().cmp(&right["id"].as_str()))
+                });
+                let protected = repeated
+                    .into_iter()
+                    .take(2)
+                    .map(|group| group["id"].as_str().unwrap().to_owned())
+                    .collect::<Vec<_>>();
+                self.protected += protected.iter().filter(|id| !selected.contains(id)).count();
+                let mut guarded = protected;
+                let mut seen = guarded.iter().cloned().collect::<BTreeSet<_>>();
+                guarded.extend(selected.drain(..).filter(|id| seen.insert(id.clone())));
+                guarded.truncate(FINAL_SELECTION_LIMIT);
+                Ok(guarded)
             }
         }
 
@@ -2539,6 +2595,7 @@ mod tests {
             if let Some(model) = &mut model {
                 let mut selector = ModelProbeSelector {
                     model,
+                    trace: Vec::new(),
                     root_service,
                     target_group_id: target_group_id.clone(),
                     root_advertised: false,
@@ -2617,6 +2674,64 @@ mod tests {
                         "candidate_pool_truncated": pack.candidate_pool_truncated,
                         "service_directory_truncated": pack.service_directory_truncated,
                         "output_budget_truncated": pack.output_budget_truncated,
+                        "raw_log_budget": 32768,
+                    })
+                );
+                let mut replay = GuardedReplaySelector {
+                    trace: std::mem::take(&mut selector.trace),
+                    cursor: 0,
+                    protected: 0,
+                };
+                let guard_started = Instant::now();
+                let guarded = select_connected_logs(
+                    &[AuthorizedCorpus {
+                        source_digest: [2; 32],
+                        store: &store,
+                    }],
+                    TASK,
+                    32768,
+                    &mut replay,
+                )
+                .unwrap();
+                assert_eq!(replay.cursor, replay.trace.len());
+                let guarded_lines = pack_lines(&guarded);
+                let guarded_root = guarded_lines
+                    .iter()
+                    .filter(|(id, raw)| {
+                        assert_eq!(store.get_record(id).unwrap().unwrap().bytes, *raw);
+                        serde_json::from_slice::<Value>(raw).unwrap()["service"].as_str()
+                            == Some(root_service)
+                    })
+                    .count();
+                let guarded_label = guarded_lines
+                    .iter()
+                    .filter(|(_, raw)| {
+                        let row: Value = serde_json::from_slice(raw).unwrap();
+                        row["service"].as_str() == Some(root_service)
+                            && root_message.is_some_and(|message| row["message"] == message)
+                    })
+                    .count();
+                let guarded_template = guarded_lines
+                    .iter()
+                    .filter(|(_, raw)| matches_root_template(raw))
+                    .count();
+                println!(
+                    "RCAEVAL_CONNECTED_EVAL {}",
+                    json!({
+                        "case": case,
+                        "method": "model_guard2_replay",
+                        "model": model_name,
+                        "labeled_source_lines": labeled_source_lines,
+                        "selected_lines": guarded_lines.len(),
+                        "selected_root_lines": guarded_root,
+                        "selected_labeled_lines": guarded_label,
+                        "selected_template_lines": guarded_template,
+                        "protected_groups": replay.protected,
+                        "query_ms": guard_started.elapsed().as_millis(),
+                        "selection_calls": guarded.selection_calls,
+                        "candidate_pool_truncated": guarded.candidate_pool_truncated,
+                        "service_directory_truncated": guarded.service_directory_truncated,
+                        "output_budget_truncated": guarded.output_budget_truncated,
                         "raw_log_budget": 32768,
                     })
                 );
