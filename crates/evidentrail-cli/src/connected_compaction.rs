@@ -2,6 +2,7 @@
 //! Caller owns connection authorization, catch-up, and completeness receipts.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::{Duration, Instant};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use evidentrail_corpus::{CorpusGroupCard, EncryptedHistoryStore, RecordSample};
@@ -51,7 +52,27 @@ pub struct ConnectedLogPack {
     pub service_directory_truncated: bool,
     pub candidate_pool_truncated: bool,
     pub output_budget_truncated: bool,
+    /// Actual selector invocations, including service-directory and group pages.
+    pub selection_calls: usize,
+    /// Wall time spent in selector calls, excluding local corpus search and rendering.
+    pub selection_elapsed_ms: u128,
     pub selected: Vec<ConnectedLogEntry>,
+}
+
+struct MeasuredSelector<'a, S> {
+    inner: &'a mut S,
+    calls: usize,
+    elapsed: Duration,
+}
+
+impl<S: LogGroupSelector> LogGroupSelector for MeasuredSelector<'_, S> {
+    fn select(&mut self, request: &Value) -> Result<Vec<String>, CompactionError> {
+        self.calls += 1;
+        let started = Instant::now();
+        let result = self.inner.select(request);
+        self.elapsed += started.elapsed();
+        result
+    }
 }
 
 struct PreparedCard {
@@ -94,6 +115,11 @@ fn select_connected_logs_with_graph(
     {
         return Err(CompactionError::InvalidInput);
     }
+    let mut measured = MeasuredSelector {
+        inner: selector,
+        calls: 0,
+        elapsed: Duration::ZERO,
+    };
     let mut tenant = None;
     let mut seen_sources = BTreeSet::new();
     let mut source_record_counts = Vec::with_capacity(sources.len());
@@ -156,7 +182,7 @@ fn select_connected_logs_with_graph(
     let directory = select_service_candidates(
         sources,
         task,
-        selector,
+        &mut measured,
         &directory_eligible,
         &mut source_cards,
     )?;
@@ -236,7 +262,7 @@ fn select_connected_logs_with_graph(
                 chunk,
                 task,
                 PAGE_SELECTION_LIMIT,
-                selector,
+                &mut measured,
             )? {
                 if seen.insert(index) {
                     reduced.push(index);
@@ -252,7 +278,7 @@ fn select_connected_logs_with_graph(
         &candidates,
         task,
         FINAL_SELECTION_LIMIT,
-        selector,
+        &mut measured,
     )?;
     let mut selected = Vec::new();
     let mut selected_bytes = 0usize;
@@ -338,6 +364,8 @@ fn select_connected_logs_with_graph(
         service_directory_truncated: directory.truncated,
         candidate_pool_truncated,
         output_budget_truncated,
+        selection_calls: measured.calls,
+        selection_elapsed_ms: measured.elapsed.as_millis(),
         selected,
     })
 }
@@ -1099,6 +1127,7 @@ mod tests {
         )
         .unwrap();
         assert!(pack.candidate_count > GROUPS_PER_PAGE);
+        assert_eq!(pack.selection_calls, 4);
         let final_page_groups = (pack.candidate_count / GROUPS_PER_PAGE) * PAGE_SELECTION_LIMIT
             + (pack.candidate_count % GROUPS_PER_PAGE).min(PAGE_SELECTION_LIMIT);
         assert_eq!(
@@ -1967,6 +1996,8 @@ mod tests {
                     "prefinal_pruned_groups": pack.prefinal_pruned_groups,
                     "service_directory_truncated": pack.service_directory_truncated,
                     "output_budget_truncated": pack.output_budget_truncated,
+                    "selection_calls": pack.selection_calls,
+                    "selection_elapsed_ms": pack.selection_elapsed_ms,
                     "elapsed_ms": duration_ms,
                 })
             );
@@ -2134,6 +2165,8 @@ mod tests {
                         "groups": store.group_count().unwrap(),
                         "ingest_ms": ingest_ms,
                         "query_ms": started.elapsed().as_millis(),
+                        "selection_calls": pack.selection_calls,
+                        "selection_elapsed_ms": pack.selection_elapsed_ms,
                         "root_advertised": selector.root_advertised,
                         "root_in_last_group_page": selector.root_in_last_group_page,
                         "candidate_groups": pack.candidate_count,
@@ -2190,6 +2223,8 @@ mod tests {
                         "selected_lines": selected.len(),
                         "selected_root_lines": selected_root_lines,
                         "query_ms": started.elapsed().as_millis(),
+                        "selection_calls": pack.selection_calls,
+                        "selection_elapsed_ms": pack.selection_elapsed_ms,
                         "candidate_pool_truncated": pack.candidate_pool_truncated,
                         "service_directory_truncated": pack.service_directory_truncated,
                         "output_budget_truncated": pack.output_budget_truncated,

@@ -10,7 +10,7 @@ use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::{
     AuthorizedCorpus, CliFailure, ConnectedLogPack, OpenAiIncidentReasoner, select_connected_logs,
@@ -265,6 +265,7 @@ pub(crate) fn query_connected_logs(
     task: &str,
     max_raw_bytes: usize,
 ) -> Result<ConnectedQueryResult, ConnectedQueryError> {
+    let query_started = Instant::now();
     if task.trim().is_empty()
         || task.len() > 4096
         || max_raw_bytes == 0
@@ -439,6 +440,9 @@ pub(crate) fn query_connected_logs(
         "service_directory_truncated": pack.service_directory_truncated,
         "candidate_pool_truncated": pack.candidate_pool_truncated,
         "output_budget_truncated": pack.output_budget_truncated,
+        "selection_calls": pack.selection_calls,
+        "selection_elapsed_ms": pack.selection_elapsed_ms,
+        "query_elapsed_ms": query_started.elapsed().as_millis(),
         "selected_groups": pack.selected.len(),
         "total_groups": pack.total_groups,
         "raw_byte_budget": max_raw_bytes,
@@ -2907,6 +2911,8 @@ mod tests {
             service_directory_truncated: false,
             candidate_pool_truncated: false,
             output_budget_truncated: false,
+            selection_calls: 1,
+            selection_elapsed_ms: 0,
             selected: vec![crate::ConnectedLogEntry {
                 source_digest: [2; 32],
                 first_native_id: b"event-1".to_vec(),

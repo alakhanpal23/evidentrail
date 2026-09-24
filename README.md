@@ -82,7 +82,11 @@ fully verified. `logs` catches up each source, excludes sources whose current
 authorization or sync fails, selects groups globally, and writes original
 source records as JSON lines on stdout. Source status and retrieval truncation
 go to stderr as JSON. The byte budget counts original log bytes, not rendered
-JSON or model tokens. The memory-only MCP server supports bounded expansion
+JSON or model tokens. Query metadata also reports total query elapsed time,
+selector call count, and time spent in selector calls, so multi-page model
+latency is visible separately from source catch-up and corpus search. These
+single-query observations are not latency guarantees or provider token costs.
+The memory-only MCP server supports bounded expansion
 of a selected line into chronological neighbors. Its 30-minute handle is scoped
 to the selected source and native ID, and expansion checks the live source
 connection again before reading the encrypted corpus. LaunchAgent startup has
