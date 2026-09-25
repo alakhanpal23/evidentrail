@@ -1,0 +1,44 @@
+{
+  "cases": 6,
+  "classification": "synthetic_development_only",
+  "cost_usd": null,
+  "cross_task_memory_ablation": {
+    "labeled_cases": 0,
+    "memory_on_vs_off": "identical_in_shadow_mode"
+  },
+  "fixture_sha256": "4aec1c0d2d485d60748b11ad88b38839ce927ddda161ddf25060d1ed31d693f2",
+  "graph_p95_elapsed_ms": 13.623,
+  "metrics": {
+    "graph": {
+      "evidence_recalled": 7,
+      "evidence_total": 7,
+      "irrelevant_logs": 33,
+      "source_exact": true
+    },
+    "lexical_only": {
+      "evidence_recalled": 6,
+      "evidence_total": 7,
+      "irrelevant_logs": 33,
+      "source_exact": true
+    },
+    "recent_baseline": {
+      "evidence_recalled": 0,
+      "evidence_total": 7,
+      "irrelevant_logs": 72,
+      "source_exact": true
+    },
+    "severity_selector": {
+      "evidence_recalled": 7,
+      "evidence_total": 7,
+      "irrelevant_logs": 33,
+      "source_exact": true
+    }
+  },
+  "model_calls": null,
+  "promotion_qualified": false,
+  "raw_budget_per_case": 4096,
+  "reproduce": "cargo test -p evidentrail-cli --lib frozen_connected_retrieval_v2_reports_graph_ablation_and_recent_baseline -- --nocapture",
+  "schema_version": 1,
+  "selector_calls": 21,
+  "verified_held_out_repairs": null
+}

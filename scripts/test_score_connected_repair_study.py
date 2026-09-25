@@ -88,6 +88,15 @@ class RepairStudyScoreTests(unittest.TestCase):
         self.assertFalse(result["challenger_eligible_for_human_review"])
         self.assertEqual(result["paired_comparisons"]["no_logs"]["one_sided_exact_p"], 1.0)
 
+    def test_current_route_is_scored_against_every_baseline(self):
+        manifest, rows = self.fixture()
+        for row in rows:
+            row["repair_test_passes"] = row["arm"] == "current"
+        cases, loaded = self.load(manifest, rows)
+        result = MODULE.score(cases, loaded)
+        self.assertTrue(result["current_eligible_for_human_review"])
+        self.assertEqual(result["current_vs_baselines"]["no_logs"]["target_only"], 10)
+
     def test_missing_or_identical_route_identity_is_rejected(self):
         manifest, rows = self.fixture()
         manifest.pop("repair_agent_model")

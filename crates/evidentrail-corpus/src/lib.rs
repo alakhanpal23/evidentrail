@@ -17,6 +17,9 @@ use rusqlite::{Connection, OptionalExtension as _, Transaction, TransactionBehav
 use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
 
+mod learning_route;
+pub use learning_route::{LearningLabel, LearningSplit, RouteVersion};
+
 #[cfg(target_os = "macos")]
 mod macos_connected_credentials;
 #[cfg(target_os = "macos")]
@@ -315,6 +318,41 @@ impl EncryptedHistoryStore {
                  );
                  CREATE INDEX IF NOT EXISTS feedback_observations_task
                      ON feedback_observations(task_digest, verdict);
+                 CREATE TABLE IF NOT EXISTS independent_log_labels (
+                     case_id TEXT NOT NULL,
+                     task_digest BLOB NOT NULL CHECK (length(task_digest) = 32),
+                     native_id BLOB NOT NULL REFERENCES history_records(native_id) ON DELETE CASCADE,
+                     label INTEGER NOT NULL CHECK (label IN (-1, 1)),
+                     provenance_digest BLOB NOT NULL CHECK (length(provenance_digest) = 32),
+                     split TEXT NOT NULL CHECK (split IN ('development', 'held_out')),
+                     parser_version INTEGER NOT NULL,
+                     PRIMARY KEY(case_id, native_id)
+                 );
+                 CREATE TABLE IF NOT EXISTS independent_label_terms (
+                     case_id TEXT NOT NULL,
+                     term_digest BLOB NOT NULL CHECK (length(term_digest) = 32),
+                     PRIMARY KEY(case_id, term_digest)
+                 );
+                 CREATE TABLE IF NOT EXISTS verified_case_outcomes (
+                     case_id TEXT PRIMARY KEY,
+                     task_digest BLOB NOT NULL CHECK (length(task_digest) = 32),
+                     repaired INTEGER NOT NULL CHECK (repaired IN (0, 1)),
+                     verifier_digest BLOB NOT NULL CHECK (length(verifier_digest) = 32)
+                 );
+                 CREATE TABLE IF NOT EXISTS retrieval_route_versions (
+                     version INTEGER PRIMARY KEY,
+                     parent_version INTEGER REFERENCES retrieval_route_versions(version),
+                     selector_id TEXT NOT NULL,
+                     model_id TEXT NOT NULL,
+                     training_digest BLOB NOT NULL CHECK (length(training_digest) = 32),
+                     report_digest BLOB NOT NULL CHECK (length(report_digest) = 32),
+                     held_out_passed INTEGER NOT NULL CHECK (held_out_passed IN (0, 1)),
+                     status TEXT NOT NULL CHECK (status IN ('shadow', 'active', 'retired'))
+                 );
+                 CREATE TABLE IF NOT EXISTS retrieval_route_state (
+                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                     active_version INTEGER REFERENCES retrieval_route_versions(version)
+                 );
                  CREATE TABLE IF NOT EXISTS feedback_promotions (
                      task_digest BLOB NOT NULL CHECK (length(task_digest) = 32),
                      native_id BLOB NOT NULL REFERENCES history_records(native_id) ON DELETE CASCADE,
@@ -2834,6 +2872,258 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    #[test]
+    fn independent_cross_task_labels_are_bounded_and_conflicts_suppress_learning() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[7; 32], &[1; 32], &[2; 32]).unwrap();
+        store
+            .commit_page_checked(&[
+                HistoryRecordV1 {
+                    native_id: b"a".to_vec(),
+                    event_timestamp_millis: 1,
+                    bytes: b"[checkout] ERROR: inventory reservation failed".to_vec(),
+                },
+                HistoryRecordV1 {
+                    native_id: b"b".to_vec(),
+                    event_timestamp_millis: 2,
+                    bytes: b"[checkout] ERROR: inventory reservation failed".to_vec(),
+                },
+            ])
+            .unwrap();
+        let cards = store
+            .search_candidate_groups("inventory failure", 16)
+            .unwrap()
+            .groups;
+        assert_eq!(cards.len(), 1);
+        store
+            .record_verified_case_outcome("repair-1", "inventory issue", true, [8; 32])
+            .unwrap();
+        for nonce in [[1; 32], [2; 32], [3; 32]] {
+            store
+                .record_feedback("inventory issue", b"a", &nonce, FeedbackVerdict::Useful)
+                .unwrap();
+        }
+        assert!(
+            store
+                .shadow_group_bonus("inventory failure", &cards)
+                .unwrap()
+                .is_empty()
+        );
+        store
+            .record_independent_label(
+                "case-1",
+                "inventory issue",
+                b"a",
+                LearningLabel::Relevant,
+                LearningSplit::Development,
+                [9; 32],
+            )
+            .unwrap();
+        assert!(
+            store
+                .shadow_group_bonus("inventory failure", &cards)
+                .unwrap()
+                .is_empty()
+        );
+        store
+            .record_independent_label(
+                "case-2-held",
+                "inventory timeout",
+                b"b",
+                LearningLabel::Relevant,
+                LearningSplit::HeldOut,
+                [10; 32],
+            )
+            .unwrap();
+        assert!(
+            store
+                .shadow_group_bonus("inventory failure", &cards)
+                .unwrap()
+                .is_empty()
+        );
+        store
+            .record_independent_label(
+                "case-2",
+                "inventory timeout",
+                b"b",
+                LearningLabel::Relevant,
+                LearningSplit::Development,
+                [10; 32],
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .shadow_group_bonus("inventory failure", &cards)
+                .unwrap(),
+            vec![(cards[0].group_id, 2)]
+        );
+        assert!(
+            store
+                .shadow_group_bonus("unrelated database", &cards)
+                .unwrap()
+                .is_empty()
+        );
+        store
+            .record_independent_label(
+                "case-3",
+                "inventory deadlock",
+                b"b",
+                LearningLabel::Irrelevant,
+                LearningSplit::Development,
+                [11; 32],
+            )
+            .unwrap();
+        assert!(
+            store
+                .shadow_group_bonus("inventory failure", &cards)
+                .unwrap()
+                .is_empty()
+        );
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn route_promotion_requires_held_out_gate_and_revocation_invalidates_active_route() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[7; 32], &[1; 32], &[2; 32]).unwrap();
+        store
+            .commit_page_checked(&[HistoryRecordV1 {
+                native_id: b"a".to_vec(),
+                event_timestamp_millis: 1,
+                bytes: b"[checkout] ERROR: inventory reservation failed".to_vec(),
+            }])
+            .unwrap();
+        store
+            .record_independent_label(
+                "case-1",
+                "inventory failure",
+                b"a",
+                LearningLabel::Relevant,
+                LearningSplit::Development,
+                [9; 32],
+            )
+            .unwrap();
+        let failed = store
+            .register_shadow_route("selector-v2", "model-v1", [8; 32], false)
+            .unwrap();
+        assert_eq!(
+            store.promote_route(failed),
+            Err(CorpusError::InvalidPageBudget)
+        );
+        let passed = store
+            .register_shadow_route("selector-v2", "model-v1", [8; 32], true)
+            .unwrap();
+        store.promote_route(passed).unwrap();
+        assert_eq!(store.active_route().unwrap().unwrap().version, passed);
+        store.revoke_learning_evidence(b"a").unwrap();
+        assert!(store.active_route().unwrap().is_none());
+        assert_eq!(store.rollback_route(), Err(CorpusError::InvalidPageBudget));
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn route_rollback_is_atomic_and_never_activates_stale_parent() {
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[7; 32], &[1; 32], &[2; 32]).unwrap();
+        let first = store
+            .register_shadow_route("selector-1", "model-1", [1; 32], true)
+            .unwrap();
+        store.promote_route(first).unwrap();
+        let second = store
+            .register_shadow_route("selector-2", "model-2", [2; 32], true)
+            .unwrap();
+        store.promote_route(second).unwrap();
+        assert_eq!(store.rollback_route().unwrap(), Some(first));
+        assert_eq!(store.active_route().unwrap().unwrap().version, first);
+        assert_eq!(
+            store.inspect_route(second).unwrap().unwrap().status,
+            "retired"
+        );
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn learning_history_does_not_cross_source_boundaries() {
+        let a_path = test_path();
+        let b_path = test_path();
+        let mut a = EncryptedHistoryStore::open(&a_path, &[7; 32], &[1; 32], &[2; 32]).unwrap();
+        let mut b = EncryptedHistoryStore::open(&b_path, &[8; 32], &[1; 32], &[3; 32]).unwrap();
+        let record = HistoryRecordV1 {
+            native_id: b"same-id".to_vec(),
+            event_timestamp_millis: 1,
+            bytes: b"[checkout] ERROR: inventory reservation failed".to_vec(),
+        };
+        a.commit_page_checked(&[record.clone()]).unwrap();
+        b.commit_page_checked(&[record]).unwrap();
+        a.record_independent_label(
+            "a1",
+            "inventory failure",
+            b"same-id",
+            LearningLabel::Relevant,
+            LearningSplit::Development,
+            [4; 32],
+        )
+        .unwrap();
+        a.record_independent_label(
+            "a2",
+            "inventory timeout",
+            b"same-id",
+            LearningLabel::Relevant,
+            LearningSplit::Development,
+            [5; 32],
+        )
+        .unwrap();
+        let a_cards = a
+            .search_candidate_groups("inventory issue", 8)
+            .unwrap()
+            .groups;
+        let b_cards = b
+            .search_candidate_groups("inventory issue", 8)
+            .unwrap()
+            .groups;
+        assert_eq!(
+            a.shadow_group_bonus("inventory issue", &a_cards)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            b.shadow_group_bonus("inventory issue", &b_cards)
+                .unwrap()
+                .is_empty()
+        );
+        assert_ne!(
+            a.learning_fingerprint().unwrap(),
+            b.learning_fingerprint().unwrap()
+        );
+        drop(a);
+        drop(b);
+        cleanup(&a_path);
+        cleanup(&b_path);
+    }
+
+    #[test]
+    fn existing_corpus_migrates_learning_schema_on_reopen() {
+        let path = test_path();
+        let store = EncryptedHistoryStore::open(&path, &[7; 32], &[1; 32], &[2; 32]).unwrap();
+        store.connection.execute_batch("DROP TABLE retrieval_route_state; DROP TABLE retrieval_route_versions; DROP TABLE verified_case_outcomes; DROP TABLE independent_label_terms; DROP TABLE independent_log_labels;").unwrap();
+        drop(store);
+        let mut reopened =
+            EncryptedHistoryStore::open(&path, &[7; 32], &[1; 32], &[2; 32]).unwrap();
+        assert!(reopened.active_route().unwrap().is_none());
+        assert_eq!(
+            reopened
+                .register_shadow_route("selector", "model", [3; 32], false)
+                .unwrap(),
+            1
+        );
+        drop(reopened);
+        cleanup(&path);
     }
 
     #[test]

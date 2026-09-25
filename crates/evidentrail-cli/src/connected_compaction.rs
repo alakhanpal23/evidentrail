@@ -14,7 +14,6 @@ use crate::sensitive_log::contains_sensitive_data;
 const LEXICAL_BUDGET: usize = 256;
 const GRAPH_BUDGET: usize = 64;
 const REPEATED_SEVERE_BUDGET: usize = 8;
-const PROMOTED_FEEDBACK_BUDGET: usize = 8;
 const GROUPS_PER_PAGE: usize = 64;
 const PAGE_SELECTION_LIMIT: usize = 8;
 const FINAL_SELECTION_LIMIT: usize = 12;
@@ -45,6 +44,8 @@ pub struct ConnectedLogPack {
     pub source_record_counts: Vec<([u8; 32], u64)>,
     pub total_groups: u64,
     pub candidate_count: usize,
+    /// Independently labeled memory matches evaluated without changing results.
+    pub shadow_memory_candidates: usize,
     /// Groups removed by intermediate selector pages before the final page.
     pub prefinal_pruned_groups: usize,
     pub graph_candidate_count: usize,
@@ -102,12 +103,61 @@ pub fn select_connected_logs(
     select_connected_logs_with_graph(sources, task, max_output_bytes, selector, true)
 }
 
+/// Evaluate labeled memory in a disposable study corpus without activating a
+/// production route. Callers must provide an isolated corpus and keep this
+/// result out of the live connected selector until qualification succeeds.
+pub fn select_connected_logs_for_study(
+    sources: &[AuthorizedCorpus<'_>],
+    task: &str,
+    max_output_bytes: usize,
+    selector: &mut impl LogGroupSelector,
+    memory_enabled: bool,
+) -> Result<ConnectedLogPack, CompactionError> {
+    select_connected_logs_internal(
+        sources,
+        task,
+        max_output_bytes,
+        selector,
+        true,
+        if memory_enabled {
+            MemoryMode::ShadowOverride
+        } else {
+            MemoryMode::Disabled
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+enum MemoryMode {
+    ActiveOnly,
+    ShadowOverride,
+    Disabled,
+}
+
 fn select_connected_logs_with_graph(
     sources: &[AuthorizedCorpus<'_>],
     task: &str,
     max_output_bytes: usize,
     selector: &mut impl LogGroupSelector,
     graph_enabled: bool,
+) -> Result<ConnectedLogPack, CompactionError> {
+    select_connected_logs_internal(
+        sources,
+        task,
+        max_output_bytes,
+        selector,
+        graph_enabled,
+        MemoryMode::ActiveOnly,
+    )
+}
+
+fn select_connected_logs_internal(
+    sources: &[AuthorizedCorpus<'_>],
+    task: &str,
+    max_output_bytes: usize,
+    selector: &mut impl LogGroupSelector,
+    graph_enabled: bool,
+    memory_mode: MemoryMode,
 ) -> Result<ConnectedLogPack, CompactionError> {
     if sources.is_empty()
         || task.trim().is_empty()
@@ -134,8 +184,7 @@ fn select_connected_logs_with_graph(
     let mut directory_eligible = Vec::with_capacity(sources.len());
     let mut weak_query_sources = Vec::with_capacity(sources.len());
     let mut prepared = Vec::new();
-    let mut promoted_keys = BTreeSet::new();
-    for (source_index, source) in sources.iter().enumerate() {
+    for source in sources {
         let (bound_tenant, bound_source) = source
             .store
             .scope_digests()
@@ -204,24 +253,9 @@ fn select_connected_logs_with_graph(
         needs_directory |= repeated
             .as_ref()
             .is_some_and(|page| page.candidate_pool_truncated);
-        let promotion_limit = PROMOTED_FEEDBACK_BUDGET
-            .saturating_sub(promoted_keys.len())
-            .min((PROMOTED_FEEDBACK_BUDGET / sources.len()).max(1));
-        let promoted = if promotion_limit > 0 {
-            source
-                .store
-                .search_promoted_groups(task, promotion_limit)
-                .map_err(|_| CompactionError::Corpus)?
-        } else {
-            Vec::new()
-        };
-        promoted_keys.extend(promoted.iter().map(|card| (source_index, card.group_id)));
         let mut ranked = cards.into_iter();
-        let mut merged = promoted;
-        let mut seen = merged
-            .iter()
-            .map(|card| card.group_id)
-            .collect::<BTreeSet<_>>();
+        let mut merged = Vec::new();
+        let mut seen = BTreeSet::new();
         merged.extend(ranked.next().filter(|card| seen.insert(card.group_id)));
         if let Some(repeated) = repeated {
             merged.extend(
@@ -232,8 +266,7 @@ fn select_connected_logs_with_graph(
             );
         }
         merged.extend(ranked.filter(|card| seen.insert(card.group_id)));
-        let cards = merged;
-        source_cards.push(cards);
+        source_cards.push(merged);
         directory_eligible.push(needs_directory);
     }
     let directory = select_service_candidates(
@@ -303,10 +336,37 @@ fn select_connected_logs_with_graph(
             });
         }
     }
+    let mut memory_keys = BTreeSet::new();
+    let mut shadow_memory_candidates = 0;
+    for (source_index, source) in sources.iter().enumerate() {
+        let cards = prepared
+            .iter()
+            .filter(|entry| entry.source_index == source_index)
+            .map(|entry| entry.card.clone())
+            .collect::<Vec<_>>();
+        let bonuses = source
+            .store
+            .shadow_group_bonus(task, &cards)
+            .map_err(|_| CompactionError::Corpus)?;
+        shadow_memory_candidates += bonuses.len();
+        let use_memory = match memory_mode {
+            MemoryMode::ActiveOnly => source
+                .store
+                .active_route()
+                .map_err(|_| CompactionError::Corpus)?
+                .is_some(),
+            MemoryMode::ShadowOverride => true,
+            MemoryMode::Disabled => false,
+        };
+        if use_memory {
+            memory_keys.extend(bonuses.into_iter().map(|(id, _)| (source_index, id)));
+        }
+    }
+    prepared.sort_by_key(|entry| !memory_keys.contains(&(entry.source_index, entry.card.group_id)));
     let candidate_count = prepared.len();
-    let promoted_representatives = (0..candidate_count)
+    let memory_representatives = (0..candidate_count)
         .filter(|&index| {
-            promoted_keys.contains(&(prepared[index].source_index, prepared[index].card.group_id))
+            memory_keys.contains(&(prepared[index].source_index, prepared[index].card.group_id))
         })
         .collect::<Vec<_>>();
     let mut repeated_representatives = (0..candidate_count)
@@ -332,7 +392,7 @@ fn select_connected_logs_with_graph(
         // evidence before the final selector sees it. Carry both bounded
         // kinds through intermediate rounds; neither is forced into output.
         let candidate_set = candidates.iter().copied().collect::<BTreeSet<_>>();
-        let mut reduced = promoted_representatives
+        let mut reduced = memory_representatives
             .iter()
             .copied()
             .filter(|index| candidate_set.contains(index))
@@ -449,6 +509,7 @@ fn select_connected_logs_with_graph(
         source_record_counts,
         total_groups,
         candidate_count,
+        shadow_memory_candidates,
         prefinal_pruned_groups,
         graph_candidate_count,
         fallback_candidate_count,
@@ -753,7 +814,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Instant;
 
-    use evidentrail_corpus::FeedbackVerdict;
+    use evidentrail_corpus::{FeedbackVerdict, LearningLabel, LearningSplit};
     use evidentrail_ingest::HistoryRecordV1;
     use serde::Deserialize;
     use sha2::{Digest, Sha256};
@@ -884,7 +945,7 @@ mod tests {
     }
 
     #[test]
-    fn promoted_feedback_reaches_connected_candidates_and_negative_rating_revokes_it() {
+    fn repeated_ratings_do_not_change_connected_candidates() {
         let path = test_path();
         let mut store = EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
         store
@@ -928,7 +989,7 @@ mod tests {
         );
         store.promote_feedback(task).unwrap();
         assert!(
-            pack_lines(&query(&store))
+            !pack_lines(&query(&store))
                 .iter()
                 .any(|(id, _)| id == b"missed")
         );
@@ -940,6 +1001,105 @@ mod tests {
                 .iter()
                 .any(|(id, _)| id == b"missed")
         );
+        drop(store);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn qualified_memory_reorders_only_source_local_existing_candidates() {
+        struct First;
+        impl LogGroupSelector for First {
+            fn select(&mut self, request: &Value) -> Result<Vec<String>, CompactionError> {
+                Ok(request["groups"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .take(1)
+                    .map(|card| card["id"].as_str().unwrap().to_owned())
+                    .collect())
+            }
+        }
+        let path = test_path();
+        let mut store = EncryptedHistoryStore::open(&path, &[6; 32], &[1; 32], &[2; 32]).unwrap();
+        store
+            .commit_page_checked(&[
+                HistoryRecordV1 {
+                    native_id: b"target-a".to_vec(),
+                    event_timestamp_millis: 1,
+                    bytes: b"[checkout] ERROR: reservation failed due to inventory".to_vec(),
+                },
+                HistoryRecordV1 {
+                    native_id: b"target-b".to_vec(),
+                    event_timestamp_millis: 2,
+                    bytes: b"[checkout] ERROR: reservation failed due to inventory".to_vec(),
+                },
+                HistoryRecordV1 {
+                    native_id: b"noise".to_vec(),
+                    event_timestamp_millis: 3,
+                    bytes: b"[checkout] ERROR: reservation failed on another path".to_vec(),
+                },
+            ])
+            .unwrap();
+        let query = |store: &EncryptedHistoryStore| {
+            select_connected_logs(
+                &[AuthorizedCorpus {
+                    source_digest: [2; 32],
+                    store,
+                }],
+                "checkout reservation failed",
+                4096,
+                &mut First,
+            )
+            .unwrap()
+        };
+        assert_eq!(pack_lines(&query(&store))[0].0, b"noise");
+        store
+            .record_independent_label(
+                "case-a",
+                "checkout inventory issue",
+                b"target-a",
+                LearningLabel::Relevant,
+                LearningSplit::Development,
+                [8; 32],
+            )
+            .unwrap();
+        store
+            .record_independent_label(
+                "case-b",
+                "checkout inventory error",
+                b"target-b",
+                LearningLabel::Relevant,
+                LearningSplit::Development,
+                [9; 32],
+            )
+            .unwrap();
+        let shadow = query(&store);
+        assert_eq!(shadow.shadow_memory_candidates, 1);
+        assert_eq!(pack_lines(&shadow)[0].0, b"noise");
+        let study = |memory_enabled| {
+            select_connected_logs_for_study(
+                &[AuthorizedCorpus {
+                    source_digest: [2; 32],
+                    store: &store,
+                }],
+                "checkout reservation failed",
+                4096,
+                &mut First,
+                memory_enabled,
+            )
+            .unwrap()
+        };
+        assert_eq!(pack_lines(&study(false))[0].0, b"noise");
+        assert_eq!(pack_lines(&study(true))[0].0, b"target-a");
+        assert_eq!(pack_lines(&query(&store))[0].0, b"noise");
+        let version = store
+            .register_shadow_route("selector-v2", "model-v1", [7; 32], true)
+            .unwrap();
+        store.promote_route(version).unwrap();
+        let active = query(&store);
+        assert_eq!(pack_lines(&active)[0].0, b"target-a");
+        store.revoke_learning_evidence(b"target-a").unwrap();
+        assert_eq!(pack_lines(&query(&store))[0].0, b"noise");
         drop(store);
         cleanup(&path);
     }
@@ -1639,6 +1799,7 @@ mod tests {
                 source_digest: [2; 32],
                 store: &store,
             }];
+            let graph_started = Instant::now();
             let graph = select_connected_logs_with_graph(
                 &sources,
                 &case.task,
@@ -1647,6 +1808,7 @@ mod tests {
                 true,
             )
             .unwrap();
+            let graph_micros = graph_started.elapsed().as_micros();
             let lexical = select_connected_logs_with_graph(
                 &sources,
                 &case.task,
@@ -1667,16 +1829,20 @@ mod tests {
             .unwrap();
             let severity_micros = severity_started.elapsed().as_micros();
             let severity_lines = pack_lines(&severity);
-            for (id, raw) in &graph_lines {
-                assert_eq!(store.get_record(id).unwrap().unwrap().bytes, *raw);
-            }
             let recent = recent_lines(&store, fixture.raw_byte_budget);
+            for lines in [&graph_lines, &lexical_lines, &severity_lines, &recent] {
+                for (id, raw) in lines {
+                    assert_eq!(store.get_record(id).unwrap().unwrap().bytes, *raw);
+                }
+            }
             let result = json!({
                 "case": case.id,
                 "graph": eval_metrics(&graph_lines, &case.required_native_ids, fixture.raw_byte_budget),
                 "lexical_only": eval_metrics(&lexical_lines, &case.required_native_ids, fixture.raw_byte_budget),
                 "severity_selector": eval_metrics(&severity_lines, &case.required_native_ids, fixture.raw_byte_budget),
                 "severity_selector_micros": severity_micros,
+                "graph_elapsed_micros": graph_micros,
+                "graph_selection_calls": graph.selection_calls,
                 "recent_baseline": eval_metrics(&recent, &case.required_native_ids, fixture.raw_byte_budget),
                 "candidate_pool_truncated": graph.candidate_pool_truncated,
                 "graph_candidate_count": graph.graph_candidate_count,

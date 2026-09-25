@@ -7,8 +7,9 @@ same task, tools, edit limit, and output-log budget. Provide only the assigned
 pack: no logs, first advertised IDs, severity, current selector, or challenger.
 Pin the coding-agent model for every paired arm, and name the current and
 challenger retrieval route with their exact selector and model versions.
-Keep the regression test and fixed source out of each agent's workspace.
-Before any trial, fill the three SHA-256 fields from
+Keep the regression test in a separate `hidden_test_tree` and the fixed source
+out of each agent's workspace. The verifier mounts hidden tests only into
+disposable copies. Before any trial, fill the tree SHA-256 fields from
 `verify-connected-repair-trials.py --fingerprint-tree DIR` and
 `--fingerprint-file FILE`. Freeze each selected log pack with its own
 `log_pack_sha256` before the corresponding agent trial, then commit the
@@ -40,9 +41,11 @@ Example manifest shape (paths are relative to the manifest):
     "raw_budget": 4096,
     "buggy_tree": "project-a/buggy",
     "fixed_tree": "project-a/fixed",
+    "hidden_test_tree": "project-a/hidden-tests",
     "source_records": "project-a/original-records.jsonl",
     "buggy_tree_sha256": "FROZEN_TREE_DIGEST",
     "fixed_tree_sha256": "FROZEN_TREE_DIGEST",
+    "hidden_test_tree_sha256": "FROZEN_TREE_DIGEST",
     "source_records_sha256": "FROZEN_FILE_SHA256",
     "editable_paths": ["src/service.py"],
     "test_argv": ["/path/to/venv/bin/python", "-m", "pytest", "-q", "tests/test_regression.py"],
@@ -63,7 +66,8 @@ python3 scripts/score-connected-repair-study.py \
   --manifest study.json --results verified-results.jsonl
 ```
 
-The scorer requires complete paired arms, healthy buggy/fixed controls, exact
+The scorer independently reruns the verifier before accepting the supplied
+results. It requires complete paired arms, healthy buggy/fixed controls, exact
 source bytes, matched budgets, and an independently run passing test for a
 repair. Its provisional review gate requires a one-sided exact paired-test
 result at most 0.01 against no logs and each log baseline, no baseline-only successes,

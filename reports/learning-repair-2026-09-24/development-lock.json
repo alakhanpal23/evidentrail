@@ -1,0 +1,166 @@
+{
+  "case_source": "BugsInPy pinned buggy/fixed revisions; fixed tests hidden",
+  "cases": [
+    {
+      "bug_id": 4,
+      "buggy_commit": "65ea568e3301951f26e0e3b98f6d5dc80132e917",
+      "buggy_tree_sha256": "07b501a87d445b1dc80168ad8bd2a510c4275c10942ff4daec1843bf3f8515f4",
+      "editable_paths": [
+        "black.py"
+      ],
+      "failing_log_bytes": 1539,
+      "failing_log_sha256": "31892e664e5cb415380a44ad35dd465f19562143a10f9bda35b3d76e68a9f1fe",
+      "fault_family": "development_formatter",
+      "fixed_commit": "c7495b9aa098ef7a358fc74556359d21c6a4ba11",
+      "fixed_tree_sha256": "d496ece199a8b89eb1788e25d77b6dda81c414ffd165a0a2b4f164dce3730694",
+      "hidden_test_tree_sha256": "6ea4f82ab00a66daef867b97b71d45c006137995e1d101b35c10858d8acdb8e2",
+      "id": "black-4",
+      "project": "black",
+      "raw_budget": 1024,
+      "source_records_sha256": "944a0cba05f127d4cacb3d5625f8ba8e117a71c01859fb9b1654796b7b792350",
+      "split": "development",
+      "task": "Fix the reported failure in tests.test_black.BlackTestCase.test_beginning_backslash in black.",
+      "test_argv_suffix": [
+        "-m",
+        "unittest",
+        "-q",
+        "tests.test_black.BlackTestCase.test_beginning_backslash"
+      ]
+    },
+    {
+      "bug_id": 5,
+      "buggy_commit": "1bbb01b854d168d76ebe4bf78961c2152ae075d9",
+      "buggy_tree_sha256": "c4fb3668d797dbb9f840036bf526abe98691c95900354819a1c9a8b686fd71eb",
+      "editable_paths": [
+        "black.py"
+      ],
+      "failing_log_bytes": 3196,
+      "failing_log_sha256": "494148d5fb185f7e778c50980af7cf1dfc1c5b39eac8984e1a65610eba29fa6e",
+      "fault_family": "development_formatter",
+      "fixed_commit": "9394de150ebf0adc426523f46dc08e8b2b2b0b63",
+      "fixed_tree_sha256": "4bbfb5913c75409101c3fed340a343c1629f2c4d06db671a36a1a4383d8eeb0f",
+      "hidden_test_tree_sha256": "41e07a3287c08ae97a0d1aeaacd75b0623807e4a0cf1b01c3663c1912c565b39",
+      "id": "black-5",
+      "project": "black",
+      "raw_budget": 1024,
+      "source_records_sha256": "38b1d7a5cb298512b3963d88186156155d3225a8acb4717af78a3adfe416bbd0",
+      "split": "development",
+      "task": "Fix the reported failure in tests.test_black.BlackTestCase.test_function_trailing_comma in black.",
+      "test_argv_suffix": [
+        "-m",
+        "unittest",
+        "-q",
+        "tests.test_black.BlackTestCase.test_function_trailing_comma"
+      ]
+    },
+    {
+      "bug_id": 1,
+      "buggy_commit": "2ced7a7f33ae0bec3ffc7a43ce95330bdf6cfcb9",
+      "buggy_tree_sha256": "0830c657837e37254ec0f117c8a40af219a1cb28a1e29bc5b88dfcdc845c7c16",
+      "editable_paths": [
+        "thefuck/rules/pip_unknown_command.py"
+      ],
+      "failing_log_bytes": 2509,
+      "failing_log_sha256": "544594c1458d297ba7ca252678a8ab0bb423daf731e098520b6a5bd0842df9d6",
+      "fault_family": "development_command",
+      "fixed_commit": "444908ce1c17767ef4aaf9e0b4950497914f7f63",
+      "fixed_tree_sha256": "a8983c3f67750480cb115c9e06eac4adc7a0afdd1c450272d74d3978221930b3",
+      "hidden_test_tree_sha256": "27e3f0c7e0b13bdcb5f0845e22ec14da8a848acecc5f04a5a9222263beab8dcf",
+      "id": "thefuck-1",
+      "project": "thefuck",
+      "raw_budget": 1024,
+      "source_records_sha256": "e3fd587d43fd95844b7a6f7313b47615c821f432cc8e2260bb04c0f983e41b63",
+      "split": "development",
+      "task": "Fix the reported failure in test_get_new_command in thefuck.",
+      "test_argv_suffix": [
+        "-m",
+        "pytest",
+        "tests/rules/test_pip_unknown_command.py::test_get_new_command"
+      ]
+    },
+    {
+      "bug_id": 25,
+      "buggy_commit": "42a8b4f639269886e468762e6d100b6f01aad8ab",
+      "buggy_tree_sha256": "97b8821d9a4e2be8e9d269b400db14ddcf33282c8dc699c90e946c1b153e7dcf",
+      "editable_paths": [
+        "thefuck/rules/mkdir_p.py"
+      ],
+      "failing_log_bytes": 3208,
+      "failing_log_sha256": "765c0e3426bc8d7f8933b704b7d049479c7dcaecc8f5ca8a517997975cdb0788",
+      "fault_family": "development_command",
+      "fixed_commit": "298c04f89c081dc16c8653aa017ca85dd14bfad6",
+      "fixed_tree_sha256": "76c6b1b0198851f30c4c8cf10859c43b0f4ac0bc9b2bf5b719fac0054d89edb6",
+      "hidden_test_tree_sha256": "4549a28a2a5f7972d9c368b5ec1e9e4210e513cb139c0783b424b42ff2f531c1",
+      "id": "thefuck-25",
+      "project": "thefuck",
+      "raw_budget": 1024,
+      "source_records_sha256": "c1be4c866237a8c9b2eb2d41170b2dd239972f88de9fdf1c26f4df51c586ba32",
+      "split": "development",
+      "task": "Fix the reported failure in test_get_new_command in thefuck.",
+      "test_argv_suffix": [
+        "-m",
+        "pytest",
+        "tests/rules/test_mkdir_p.py::test_get_new_command"
+      ]
+    },
+    {
+      "bug_id": 10,
+      "buggy_commit": "f538d1b3d473d542a19d508e5f7e0809b1dfe5ef",
+      "buggy_tree_sha256": "dc81ea8e8a267a0fd86812a74fc8b58f2fdf3addbda6415ae2edc17fdc156e01",
+      "editable_paths": [
+        "luigi/scheduler.py"
+      ],
+      "failing_log_bytes": 2967,
+      "failing_log_sha256": "e1f88f3640846e97564c68fc142f75ada1aea9f4be4a2ae28ec35fdf444cf536",
+      "fault_family": "development_workflow",
+      "fixed_commit": "3c55acd2cd5cf9c6c760bec5bb3159e0bc48a614",
+      "fixed_tree_sha256": "912329df1bf4e9387e96e0e050358c00906f9dea052773701271ba74dd6aeead",
+      "hidden_test_tree_sha256": "01bde968d81f2177d4cad7b1454b9899e311e6600866ac7963a96da1a644d9f7",
+      "id": "luigi-10",
+      "project": "luigi",
+      "raw_budget": 1024,
+      "source_records_sha256": "db5b212a56ab4360731df5dabc15279dab13a4121cfe2940dcab4227fcf89517",
+      "split": "development",
+      "task": "Fix the reported failure in test_get_pending_tasks_with_many_done_tasks in luigi.",
+      "test_argv_suffix": [
+        "-m",
+        "pytest",
+        "test/scheduler_test.py::SchedulerWorkerTest::test_get_pending_tasks_with_many_done_tasks"
+      ]
+    },
+    {
+      "bug_id": 12,
+      "buggy_commit": "c3119757c9ad4141fb446554109fa09cbd31173c",
+      "buggy_tree_sha256": "dbd9ad8baba4ce7db2d7e1470bb2a2ceb631c069f1dd87d17835124007779763",
+      "editable_paths": [
+        "luigi/contrib/hdfs/clients.py"
+      ],
+      "failing_log_bytes": 3731,
+      "failing_log_sha256": "68432de5be7ea3b23b7395b45e0e5ed2aeb2f8468a3bf1e97a8dcb80362b1034",
+      "fault_family": "development_workflow",
+      "fixed_commit": "b3e9ad57f8502a390686957b69070105fddcfd49",
+      "fixed_tree_sha256": "e0e3a99fe95153867e442e1f9a530a3e3b4dfd110f5a7dc0fb7c142e717c2b51",
+      "hidden_test_tree_sha256": "fbeac77d02dfb4db52820fabdbd46738624cb39b6062967415040159466b7dae",
+      "id": "luigi-12",
+      "project": "luigi",
+      "raw_budget": 1024,
+      "source_records_sha256": "2d2893c4df5cf318985479725d7661f1af410be8029073513c1a3f43ac706aa5",
+      "split": "development",
+      "task": "Fix the reported failure in test_get_autoconfig_client_cached in luigi.",
+      "test_argv_suffix": [
+        "-m",
+        "pytest",
+        "test/hdfs_client_test.py::HdfsClientTest::test_get_autoconfig_client_cached"
+      ]
+    }
+  ],
+  "challenger_route": "connected_compaction/codex-cli-0.156.1/gpt-6-luna/low/study-bridge-v1",
+  "current_route": "connected_compaction/codex-cli-0.156.1/gpt-6-sol/low/study-bridge-v1",
+  "development_exclusion": "tqdm bug 1 was used in prior development probes",
+  "label_status": "unlabeled",
+  "lock_stage": "screened_development_roster_before_record_labeling",
+  "repair_agent_model": "codex-cli-0.156.1/gpt-6-sol/low",
+  "repair_prompt_version": "source-only-repair-v1",
+  "schema_version": 1,
+  "selection_prompt_version": "codex-group-rank-v1"
+}

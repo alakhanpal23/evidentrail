@@ -1,0 +1,140 @@
+{
+  "cases": [
+    {
+      "development_case_ids": [
+        "black-4",
+        "black-5"
+      ],
+      "id": "black-10",
+      "project": "black",
+      "record_count": 283,
+      "source_id": "407d40642c0a8b5b25f18a578600f24a32b302a99e4a6b89a742554ad4556c78",
+      "source_records_sha256": "5aa90e0d1ba1d716130f98d8f796950853e4acb31246241ce9ff45376ac650c3"
+    },
+    {
+      "development_case_ids": [
+        "black-4",
+        "black-5"
+      ],
+      "id": "black-12",
+      "project": "black",
+      "record_count": 237,
+      "source_id": "407d40642c0a8b5b25f18a578600f24a32b302a99e4a6b89a742554ad4556c78",
+      "source_records_sha256": "d19d376f0c37ab2ec8f92f5d18543d8f062a097b71ed6f87f9de42f409a040b1"
+    },
+    {
+      "development_case_ids": [
+        "black-4",
+        "black-5"
+      ],
+      "id": "black-13",
+      "project": "black",
+      "record_count": 215,
+      "source_id": "407d40642c0a8b5b25f18a578600f24a32b302a99e4a6b89a742554ad4556c78",
+      "source_records_sha256": "962595ecc841ff14aef449f56e1e180174b61e9db8471463964ed2b9732cad25"
+    },
+    {
+      "development_case_ids": [
+        "black-4",
+        "black-5"
+      ],
+      "id": "black-14",
+      "project": "black",
+      "record_count": 211,
+      "source_id": "407d40642c0a8b5b25f18a578600f24a32b302a99e4a6b89a742554ad4556c78",
+      "source_records_sha256": "37b3765416efb8691072e867767a754808d8bb8488fd4f53756e51d9fa69cabc"
+    },
+    {
+      "development_case_ids": [
+        "black-4",
+        "black-5"
+      ],
+      "id": "black-15",
+      "project": "black",
+      "record_count": 610,
+      "source_id": "407d40642c0a8b5b25f18a578600f24a32b302a99e4a6b89a742554ad4556c78",
+      "source_records_sha256": "161041bd3f48c7f0701cf5412b5a33a27edbf3303f3513ec2acc60ae7332481d"
+    },
+    {
+      "development_case_ids": [
+        "black-4",
+        "black-5"
+      ],
+      "id": "black-16",
+      "project": "black",
+      "record_count": 213,
+      "source_id": "407d40642c0a8b5b25f18a578600f24a32b302a99e4a6b89a742554ad4556c78",
+      "source_records_sha256": "e6721c19a80768ad9691b62543266d9ef69a8d1e638a1565be2012c40354ec6a"
+    },
+    {
+      "development_case_ids": [
+        "thefuck-1",
+        "thefuck-25"
+      ],
+      "id": "thefuck-27",
+      "project": "thefuck",
+      "record_count": 189,
+      "source_id": "3b70d87a16c52d5cb72501e94b3fbeff3d5149c78ac780ed0472281cfab3d447",
+      "source_records_sha256": "41df5056200aa3777eaf991040dea281e670110d383e527adf6f7a7e55fae509"
+    },
+    {
+      "development_case_ids": [
+        "thefuck-1",
+        "thefuck-25"
+      ],
+      "id": "thefuck-31",
+      "project": "thefuck",
+      "record_count": 132,
+      "source_id": "3b70d87a16c52d5cb72501e94b3fbeff3d5149c78ac780ed0472281cfab3d447",
+      "source_records_sha256": "52e934082f9dffb326ada4ba3b2f64aa76758b163bdac95972ec39800652b2ac"
+    },
+    {
+      "development_case_ids": [
+        "luigi-10",
+        "luigi-12"
+      ],
+      "id": "luigi-17",
+      "project": "luigi",
+      "record_count": 173,
+      "source_id": "135ef60106f313177614c70b0ecd164104af8eaf34bb9216ce3adc2eaf4537d8",
+      "source_records_sha256": "2cbcb3ade8208fb6c1e55e1c256cad13bcf24d865d75b65730826eeac66a58bd"
+    },
+    {
+      "development_case_ids": [
+        "luigi-10",
+        "luigi-12"
+      ],
+      "id": "luigi-20",
+      "project": "luigi",
+      "record_count": 162,
+      "source_id": "135ef60106f313177614c70b0ecd164104af8eaf34bb9216ce3adc2eaf4537d8",
+      "source_records_sha256": "7b2f0c0d0e8f2cc44a5d19dbc953fb60e93de8413c4ed7d6234fc1b7a4eea6a3"
+    },
+    {
+      "development_case_ids": [
+        "luigi-10",
+        "luigi-12"
+      ],
+      "id": "luigi-22",
+      "project": "luigi",
+      "record_count": 147,
+      "source_id": "135ef60106f313177614c70b0ecd164104af8eaf34bb9216ce3adc2eaf4537d8",
+      "source_records_sha256": "14aa31a53d07961bbfee6399b5dec8e96fc3c0d78d8cc88e9f76c4ba0122ee8a"
+    },
+    {
+      "development_case_ids": [
+        "luigi-10",
+        "luigi-12"
+      ],
+      "id": "luigi-29",
+      "project": "luigi",
+      "record_count": 148,
+      "source_id": "135ef60106f313177614c70b0ecd164104af8eaf34bb9216ce3adc2eaf4537d8",
+      "source_records_sha256": "a2d202d067ab43642792328b2123546b57f2202f823f67dfbb50c7ce4bbb46d8"
+    }
+  ],
+  "cohort_lock_sha256": "fd3aa394a57acbaf2a1cb48755fa6ddcaae6c39ccfaa9dbc90e011d76b7e4837",
+  "development_lock_sha256": "5e54c00433067f843677cec989c450e5fe8e84f1033e6bf312e51e7e935f7968",
+  "history_policy": "same-project development logs then one held-out log; no other held-out logs",
+  "schema_version": 1
+}

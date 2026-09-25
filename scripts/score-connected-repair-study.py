@@ -8,6 +8,7 @@ incomplete or development-only studies instead of treating them as wins.
 """
 
 import argparse
+import importlib.util
 import json
 import math
 from pathlib import Path
@@ -88,6 +89,19 @@ def percentile_95(values):
     return ordered[math.ceil(0.95 * len(ordered)) - 1]
 
 
+def verify_receipts(manifest_path, rows):
+    spec = importlib.util.spec_from_file_location(
+        "verify_connected_repair_trials",
+        Path(__file__).with_name("verify-connected-repair-trials.py"),
+    )
+    verifier = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(verifier)
+    expected = {(row["case_id"], row["arm"]): row
+                for row in verifier.verify(manifest_path)}
+    if rows != expected:
+        raise ValueError("result rows do not match independent verifier execution")
+
+
 def score(cases, rows):
     held = [case_id for case_id, case in cases.items() if case["split"] == "held_out"]
     projects = {cases[case_id]["project"] for case_id in held}
@@ -95,17 +109,23 @@ def score(cases, rows):
     sufficiently_independent = len(held) >= 10 and len(projects) >= 3 and len(families) >= 3
     counts = {arm: sum(rows[(case_id, arm)]["repair_test_passes"] for case_id in held)
               for arm in ARMS}
-    comparisons = {}
-    for arm in ("no_logs", "first_id", "severity", "current"):
-        challenger_only = sum(rows[(case_id, "challenger")]["repair_test_passes"]
-                              and not rows[(case_id, arm)]["repair_test_passes"] for case_id in held)
-        baseline_only = sum(rows[(case_id, arm)]["repair_test_passes"]
-                            and not rows[(case_id, "challenger")]["repair_test_passes"] for case_id in held)
-        comparisons[arm] = {
-            "challenger_only": challenger_only,
+    def paired(target, baseline):
+        target_only = sum(rows[(case_id, target)]["repair_test_passes"]
+                          and not rows[(case_id, baseline)]["repair_test_passes"]
+                          for case_id in held)
+        baseline_only = sum(rows[(case_id, baseline)]["repair_test_passes"]
+                            and not rows[(case_id, target)]["repair_test_passes"]
+                            for case_id in held)
+        return {
+            "target_only": target_only,
             "baseline_only": baseline_only,
-            "one_sided_exact_p": one_sided_exact_p(challenger_only, baseline_only),
+            "one_sided_exact_p": one_sided_exact_p(target_only, baseline_only),
         }
+
+    comparisons = {arm: paired("challenger", arm)
+                   for arm in ("no_logs", "first_id", "severity", "current")}
+    current_comparisons = {arm: paired("current", arm)
+                           for arm in ("no_logs", "first_id", "severity")}
     p95 = {arm: percentile_95([rows[(case_id, arm)]["elapsed_ms"] for case_id in held])
            for arm in ARMS} if held else {}
     calls = {arm: sum(rows[(case_id, arm)]["model_calls"] for case_id in held)
@@ -117,6 +137,11 @@ def score(cases, rows):
                         for result in comparisons.values())
                 and p95["challenger"] <= 1.25 * max(1, p95["current"])
                 and calls["challenger"] <= 1.25 * max(1, calls["current"]))
+    current_evidence = (sufficiently_independent
+                        and counts["current"] > counts["no_logs"]
+                        and all(result["baseline_only"] == 0
+                                and result["one_sided_exact_p"] <= 0.01
+                                for result in current_comparisons.values()))
     return {
         "schema_version": 1,
         "held_out_cases": len(held),
@@ -124,8 +149,10 @@ def score(cases, rows):
         "held_out_fault_families": len(families),
         "verified_repair_successes": counts,
         "paired_comparisons": comparisons,
+        "current_vs_baselines": current_comparisons,
         "p95_elapsed_ms": p95,
         "model_calls": calls,
+        "current_eligible_for_human_review": current_evidence,
         "challenger_eligible_for_human_review": eligible,
         "reason": "held_out_gate_passed" if eligible else (
             "insufficient_independent_cases" if not sufficiently_independent
@@ -139,6 +166,7 @@ def main():
     parser.add_argument("--results", required=True, type=Path)
     args = parser.parse_args()
     cases, rows = read_study(args.manifest, args.results)
+    verify_receipts(args.manifest, rows)
     report = score(cases, rows)
     frozen = json.loads(args.manifest.read_text())
     report.update({field: frozen[field] for field in

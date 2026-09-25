@@ -11,7 +11,9 @@ import argparse
 import base64
 import hashlib
 import json
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -96,9 +98,20 @@ def verify_pack(path, records, budget):
     return used
 
 
-def test_passes(root, argv, timeout):
-    result = subprocess.run(argv, cwd=root, capture_output=True, timeout=timeout, check=False)
-    return result.returncode == 0
+def test_passes(root, hidden_tests, argv, timeout):
+    # The agent never receives the regression suite. Only the verifier mounts
+    # it into a disposable copy, and generated test files cannot contaminate
+    # the frozen source trees or later paired arms.
+    with tempfile.TemporaryDirectory(prefix="evidentrail-repair-verify-") as temp:
+        execution = Path(temp) / "workspace"
+        shutil.copytree(root, execution)
+        shutil.copytree(hidden_tests, execution, dirs_exist_ok=True)
+        try:
+            result = subprocess.run(argv, cwd=execution, capture_output=True,
+                                    timeout=timeout, check=False)
+        except subprocess.TimeoutExpired as error:
+            raise ValueError("verification test timed out") from error
+        return result.returncode == 0
 
 
 def verify(manifest_path):
@@ -114,11 +127,15 @@ def verify(manifest_path):
     for case in manifest["cases"]:
         buggy = resolved(base, case["buggy_tree"])
         fixed = resolved(base, case["fixed_tree"])
+        hidden = resolved(base, case["hidden_test_tree"])
         source_path = resolved(base, case["source_records"])
         if (tree_digest(buggy) != case["buggy_tree_sha256"]
                 or tree_digest(fixed) != case["fixed_tree_sha256"]
+                or tree_digest(hidden) != case["hidden_test_tree_sha256"]
                 or file_hash(source_path).hex() != case["source_records_sha256"]):
             raise ValueError("frozen case inputs changed")
+        if tree_files(hidden).keys() & (tree_files(buggy).keys() | tree_files(fixed).keys()):
+            raise ValueError("hidden test files appear in an agent-visible tree")
         source = source_records(source_path)
         command = case["test_argv"]
         editable = set(case["editable_paths"])
@@ -133,8 +150,8 @@ def verify(manifest_path):
             raise ValueError("invalid case test or budget configuration")
         if any(path not in tree_files(buggy) for path in editable):
             raise ValueError("editable file missing from buggy tree")
-        buggy_fails = not test_passes(buggy, command, timeout)
-        fixed_passes = test_passes(fixed, command, timeout)
+        buggy_fails = not test_passes(buggy, hidden, command, timeout)
+        fixed_passes = test_passes(fixed, hidden, command, timeout)
         if not buggy_fails or not fixed_passes:
             raise ValueError("buggy/fixed test control failed")
         if set(case["arms"]) != set(ARMS):
@@ -153,7 +170,7 @@ def verify(manifest_path):
             if pack_path is not None and file_hash(pack_path).hex() != trial["log_pack_sha256"]:
                 raise ValueError("frozen selected log pack changed")
             used = verify_pack(pack_path, source, budget)
-            repaired = test_passes(edited, command, timeout)
+            repaired = test_passes(edited, hidden, command, timeout)
             results.append({
                 "case_id": case["id"], "arm": arm, "raw_budget": budget,
                 "selected_raw_bytes": used, "source_exact": True,
