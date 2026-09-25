@@ -1,10 +1,15 @@
 # Evidentrail
 
-**The log retrieval layer for coding agents.** Connect a log source, describe the bug, and give the agent a small pack of **original log lines** it can inspect and expand. Evidentrail indexes accessible history without asking you to guess an incident time window, groups repeated events, and uses the task and observed service relationships to find candidates. It reports coverage and truncation instead of pretending a bounded search saw everything.
+**Give coding agents the logs that matter.** Connect a log source, describe the bug, and hand the agent a focused pack of **original log lines** it can inspect and expand. Evidentrail searches accessible history without requiring an incident time window, groups repeated events, and uses the task and observed service relationships to find candidates.
 
-An agent should not have to choose between a giant log dump that exhausts its context and a summary that erases the evidence. Evidentrail keeps the original records behind a compact, inspectable result.
+The result is small enough to fit an agent workflow, yet every returned line points back to its source. No paraphrased “evidence,” no invented log text. Coverage and truncation travel with the pack so the agent knows what it has actually seen.
 
-> **Research preview.** The connected CLI and MCP path works locally, but live-provider coverage and a repair benefit over simple baselines are not yet proven. The learning route stays in shadow. See the [measured results](#benchmarks) and [release status](#release-status).
+| Verified fixes | Log pack | Indexed search |
+| ---: | ---: | ---: |
+| **7** | **16 of 2,000 lines** | **351 ms at 1M records** |
+| Current route in a 12-bug held-out repair study; the no-logs arm also fixed 7. | One 4 KiB BGL task; exact lines, with expansion available. | One local debug-build synthetic query; excludes model and sync time. |
+
+These are [measured examples](#measured-results), not production guarantees. Evidentrail is a **research preview**: the connected CLI and MCP path works locally, while live-provider coverage and a repair advantage over simple baselines remain unproven.
 
 ## What it does
 
@@ -61,13 +66,13 @@ EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
 
 The supplied-log path has a 16 MiB input limit and does not create a continuously synced corpus. [Full CLI and onboarding details](docs/LOG_ONLY_PRODUCT_PLAN.md) · [Source adapter contract](docs/SOURCE_ADAPTER_CONTRACT.md)
 
-## Benchmarks
+## Measured results
 
-Every figure below is tied to a specific fixture and budget. **The held-out repair study did not show that Evidentrail improves coding-agent fixes.** The results are useful for steering the product, not a production accuracy claim.
+Every figure below has a specific fixture and budget. The held-out repair study did **not** show a fix-rate advantage over simple baselines. The result gives us a concrete target for improving retrieval, rather than a production accuracy claim.
 
 | Question | Measured result | Scope |
 | --- | --- | --- |
-| **Does retrieval help verified fixes?** | Current route **7/12**; no logs **7/12**; first-ID **8/12**; severity **7/12**. Shadow memory on **4/12**, memory off **5/12**. | [Frozen six-arm BugsInPy study](reports/learning-repair-2026-09-24/REPORT.md): 12 bugs, 3 projects, same 1 KiB log budget and repair-agent model. No route qualified for promotion. |
+| **Does retrieval help verified fixes?** | Current route **7 fixes**; no logs **7**; first-ID **8**; severity **7**. Shadow memory on **4**, memory off **5**. | [Frozen six-arm BugsInPy study](reports/learning-repair-2026-09-24/REPORT.md): 12 bugs, 3 projects, same 1 KiB log budget and repair-agent model. No route qualified for promotion. |
 | **How much does the index group?** | **2,000 original lines → 1,374 template groups** (31.3% fewer groups). | [Pinned real LogHub BGL sample](reports/connected-loghub-bgl-2026-09-23.md). Grouping retains original bytes; it is not a 31.3% storage-size claim. |
 | **How small can a returned pack be?** | **16 exact lines from 2,000** (99.2% fewer lines presented) under a 4 KiB cap. | One BGL task with a deterministic first-ID selector; a required alert was returned and its neighbor recovered by expansion. This is output reduction, not general relevance recall. |
 | **How fast is local indexed search?** | At **1 million records**, indexed query **351 ms**; fallback **270 ms**. | [Single debug-build synthetic scale exercise](reports/connected-scale-local-2026-09-23.md) with a deterministic selector. Excludes provider sync and model time; not a latency SLO. |
@@ -79,7 +84,7 @@ The repair study checked every buggy/fixed control and reran hidden regression t
 
 Feedback from a selected result is attached to its exact source record and task. User ratings are weak signals, so they do not silently change cross-task ranking. The source-local learner uses separately labeled development records (blind model annotations in the current study), evaluates memory-on versus memory-off on frozen repairs, and stays in shadow until the downstream benefit and cost gates pass. Route versions retain a training fingerprint and support atomic rollback; stale labels or revoked sources cause selection to fall back to the current route.
 
-Today, that gate **did not pass**: memory on fixed 4/12 bugs versus 5/12 with memory off. This is an active research area, not a shipped self-improving accuracy claim. [How the route is governed](docs/ROUTE_POLICY.md) · [Study protocol](docs/LEARNING_REPAIR_STUDY.md)
+Today, that gate **did not pass**: memory on fixed 4 bugs versus 5 with memory off in the 12-bug study. This is an active research area, not a shipped self-improving accuracy claim. [How the route is governed](docs/ROUTE_POLICY.md) · [Study protocol](docs/LEARNING_REPAIR_STUDY.md)
 
 ## Release status
 
