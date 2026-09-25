@@ -9,7 +9,7 @@ The result is small enough to fit an agent workflow, yet every returned line poi
 | **7** | **16 of 2,000 lines** | **351 ms at 1M records** |
 | Current route in a 12-bug held-out repair study; the no-logs arm also fixed 7. | One 4 KiB BGL task; exact lines, with expansion available. | One local debug-build synthetic query; excludes model and sync time. |
 
-These are [measured examples](#measured-results), not production guarantees. Evidentrail is a **research preview**: the connected CLI and MCP path works locally, while live-provider coverage and a repair advantage over simple baselines remain unproven.
+These are [measured examples](#benchmarks), not production guarantees. Evidentrail is a **research preview**: the connected CLI and MCP path works locally, while live-provider coverage and a repair advantage over simple baselines remain unproven. See the [full benchmark ledger](docs/BENCHMARKS.md) for every connected-path experiment and its limits.
 
 ## What it does
 
@@ -66,19 +66,27 @@ EVIDENTRAIL_COMPACT_LOCAL_MODEL=qwen3:14b \
 
 The supplied-log path has a 16 MiB input limit and does not create a continuously synced corpus. [Full CLI and onboarding details](docs/LOG_ONLY_PRODUCT_PLAN.md) · [Source adapter contract](docs/SOURCE_ADAPTER_CONTRACT.md)
 
-## Measured results
+## Benchmarks
 
-Every figure below has a specific fixture and budget. The held-out repair study did **not** show a fix-rate advantage over simple baselines. The result gives us a concrete target for improving retrieval, rather than a production accuracy claim.
+These are different experiments, each with its own corpus, selector, and budget. The repair studies measured real executable bugs; the retrieval and scale probes measured earlier stages of the product. **Neither held-out repair study qualified a new default route.**
 
-| Question | Measured result | Scope |
+| Experiment | Evidentrail result | Comparison and meaning |
 | --- | --- | --- |
-| **Does retrieval help verified fixes?** | Current route **7 fixes**; no logs **7**; first-ID **8**; severity **7**. Shadow memory on **4**, memory off **5**. | [Frozen six-arm BugsInPy study](reports/learning-repair-2026-09-24/REPORT.md): 12 bugs, 3 projects, same 1 KiB log budget and repair-agent model. No route qualified for promotion. |
-| **How much does the index group?** | **2,000 original lines → 1,374 template groups** (31.3% fewer groups). | [Pinned real LogHub BGL sample](reports/connected-loghub-bgl-2026-09-23.md). Grouping retains original bytes; it is not a 31.3% storage-size claim. |
-| **How small can a returned pack be?** | **16 exact lines from 2,000** (99.2% fewer lines presented) under a 4 KiB cap. | One BGL task with a deterministic first-ID selector; a required alert was returned and its neighbor recovered by expansion. This is output reduction, not general relevance recall. |
-| **How fast is local indexed search?** | At **1 million records**, indexed query **351 ms**; fallback **270 ms**. | [Single debug-build synthetic scale exercise](reports/connected-scale-local-2026-09-23.md) with a deterministic selector. Excludes provider sync and model time; not a latency SLO. |
-| **How fast was model selection in the repair study?** | Current selector-pack preparation: **4.5 s median**, **12.6 s p95**. | Twelve local study cases; includes scratch-corpus loading and model selection, excludes live provider catch-up and coding-agent edits. Computed from the [frozen pack lock](reports/learning-repair-2026-09-24/pack-lock.json). |
+| [Frozen six-arm repair study](reports/learning-repair-2026-09-24/REPORT.md) | **7 verified fixes**; current route p95 end-to-end **48.1 s** | Twelve BugsInPy bugs, 1 KiB log budget: no logs **7**, first-ID **8**, severity **7**. Shadow memory on **4**, off **5**. All 72 agent edits independently verified; no repair gain established. |
+| [Earlier five-arm repair study](reports/repair-study-2026-09-24/REPORT.md) | **7 verified fixes**; current route p95 end-to-end **76.4 s** | Eleven different held-out BugsInPy bugs, 1 KiB budget: no logs **6**, first-ID **5**, severity **4**, challenger **7**. Difference missed the paired significance gate. Different protocol; do not pool with the six-arm study. |
+| [LogHub BGL, 12 task categories](reports/connected-loghub-bgl-2026-09-23.md) | Exact target-category line in **12 of 12** message-derived tasks | Deterministic first-ID and severity selectors also hit all 12; newest-group baseline hit **1**. This is a relevance proxy, not a repair result. |
+| [RCAEval Sock Shop, seven full histories](reports/connected-rcaeval-labeled-2026-09-24.md) | **3 of 7** exact published lines; **7 of 7** matching templates with first-ID selection | Generic task over **596,494** source rows per case, 32 KiB output cap. Local Qwen2.5-Coder 7B got **1** exact line and **3** templates; selection remains difficult. |
+| [Executable fault streams](reports/connected-executable-2026-09-24.md) | Earlier precursor plus failure symptom in **3 of 3** small streams | First-ID and local model both retained all candidates; severity and recent-only retained neither precursor. Synthetic downstream edits did not show an Evidentrail-specific advantage. |
 
-The repair study checked every buggy/fixed control and reran hidden regression tests for all 72 agent-edited trials. The current route fixed the same number as no logs, while the learner fixed fewer. The [case-level report](reports/learning-repair-2026-09-24/REPORT.md) includes failures, p95 end-to-end repair latency, exact-source audit, and CLI token usage. Dollar figures there are **API list-price proxies**, not provider billing receipts; missing metered cost blocks promotion.
+| Scale and reduction | Measured result | What was actually timed or reduced |
+| --- | --- | --- |
+| [Connected encrypted corpus: **1 million logs**](reports/connected-scale-local-2026-09-23.md) | Ingest **191.8 s**; indexed query **351 ms**; fallback query **270 ms**; **3 of 3** planted clues returned exactly in both | One local debug-build run, 1 million distinct synthetic groups, 4 KiB pack, deterministic selector. Query times exclude ingestion, provider sync, and model inference. |
+| [Connected encrypted corpus: 100,000 logs](reports/connected-scale-local-2026-09-23.md) | Ingest **12.5 s**; indexed query **21 ms**; fallback **27 ms**; **3 of 3** clues | Same single-run fixture and limits as the 1-million-log case. These are observations, not p95 latency targets. |
+| [BGL grouping and output](reports/connected-loghub-bgl-2026-09-23.md) | **2,000 original lines → 1,374 template groups**; one task returned **16 exact lines** under 4 KiB | **31.3% fewer groups** and **99.2% fewer lines presented** for that task. Original bytes remain stored; neither figure is a storage-compression or general recall claim. |
+| [RCAEval parser grouping](reports/connected-rcaeval-labeled-2026-09-24.md) | **379,858 → 353,222 groups** across seven pinned histories | **7.0% fewer groups** after parser improvements, with exact original records retained; measured deterministic recall did not improve. |
+| [Repair-study pack preparation](reports/learning-repair-2026-09-24/pack-lock.json) | Current selector: **4.5 s median**, **12.6 s p95** | Twelve local cases; includes scratch-corpus loading and model selection, excludes live provider catch-up and agent editing. |
+
+The [benchmark ledger](docs/BENCHMARKS.md) also covers local-model pilots, synthetic graph/learning probes, the older million-record repository-component test, and failed experiments. It distinguishes the current connected path from the older `analyze`/`brief` research path. Source-exact output is verified in the cited retrieval studies. Model dollar costs in the repair report are **API list-price proxies**, not billing receipts; unavailable provider-metered cost blocks learning-route promotion.
 
 ## Continuous learning, with an evidence gate
 
